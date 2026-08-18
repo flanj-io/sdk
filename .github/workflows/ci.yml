@@ -1,0 +1,63 @@
+name: ci
+
+# Per-PR CI for the SDK. Fast, fixtures-only — NEVER needs the private control-plane.
+# Runs unit + the redaction golden-vector suite + the OTLP contract test (emitted record vs
+# contracts/golden-otlp-call.json). On merge to main it pings the private e2e integration gate.
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  dco:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with: { fetch-depth: 0 }
+      - name: Verify DCO sign-off on PR commits
+        if: github.event_name == 'pull_request'
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          missing=0
+          for c in $(git rev-list "$BASE_SHA..$HEAD_SHA"); do
+            if ! git log -1 --format=%B "$c" | grep -qiE '^Signed-off-by: .+ <.+@.+>'; then
+              echo "::error::commit $c is missing a Signed-off-by trailer (use git commit -s)"
+              missing=1
+            fi
+          done
+          exit $missing
+
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: '23' }
+      - run: corepack enable
+      - run: yarn install --immutable
+      - run: yarn lint
+      - run: yarn test    # unit + redaction-vector conformance + OTLP contract test
+
+  notify-e2e:
+    # Integration gate lives in the private e2e repo; tell it a new SDK landed on main.
+    needs: [dco, test]
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Dispatch integration gate
+        env:
+          TOKEN: ${{ secrets.E2E_DISPATCH_TOKEN }}   # PAT with repo scope on vinifera-io/e2e
+          HEAD_SHA: ${{ github.sha }}
+        run: |
+          if [ -z "$TOKEN" ]; then echo "E2E_DISPATCH_TOKEN not set; skipping dispatch"; exit 0; fi
+          curl -fsS -X POST \
+            -H "Authorization: Bearer $TOKEN" \
+            -H "Accept: application/vnd.github+json" \
+            https://api.github.com/repos/vinifera-io/e2e/dispatches \
+            -d "$(jq -n --arg sha "$HEAD_SHA" '{event_type:"component-updated",client_payload:{repo:"sdk",sha:$sha}}')"

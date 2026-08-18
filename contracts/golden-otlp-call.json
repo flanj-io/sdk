@@ -1,0 +1,56 @@
+{
+  "_comment": "Canonical OTLP/HTTP-JSON logs payload the SDK emits for one drifting charge call. The response body carries amount as the STRING \"1200\" where spec-v1 declares integer -> the collector's drift processor must deterministically emit a live-vs-spec type-mismatch Finding on $.response.body.amount. Card number already redacted at source. OTLP int/bool values are proto-JSON encoded (intValue as string, boolValue as bool).",
+  "resourceLogs": [
+    {
+      "resource": {
+        "attributes": [
+          { "key": "service.name", "value": { "stringValue": "acme-consumer" } },
+          { "key": "telemetry.sdk.name", "value": { "stringValue": "@vinifera/sdk" } }
+        ]
+      },
+      "scopeLogs": [
+        {
+          "scope": { "name": "@vinifera/sdk", "version": "0.0.1" },
+          "logRecords": [
+            {
+              "timeUnixNano": "1755504000000000000",
+              "observedTimeUnixNano": "1755504000042000000",
+              "severityNumber": 9,
+              "severityText": "INFO",
+              "body": { "stringValue": "" },
+              "traceId": "5b8efff798038103d269b633813fc60c",
+              "spanId": "eee19b7ec3c1b174",
+              "attributes": [
+                { "key": "vinifera.capture.version", "value": { "stringValue": "1" } },
+                { "key": "vinifera.record.type", "value": { "stringValue": "call" } },
+                { "key": "vinifera.direction", "value": { "stringValue": "client" } },
+                { "key": "vinifera.integration", "value": { "stringValue": "acme-payments" } },
+                { "key": "vinifera.http.method", "value": { "stringValue": "POST" } },
+                { "key": "vinifera.http.route", "value": { "stringValue": "/v1/charges" } },
+                { "key": "vinifera.http.target", "value": { "stringValue": "/v1/charges" } },
+                { "key": "vinifera.http.url.full", "value": { "stringValue": "https://api.acme.test/v1/charges" } },
+                { "key": "vinifera.http.status_code", "value": { "intValue": "200" } },
+                { "key": "vinifera.http.request.content_type", "value": { "stringValue": "application/json" } },
+                { "key": "vinifera.http.request.body", "value": { "stringValue": "{\"amount\":1200,\"currency\":\"usd\",\"source\":\"⟦REDACTED:PAN⟧\"}" } },
+                { "key": "vinifera.http.request.body.truncated", "value": { "boolValue": false } },
+                { "key": "vinifera.http.request.headers", "value": { "stringValue": "{\"content-type\":\"application/json\",\"idempotency-key\":\"idem_9f2c1a\"}" } },
+                { "key": "vinifera.http.response.content_type", "value": { "stringValue": "application/json" } },
+                { "key": "vinifera.http.response.body", "value": { "stringValue": "{\"id\":\"ch_1Mox\",\"object\":\"charge\",\"amount\":\"1200\",\"currency\":\"usd\",\"status\":\"succeeded\",\"created\":1755504000,\"card\":{\"last4\":\"1111\",\"brand\":\"visa\"}}" } },
+                { "key": "vinifera.http.response.body.truncated", "value": { "boolValue": false } },
+                { "key": "vinifera.http.response.headers", "value": { "stringValue": "{\"content-type\":\"application/json\",\"x-request-id\":\"req_0Vy9aX2bK\"}" } },
+                { "key": "vinifera.corr.request_id", "value": { "stringValue": "req_0Vy9aX2bK" } },
+                { "key": "vinifera.corr.idempotency_key", "value": { "stringValue": "idem_9f2c1a" } },
+                { "key": "vinifera.corr.trace_id", "value": { "stringValue": "5b8efff798038103d269b633813fc60c" } },
+                { "key": "vinifera.corr.span_id", "value": { "stringValue": "eee19b7ec3c1b174" } },
+                { "key": "vinifera.http.duration_ms", "value": { "intValue": "42" } },
+                { "key": "vinifera.redaction.applied", "value": { "boolValue": true } },
+                { "key": "vinifera.redaction.patterns", "value": { "stringValue": "[\"PAN\"]" } },
+                { "key": "vinifera.redaction.spec_aware", "value": { "boolValue": false } }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

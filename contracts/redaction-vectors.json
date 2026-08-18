@@ -1,0 +1,139 @@
+{
+  "manifest_version": "1",
+  "token_format": "⟦REDACTED:<TYPE>⟧",
+  "notes": [
+    "The single source of truth for the redaction floor. Three impls conform to this file:",
+    "@vinifera/redaction-patterns (TS, used by SDK + CP-DLP) and the Go collector redaction processor.",
+    "PAN matches 13-19 digit runs (separators stripped) that PASS Luhn, anywhere in the string.",
+    "CVV is contextual: only redacted when it is the value of a cvv/cvc/cvv2 key.",
+    "Every impl must satisfy: idempotency (redact(redact(x))==redact(x)) and add-only (never un-redact)."
+  ],
+  "cases": [
+    {
+      "id": "pan-visa-spaced",
+      "description": "Luhn-valid Visa PAN with spaces, in free text",
+      "input": "card 4111 1111 1111 1111 on file",
+      "expected": "card ⟦REDACTED:PAN⟧ on file",
+      "patterns": ["PAN"]
+    },
+    {
+      "id": "pan-visa-json",
+      "description": "Luhn-valid PAN as a JSON string value",
+      "input": "{\"source\":\"4242424242424242\"}",
+      "expected": "{\"source\":\"⟦REDACTED:PAN⟧\"}",
+      "patterns": ["PAN"]
+    },
+    {
+      "id": "pan-mastercard-dashed",
+      "description": "Luhn-valid Mastercard PAN with dashes",
+      "input": "5555-5555-5555-4444",
+      "expected": "⟦REDACTED:PAN⟧",
+      "patterns": ["PAN"]
+    },
+    {
+      "id": "pan-amex-15",
+      "description": "Luhn-valid 15-digit Amex PAN",
+      "input": "378282246310005",
+      "expected": "⟦REDACTED:PAN⟧",
+      "patterns": ["PAN"]
+    },
+    {
+      "id": "pan-negative-non-luhn",
+      "description": "16-digit number that FAILS Luhn is not a PAN (e.g. an order id)",
+      "input": "order 1111111111111111 shipped",
+      "expected": "order 1111111111111111 shipped",
+      "patterns": []
+    },
+    {
+      "id": "pan-negative-last4",
+      "description": "A 4-digit last4 must never be redacted",
+      "input": "{\"last4\":\"1111\"}",
+      "expected": "{\"last4\":\"1111\"}",
+      "patterns": []
+    },
+    {
+      "id": "amount-negative",
+      "description": "A short numeric amount is not sensitive",
+      "input": "{\"amount\":1200}",
+      "expected": "{\"amount\":1200}",
+      "patterns": []
+    },
+    {
+      "id": "email-basic",
+      "description": "Email address in free text",
+      "input": "contact jane.doe@example.com for details",
+      "expected": "contact ⟦REDACTED:EMAIL⟧ for details",
+      "patterns": ["EMAIL"]
+    },
+    {
+      "id": "iban-de",
+      "description": "German IBAN",
+      "input": "IBAN DE89370400440532013000",
+      "expected": "IBAN ⟦REDACTED:IBAN⟧",
+      "patterns": ["IBAN"]
+    },
+    {
+      "id": "ssn-us",
+      "description": "US SSN",
+      "input": "ssn 123-45-6789",
+      "expected": "ssn ⟦REDACTED:SSN⟧",
+      "patterns": ["SSN"]
+    },
+    {
+      "id": "phone-e164",
+      "description": "E.164 phone number",
+      "input": "call +14155552671 now",
+      "expected": "call ⟦REDACTED:PHONE⟧ now",
+      "patterns": ["PHONE"]
+    },
+    {
+      "id": "cvv-contextual",
+      "description": "CVV only redacted in a cvv/cvc key context",
+      "input": "{\"cvv\":\"123\"}",
+      "expected": "{\"cvv\":\"⟦REDACTED:CVV⟧\"}",
+      "patterns": ["CVV"]
+    },
+    {
+      "id": "cvv-negative-standalone",
+      "description": "A standalone 3-digit number is not a CVV outside a cvv key",
+      "input": "{\"retries\":123}",
+      "expected": "{\"retries\":123}",
+      "patterns": []
+    },
+    {
+      "id": "token-bearer",
+      "description": "Bearer secret key",
+      "input": "authorization: Bearer sk_live_abcdEF1234567890XyZ",
+      "expected": "authorization: Bearer ⟦REDACTED:TOKEN⟧",
+      "patterns": ["TOKEN"]
+    },
+    {
+      "id": "token-secret-key",
+      "description": "Stripe-style secret key inline",
+      "input": "{\"key\":\"sk_live_51HabcDEfGhIjkLmNoPqRsTuV\"}",
+      "expected": "{\"key\":\"⟦REDACTED:TOKEN⟧\"}",
+      "patterns": ["TOKEN"]
+    },
+    {
+      "id": "combined-multi",
+      "description": "Multiple PII types in one JSON body",
+      "input": "{\"pan\":\"4111111111111111\",\"email\":\"a@b.com\",\"cvv\":\"999\"}",
+      "expected": "{\"pan\":\"⟦REDACTED:PAN⟧\",\"email\":\"⟦REDACTED:EMAIL⟧\",\"cvv\":\"⟦REDACTED:CVV⟧\"}",
+      "patterns": ["PAN", "EMAIL", "CVV"]
+    },
+    {
+      "id": "idempotent-pan",
+      "description": "Re-redacting an already-redacted string is a no-op (token is inert)",
+      "input": "{\"source\":\"⟦REDACTED:PAN⟧\"}",
+      "expected": "{\"source\":\"⟦REDACTED:PAN⟧\"}",
+      "patterns": []
+    },
+    {
+      "id": "no-pii",
+      "description": "Plain text with no sensitive values is unchanged",
+      "input": "the charge succeeded in 42ms",
+      "expected": "the charge succeeded in 42ms",
+      "patterns": []
+    }
+  ]
+}
