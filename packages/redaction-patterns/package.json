@@ -1,0 +1,28 @@
+{
+  "name": "@vinifera/redaction-patterns",
+  "version": "0.0.1",
+  "description": "The Vinifera redaction floor: pattern-based PAN/PII/secret redaction at source. Governed by the cross-repo redaction-vectors contract.",
+  "license": "Apache-2.0",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "keywords": [
+    "redaction",
+    "pii",
+    "pan",
+    "luhn",
+    "opentelemetry",
+    "vinifera"
+  ],
+  "publishConfig": {
+    "access": "public"
+  }
+}

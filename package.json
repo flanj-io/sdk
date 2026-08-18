@@ -1,0 +1,39 @@
+{
+  "name": "@vinifera/sdk",
+  "version": "0.0.1",
+  "description": "Thin OpenTelemetry-JS distribution: HTTP request/response body capture with redaction-at-source, exporting the vinifera.* OTLP convention to a Vinifera collector.",
+  "license": "Apache-2.0",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "packageManager": "yarn@4.11.0",
+  "workspaces": [
+    "packages/*"
+  ],
+  "scripts": {
+    "build": "tsc -b",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "lint": "eslint .",
+    "clean": "rm -rf dist packages/*/dist *.tsbuildinfo packages/*/*.tsbuildinfo"
+  },
+  "dependencies": {
+    "@opentelemetry/api": "^1.9.0",
+    "@opentelemetry/api-logs": "^0.221.0",
+    "@opentelemetry/exporter-logs-otlp-http": "^0.221.0",
+    "@opentelemetry/instrumentation": "^0.221.0",
+    "@opentelemetry/instrumentation-http": "^0.221.0",
+    "@opentelemetry/resources": "^2.0.0",
+    "@opentelemetry/sdk-logs": "^0.221.0",
+    "@opentelemetry/sdk-node": "^0.221.0",
+    "@vinifera/redaction-patterns": "workspace:*"
+  },
+  "devDependencies": {
+    "@opentelemetry/context-async-hooks": "^2.0.0",
+    "@types/node": "^22.10.0",
+    "@typescript-eslint/eslint-plugin": "^8.20.0",
+    "@typescript-eslint/parser": "^8.20.0",
+    "eslint": "^9.18.0",
+    "typescript": "^5.7.0",
+    "vitest": "^3.0.0"
+  }
+}

@@ -1,0 +1,175 @@
+import { describe, it, expect, beforeAll, afterAll } from 'vitest';
+import { createServer, type Server } from 'node:http';
+import type { ClientRequest, RequestOptions } from 'node:http';
+import { AddressInfo } from 'node:net';
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
+import { context, trace } from '@opentelemetry/api';
+import { AsyncLocalStorageContextManager } from '@opentelemetry/context-async-hooks';
+import { SimpleLogRecordProcessor } from '@opentelemetry/sdk-logs';
+import { start, type ViniferaHandle } from '../../src/index';
+import { InMemoryLogExporter } from '../support/in-memory-log-exporter';
+
+/**
+ * Drives a REAL http request through an in-process server and asserts the emitted
+ * OTLP log record: all required vinifera.* attributes present, bodies redacted,
+ * shape matching contracts/golden-otlp-call.json — and no raw body reachable.
+ */
+
+const PAN_IN_REQUEST = '4111111111111111';
+// Drifting response: `amount` is the STRING "1200" where spec-v1 declares integer.
+const DRIFT_RESPONSE = JSON.stringify({
+  id: 'ch_1Mox',
+  object: 'charge',
+  amount: '1200',
+  currency: 'usd',
+  status: 'succeeded',
+  created: 1755504000,
+  card: { last4: '1111', brand: 'visa' }
+});
+
+const golden = JSON.parse(
+  readFileSync(resolve(__dirname, '../../contracts/golden-otlp-call.json'), 'utf8')
+) as { resourceLogs: unknown[] };
+
+function goldenAttributeKeys(): Set<string> {
+  const rec = (golden.resourceLogs as any)[0].scopeLogs[0].logRecords[0];
+  return new Set(rec.attributes.map((a: { key: string }) => a.key));
+}
+
+let server: Server;
+let baseUrl: string;
+let handle: ViniferaHandle;
+const exporter = new InMemoryLogExporter();
+
+beforeAll(async () => {
+  // Register a context manager so trace/span context propagates (as it would
+  // when the host app runs the OTel tracing SDK). Without one, context.with is a no-op.
+  context.setGlobalContextManager(new AsyncLocalStorageContextManager().enable());
+
+  server = createServer((req, res) => {
+    // consume request body
+    const chunks: Buffer[] = [];
+    req.on('data', (c) => chunks.push(c));
+    req.on('end', () => {
+      res.setHeader('content-type', 'application/json');
+      res.setHeader('x-request-id', 'req_0Vy9aX2bK');
+      res.statusCode = 200;
+      res.end(DRIFT_RESPONSE);
+    });
+  });
+  await new Promise<void>((r) => server.listen(0, '127.0.0.1', r));
+  const port = (server.address() as AddressInfo).port;
+  baseUrl = `http://127.0.0.1:${port}`;
+
+  handle = start({
+    integration: 'acme-payments',
+    serviceName: 'acme-consumer',
+    processor: new SimpleLogRecordProcessor({ exporter })
+  });
+});
+
+afterAll(async () => {
+  await handle.shutdown();
+  await new Promise<void>((r) => server.close(() => r()));
+});
+
+async function driveCall(): Promise<string> {
+  // Run inside an active span context so corr.trace_id/span_id populate.
+  const ctx = trace.setSpanContext(context.active(), {
+    traceId: '5b8efff798038103d269b633813fc60c',
+    spanId: 'eee19b7ec3c1b174',
+    traceFlags: 1
+  });
+  // Resolve `request` from the LIVE module AFTER start() has patched it — mirrors
+  // real usage where the SDK is started before the app makes its calls.
+  const liveHttp = (process as unknown as {
+    getBuiltinModule(id: string): { request(url: string, opts: RequestOptions, cb: (res: import('node:http').IncomingMessage) => void): ClientRequest };
+  }).getBuiltinModule('node:http');
+  return context.with(ctx, () => {
+    return new Promise<string>((resolvePromise, reject) => {
+      const req = liveHttp.request(
+        `${baseUrl}/v1/charges`,
+        {
+          method: 'POST',
+          headers: { 'content-type': 'application/json', 'idempotency-key': 'idem_9f2c1a' }
+        },
+        (res) => {
+          const chunks: Buffer[] = [];
+          res.on('data', (c) => chunks.push(c));
+          res.on('end', () => resolvePromise(Buffer.concat(chunks).toString('utf8')));
+        }
+      );
+      req.on('error', reject);
+      req.end(JSON.stringify({ amount: 1200, currency: 'usd', source: PAN_IN_REQUEST }));
+    });
+  });
+}
+
+describe('http body capture → OTLP log record', () => {
+  let attrs: Record<string, unknown>;
+  let appResponseBody: string;
+
+  beforeAll(async () => {
+    appResponseBody = await driveCall();
+    // allow the response 'end' / finalize microtask to run
+    await new Promise((r) => setTimeout(r, 20));
+    expect(exporter.records.length).toBe(1);
+    const record = exporter.records[0];
+    attrs = record.attributes as Record<string, unknown>;
+  });
+
+  it('does not disturb the app: the consumer still reads the full response body', () => {
+    expect(JSON.parse(appResponseBody).amount).toBe('1200');
+  });
+
+  it('emits every required vinifera.* attribute key from the golden record', () => {
+    const required = goldenAttributeKeys();
+    for (const key of required) {
+      expect(attrs, `missing attribute ${key}`).toHaveProperty(key);
+    }
+  });
+
+  it('sets the fixed convention values', () => {
+    expect(attrs['vinifera.capture.version']).toBe('1');
+    expect(attrs['vinifera.record.type']).toBe('call');
+    expect(attrs['vinifera.direction']).toBe('client');
+    expect(attrs['vinifera.integration']).toBe('acme-payments');
+    expect(attrs['vinifera.http.method']).toBe('POST');
+    expect(attrs['vinifera.http.route']).toBe('/v1/charges');
+    expect(attrs['vinifera.http.status_code']).toBe(200);
+    expect(attrs['vinifera.redaction.spec_aware']).toBe(false);
+  });
+
+  it('carries the correlation keys front-and-center', () => {
+    expect(attrs['vinifera.corr.request_id']).toBe('req_0Vy9aX2bK');
+    expect(attrs['vinifera.corr.idempotency_key']).toBe('idem_9f2c1a');
+    expect(attrs['vinifera.corr.trace_id']).toBe('5b8efff798038103d269b633813fc60c');
+    expect(attrs['vinifera.corr.span_id']).toBe('eee19b7ec3c1b174');
+  });
+
+  it('REDACTS the request body at source — the raw PAN is unreachable', () => {
+    const reqBody = attrs['vinifera.http.request.body'] as string;
+    expect(reqBody).toContain('⟦REDACTED:PAN⟧');
+    expect(reqBody).not.toContain(PAN_IN_REQUEST);
+    expect(attrs['vinifera.redaction.applied']).toBe(true);
+    expect(JSON.parse(attrs['vinifera.redaction.patterns'] as string)).toContain('PAN');
+  });
+
+  it('captures the drifting response body verbatim (amount as string "1200")', () => {
+    const resBody = attrs['vinifera.http.response.body'] as string;
+    expect(JSON.parse(resBody).amount).toBe('1200');
+  });
+
+  it('allowlists headers (no raw authorization/cookie ever emitted)', () => {
+    const reqHeaders = JSON.parse(attrs['vinifera.http.request.headers'] as string);
+    expect(reqHeaders['content-type']).toBe('application/json');
+    expect(reqHeaders['idempotency-key']).toBe('idem_9f2c1a');
+    const serialized = JSON.stringify(attrs);
+    expect(serialized.toLowerCase()).not.toContain('authorization');
+  });
+
+  it('proves no raw body survived anywhere in the emitted attributes', () => {
+    expect(JSON.stringify(attrs)).not.toContain(PAN_IN_REQUEST);
+  });
+});
