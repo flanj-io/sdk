@@ -19,6 +19,11 @@ export interface StartOptions {
   simpleProcessor?: boolean;
   /** Provide a custom processor (e.g. an in-memory exporter) — overrides the OTLP exporter. */
   processor?: LogRecordProcessor;
+  /**
+   * Extra full-URL ignore matchers (never captured). The SDK always ignores its
+   * own OTLP endpoint host; add more here (e.g. health-check or metrics hosts).
+   */
+  ignoreUrls?: readonly (string | RegExp)[];
 }
 
 export interface ViniferaHandle {
@@ -55,9 +60,14 @@ export function start(options: StartOptions = {}): ViniferaHandle {
 
   const logger = loggerProvider.getLogger(SDK_NAME, SDK_VERSION);
 
+  // Never capture our own export POSTs: ignore the OTLP endpoint's host[:port].
+  const exporterHost = safeUrlHost(endpoint);
+  const ignoreUrls = [...(exporterHost ? [exporterHost] : []), ...(options.ignoreUrls ?? [])];
+
   const instrumentation = new HttpBodyCaptureInstrumentation({
     integration,
     bodyCapBytes,
+    ignoreUrls,
     onCapture: (call) => emitCall(logger, call)
   });
 
@@ -76,6 +86,15 @@ function envInt(key: string): number | undefined {
   if (!raw) return undefined;
   const n = Number.parseInt(raw, 10);
   return Number.isFinite(n) ? n : undefined;
+}
+
+/** `host[:port]` of a URL, or undefined if unparseable. */
+function safeUrlHost(url: string): string | undefined {
+  try {
+    return new URL(url).host;
+  } catch {
+    return undefined;
+  }
 }
 
 export { HttpBodyCaptureInstrumentation } from './instrumentation/http-body-capture';

@@ -10,7 +10,8 @@ import {
   DEFAULT_BODY_CAP_BYTES,
   DEFAULT_CAPTURE_CONTENT_TYPES,
   HttpBodyCaptureConfig,
-  isCaptureableContentType
+  isCaptureableContentType,
+  isIgnoredUrl
 } from './config';
 
 const REPORT_ORDER: readonly PatternId[] = ['PAN', 'EMAIL', 'IBAN', 'SSN', 'PHONE', 'CVV', 'TOKEN', 'IP'];
@@ -89,6 +90,11 @@ export class HttpBodyCaptureInstrumentation extends InstrumentationBase<HttpBody
     const cfg = this.getConfig();
     const cap = cfg.bodyCapBytes ?? DEFAULT_BODY_CAP_BYTES;
     const info = parseRequestArgs(args, protocol);
+
+    // Never capture the SDK's own OTLP export POSTs (or other ignored destinations):
+    // capturing them would feed the collector, which the SDK would re-capture, ad infinitum.
+    if (isIgnoredUrl(`${info.protocol}//${info.host}${info.path}`, cfg.ignoreUrls)) return;
+
     const startTime = Date.now();
 
     const spanCtx = trace.getSpanContext(context.active());

@@ -23,8 +23,22 @@ export interface HttpBodyCaptureConfig extends InstrumentationConfig {
   captureContentTypes?: readonly string[];
   /** Header allowlist. Default from `@vinifera/redaction-patterns`. */
   headerAllowlist?: readonly string[];
+  /**
+   * Full-URL ignore matchers. A request whose `${protocol}//${host}${path}`
+   * matches is NOT captured. Strings match by substring; RegExps by `.test()`.
+   * `start()` seeds this with the collector's own OTLP endpoint host so the SDK
+   * never captures its own export POSTs (which would create an unbounded
+   * capture→export→capture feedback loop against a co-located collector).
+   */
+  ignoreUrls?: readonly (string | RegExp)[];
   /** Sink for each completed, redacted call. Wired to the OTLP logger by start(). */
   onCapture?: (call: CapturedCall) => void;
+}
+
+/** True when `fullUrl` matches any ignore matcher (substring for strings, test for RegExps). */
+export function isIgnoredUrl(fullUrl: string, matchers: readonly (string | RegExp)[] | undefined): boolean {
+  if (!matchers || matchers.length === 0) return false;
+  return matchers.some((m) => (typeof m === 'string' ? fullUrl.includes(m) : m.test(fullUrl)));
 }
 
 /** True when a content-type header value is eligible for body capture. */
