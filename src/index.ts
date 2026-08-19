@@ -61,8 +61,13 @@ export function start(options: StartOptions = {}): ViniferaHandle {
   const logger = loggerProvider.getLogger(SDK_NAME, SDK_VERSION);
 
   // Never capture our own export POSTs: ignore the OTLP endpoint's host[:port].
+  // Additional ignores may come from VINIFERA_IGNORE_URLS (comma-separated substrings/paths).
   const exporterHost = safeUrlHost(endpoint);
-  const ignoreUrls = [...(exporterHost ? [exporterHost] : []), ...(options.ignoreUrls ?? [])];
+  const envIgnore = (process.env.VINIFERA_IGNORE_URLS ?? '')
+    .split(',')
+    .map((s) => s.trim())
+    .filter(Boolean);
+  const ignoreUrls = [...(exporterHost ? [exporterHost] : []), ...envIgnore, ...(options.ignoreUrls ?? [])];
 
   const instrumentation = new HttpBodyCaptureInstrumentation({
     integration,
