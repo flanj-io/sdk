@@ -67,12 +67,19 @@ describe('ignoreUrls — no self-capture of the OTLP exporter host', () => {
     await post(`${providerBase}/v1/charges`); // a real provider call → must be captured
     await new Promise((r) => setTimeout(r, 20));
 
-    // Exactly one record: the provider call. The self-export POST was ignored
-    // (otherwise this would be ≥2 and a co-located collector would loop forever).
-    expect(exporter.records.length).toBe(1);
-    const url = exporter.records[0].attributes['vinifera.http.url.full'] as string;
+    // Exactly one CLIENT (egress) record: the provider call. The self-export POST
+    // was ignored (otherwise a co-located collector would loop forever). The
+    // provider server also yields one ingress record — hence filter by direction.
+    const clientRecords = exporter.records.filter((r) => r.attributes['vinifera.direction'] === 'client');
+    expect(clientRecords.length).toBe(1);
+    const url = clientRecords[0].attributes['vinifera.http.url.full'] as string;
     // The IP host is redacted (optional IP tier), but the port survives — match on it.
     expect(url).toContain(`:${(provider.address() as AddressInfo).port}/v1/charges`);
-    expect(url).not.toContain(`:${(collector.address() as AddressInfo).port}/`);
+    // No record of ANY direction references the exporter host — self-export is
+    // ignored on egress AND ingress (the collector server's inbound POST too).
+    const collectorPort = (collector.address() as AddressInfo).port;
+    for (const rec of exporter.records) {
+      expect(rec.attributes['vinifera.http.url.full']).not.toContain(`:${collectorPort}/`);
+    }
   });
 });

@@ -9,6 +9,12 @@ import type { PatternId } from '@vinifera/redaction-patterns';
 export interface CapturedCall {
   integration: string;
   direction: 'client' | 'server';
+  /** The OTHER end's host[:port] — egress: destination; ingress: caller/source. The edge key. */
+  peerHost: string;
+  /** SDK classification of {@link peerHost}. */
+  edgeClass: 'external' | 'internal';
+  /** `true` when bodies are present (external edge); `false` when metadata-only (internal). */
+  captureBodies: boolean;
   method: string;
   route: string;
   target: string;

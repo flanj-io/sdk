@@ -25,6 +25,9 @@ for (const a of goldenRecord.attributes) {
 const call: CapturedCall = {
   integration: 'acme-payments',
   direction: 'client',
+  peerHost: 'api.acme.test',
+  edgeClass: 'external',
+  captureBodies: true,
   method: 'POST',
   route: '/v1/charges',
   target: '/v1/charges',

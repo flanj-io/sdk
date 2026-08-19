@@ -38,7 +38,6 @@ function goldenAttributeKeys(): Set<string> {
 }
 
 let server: Server;
-let baseUrl: string;
 let handle: ViniferaHandle;
 const exporter = new InMemoryLogExporter();
 
@@ -59,8 +58,6 @@ beforeAll(async () => {
     });
   });
   await new Promise<void>((r) => server.listen(0, '127.0.0.1', r));
-  const port = (server.address() as AddressInfo).port;
-  baseUrl = `http://127.0.0.1:${port}`;
 
   handle = start({
     integration: 'acme-payments',
@@ -86,13 +83,23 @@ async function driveCall(): Promise<string> {
   const liveHttp = (process as unknown as {
     getBuiltinModule(id: string): { request(url: string, opts: RequestOptions, cb: (res: import('node:http').IncomingMessage) => void): ClientRequest };
   }).getBuiltinModule('node:http');
+  // Target an EXTERNAL hostname (so the edge classifies external and bodies are
+  // captured) that resolves to the in-process loopback server via a custom lookup.
+  const port = (server.address() as AddressInfo).port;
+  // Node calls the connect lookup with `{ all: true }`, expecting an array of
+  // { address, family }; otherwise a bare (address, family). Handle both.
+  const lookup = ((_hostname: string, opts: { all?: boolean }, cb: (err: null, ...rest: unknown[]) => void): void => {
+    if (opts && opts.all) cb(null, [{ address: '127.0.0.1', family: 4 }]);
+    else cb(null, '127.0.0.1', 4);
+  }) as unknown as RequestOptions['lookup'];
   return context.with(ctx, () => {
     return new Promise<string>((resolvePromise, reject) => {
       const req = liveHttp.request(
-        `${baseUrl}/v1/charges`,
+        `http://api.acme.test:${port}/v1/charges`,
         {
           method: 'POST',
-          headers: { 'content-type': 'application/json', 'idempotency-key': 'idem_9f2c1a' }
+          headers: { 'content-type': 'application/json', 'idempotency-key': 'idem_9f2c1a' },
+          lookup
         },
         (res) => {
           const chunks: Buffer[] = [];
@@ -114,8 +121,10 @@ describe('http body capture → OTLP log record', () => {
     appResponseBody = await driveCall();
     // allow the response 'end' / finalize microtask to run
     await new Promise((r) => setTimeout(r, 20));
-    expect(exporter.records.length).toBe(1);
-    const record = exporter.records[0];
+    // The in-process server also yields an ingress record now — select the egress one.
+    const clientRecords = exporter.records.filter((r) => r.attributes['vinifera.direction'] === 'client');
+    expect(clientRecords.length).toBe(1);
+    const record = clientRecords[0];
     attrs = record.attributes as Record<string, unknown>;
   });
 

@@ -1,20 +1,13 @@
 import type { ClientRequest, IncomingMessage } from 'node:http';
 import { InstrumentationBase, type InstrumentationModuleDefinition } from '@opentelemetry/instrumentation';
 import { context, trace } from '@opentelemetry/api';
-import { redactDetailed, redactHeaders, DEFAULT_HEADER_ALLOWLIST, type PatternId } from '@vinifera/redaction-patterns';
 import { SDK_NAME, SDK_VERSION } from '../version';
 import { CappedBuffer } from './capped-buffer';
 import { parseRequestArgs } from './http-args';
 import { CapturedCall } from './captured-call';
-import {
-  DEFAULT_BODY_CAP_BYTES,
-  DEFAULT_CAPTURE_CONTENT_TYPES,
-  HttpBodyCaptureConfig,
-  isCaptureableContentType,
-  isIgnoredUrl
-} from './config';
-
-const REPORT_ORDER: readonly PatternId[] = ['PAN', 'EMAIL', 'IBAN', 'SSN', 'PHONE', 'CVV', 'TOKEN', 'IP'];
+import { assembleCapturedCall } from './assemble-call';
+import { classifyHost, type EdgeClass } from './classify-host';
+import { DEFAULT_BODY_CAP_BYTES, HttpBodyCaptureConfig, isIgnoredUrl } from './config';
 
 /**
  * Return the LIVE, mutable exports of a core module. `import * as http` under an
@@ -31,6 +24,10 @@ function builtin(id: 'node:http' | 'node:https'): Record<string, unknown> {
  * Custom OTel instrumentation that tees the request + response bodies of
  * outgoing http/https CLIENT calls, redacts the (capped) buffer AT SOURCE, drops
  * the raw buffer, and hands a fully-redacted {@link CapturedCall} to `onCapture`.
+ *
+ * The destination host is classified (external | internal): **external** edges
+ * get full body capture (as today); **internal** edges are metadata-only — their
+ * bodies are NEVER teed, so no raw internal body can exist to leak.
  *
  * The tee is transparent: request bodies are observed by wrapping `write`/`end`;
  * response bodies by wrapping the IncomingMessage's internal `push`, so a
@@ -95,13 +92,19 @@ export class HttpBodyCaptureInstrumentation extends InstrumentationBase<HttpBody
     // capturing them would feed the collector, which the SDK would re-capture, ad infinitum.
     if (isIgnoredUrl(`${info.protocol}//${info.host}${info.path}`, cfg.ignoreUrls)) return;
 
-    const startTime = Date.now();
+    // Classify the DESTINATION. Internal edges are metadata-only: we never tee a
+    // body, so no raw internal body can be captured (the redaction floor invariant).
+    const edgeClass = classifyHost(info.host);
+    const captureBodies = edgeClass === 'external';
 
+    const startTime = Date.now();
     const spanCtx = trace.getSpanContext(context.active());
 
     const reqBuf = new CappedBuffer(cap);
-    this.wrapWriter(req, 'write', reqBuf);
-    this.wrapWriter(req, 'end', reqBuf);
+    if (captureBodies) {
+      this.wrapWriter(req, 'write', reqBuf);
+      this.wrapWriter(req, 'end', reqBuf);
+    }
 
     req.on('response', (res: IncomingMessage) => {
       const resBuf = new CappedBuffer(cap);
@@ -111,22 +114,24 @@ export class HttpBodyCaptureInstrumentation extends InstrumentationBase<HttpBody
         if (finalized) return;
         finalized = true;
         try {
-          const call = this.buildCall({ req, res, info, reqBuf, resBuf, startTime, spanCtx, cap });
+          const call = this.buildCall({ req, res, info, reqBuf, resBuf, startTime, spanCtx, edgeClass, captureBodies });
           cfg.onCapture?.(call);
         } catch {
           // swallow — never surface capture errors to the app
         }
       };
 
-      const originalPush = res.push.bind(res);
-      (res as unknown as { push: IncomingMessage['push'] }).push = (chunk: unknown, encoding?: BufferEncoding) => {
-        if (chunk === null || chunk === undefined) {
-          finalize();
-        } else {
-          reqBufSafeAppend(resBuf, chunk, encoding);
-        }
-        return originalPush(chunk as never, encoding as never);
-      };
+      if (captureBodies) {
+        const originalPush = res.push.bind(res);
+        (res as unknown as { push: IncomingMessage['push'] }).push = (chunk: unknown, encoding?: BufferEncoding) => {
+          if (chunk === null || chunk === undefined) {
+            finalize();
+          } else {
+            safeAppend(resBuf, chunk, encoding);
+          }
+          return originalPush(chunk as never, encoding as never);
+        };
+      }
       res.on('end', finalize);
     });
   }
@@ -149,72 +154,52 @@ export class HttpBodyCaptureInstrumentation extends InstrumentationBase<HttpBody
     resBuf: CappedBuffer;
     startTime: number;
     spanCtx: ReturnType<typeof trace.getSpanContext>;
-    cap: number;
+    edgeClass: EdgeClass;
+    captureBodies: boolean;
   }): CapturedCall {
     const cfg = this.getConfig();
-    const allowlist = cfg.headerAllowlist ?? DEFAULT_HEADER_ALLOWLIST;
-    const contentTypes = cfg.captureContentTypes ?? DEFAULT_CAPTURE_CONTENT_TYPES;
-    const { req, res, info, reqBuf, resBuf, startTime } = input;
+    const { req, res, info, reqBuf, resBuf, startTime, edgeClass, captureBodies } = input;
 
     const reqContentType = headerValue(req.getHeader('content-type'));
     const resContentType = typeof res.headers['content-type'] === 'string' ? res.headers['content-type'] : undefined;
 
-    const firedPatterns = new Set<PatternId>();
-
-    // Redact bodies AT SOURCE. If the content-type is not captureable, we keep
-    // NO body at all (the raw bytes are never emitted). The capped raw buffers
-    // go out of scope immediately after this function returns.
-    const reqRedaction = isCaptureableContentType(reqContentType, contentTypes)
-      ? redactDetailed(reqBuf.toString())
-      : { text: '', patterns: [] as PatternId[] };
-    const resRedaction = isCaptureableContentType(resContentType, contentTypes)
-      ? redactDetailed(resBuf.toString())
-      : { text: '', patterns: [] as PatternId[] };
-
-    const targetRedaction = redactDetailed(info.path);
-    const urlRedaction = redactDetailed(`${info.protocol}//${info.host}${info.path}`);
-    for (const p of [...reqRedaction.patterns, ...resRedaction.patterns, ...targetRedaction.patterns, ...urlRedaction.patterns]) {
-      firedPatterns.add(p);
-    }
-
-    const requestHeaders = redactHeaders(outgoingHeaders(req), allowlist);
-    const responseHeaders = redactHeaders(res.headers as Record<string, string | string[] | undefined>, allowlist);
-
-    const correlation = {
-      requestId: pickHeader(res.headers, 'x-request-id') ?? pickHeader(res.headers, 'x-correlation-id') ?? headerValue(req.getHeader('x-request-id')) ?? headerValue(req.getHeader('x-correlation-id')),
-      idempotencyKey: headerValue(req.getHeader('idempotency-key')) ?? pickHeader(res.headers, 'idempotency-key'),
-      traceId: input.spanCtx?.traceId,
-      spanId: input.spanCtx?.spanId
-    };
-
-    const patterns = REPORT_ORDER.filter((id) => firedPatterns.has(id));
-
-    return {
+    return assembleCapturedCall({
       integration: cfg.integration,
       direction: 'client',
+      peerHost: info.host,
+      edgeClass,
+      captureBodies,
       method: info.method,
-      route: targetRedaction.text,
-      target: targetRedaction.text,
-      urlFull: urlRedaction.text,
+      protocol: info.protocol,
+      host: info.host,
+      path: info.path,
       statusCode: res.statusCode ?? 0,
-      requestContentType: reqContentType,
-      requestBody: reqRedaction.text,
-      requestBodyTruncated: reqBuf.truncated,
-      requestHeaders,
-      responseContentType: resContentType,
-      responseBody: resRedaction.text,
-      responseBodyTruncated: resBuf.truncated,
-      responseHeaders,
-      correlation,
+      reqContentType,
+      resContentType,
+      reqBodyRaw: reqBuf.toString(),
+      reqBodyTruncated: reqBuf.truncated,
+      resBodyRaw: resBuf.toString(),
+      resBodyTruncated: resBuf.truncated,
+      requestHeaders: outgoingHeaders(req),
+      responseHeaders: res.headers as Record<string, string | string[] | undefined>,
+      correlation: {
+        requestId:
+          pickHeader(res.headers, 'x-request-id') ??
+          pickHeader(res.headers, 'x-correlation-id') ??
+          headerValue(req.getHeader('x-request-id')) ??
+          headerValue(req.getHeader('x-correlation-id')),
+        idempotencyKey: headerValue(req.getHeader('idempotency-key')) ?? pickHeader(res.headers, 'idempotency-key'),
+        traceId: input.spanCtx?.traceId,
+        spanId: input.spanCtx?.spanId
+      },
       durationMs: Date.now() - startTime,
-      redactionApplied: patterns.length > 0,
-      redactionPatterns: patterns,
-      redactionSpecAware: false
-    };
+      captureContentTypes: cfg.captureContentTypes,
+      headerAllowlist: cfg.headerAllowlist
+    });
   }
 }
 
-function reqBufSafeAppend(buf: CappedBuffer, chunk: unknown, encoding?: BufferEncoding): void {
+function safeAppend(buf: CappedBuffer, chunk: unknown, encoding?: BufferEncoding): void {
   try {
     buf.append(chunk, encoding);
   } catch {

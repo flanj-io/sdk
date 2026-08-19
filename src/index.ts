@@ -3,6 +3,7 @@ import { OTLPLogExporter } from '@opentelemetry/exporter-logs-otlp-http';
 import { resourceFromAttributes } from '@opentelemetry/resources';
 import type { LogRecordProcessor } from '@opentelemetry/sdk-logs';
 import { HttpBodyCaptureInstrumentation } from './instrumentation/http-body-capture';
+import { HttpServerCaptureInstrumentation } from './instrumentation/http-server-capture';
 import { emitCall } from './instrumentation/otlp-record';
 import { SDK_NAME, SDK_VERSION } from './version';
 
@@ -28,7 +29,10 @@ export interface StartOptions {
 
 export interface ViniferaHandle {
   loggerProvider: LoggerProvider;
+  /** Egress (client-path) body-capture instrumentation. */
   instrumentation: HttpBodyCaptureInstrumentation;
+  /** Ingress (server-path) body-capture instrumentation. */
+  serverInstrumentation: HttpServerCaptureInstrumentation;
   shutdown: () => Promise<void>;
 }
 
@@ -69,18 +73,29 @@ export function start(options: StartOptions = {}): ViniferaHandle {
     .filter(Boolean);
   const ignoreUrls = [...(exporterHost ? [exporterHost] : []), ...envIgnore, ...(options.ignoreUrls ?? [])];
 
+  const onCapture = (call: import('./instrumentation/captured-call').CapturedCall): void => emitCall(logger, call);
+
+  // Egress (client) + ingress (server) share one config and one capture sink.
   const instrumentation = new HttpBodyCaptureInstrumentation({
     integration,
     bodyCapBytes,
     ignoreUrls,
-    onCapture: (call) => emitCall(logger, call)
+    onCapture
+  });
+  const serverInstrumentation = new HttpServerCaptureInstrumentation({
+    integration,
+    bodyCapBytes,
+    ignoreUrls,
+    onCapture
   });
 
   return {
     loggerProvider,
     instrumentation,
+    serverInstrumentation,
     shutdown: async () => {
       instrumentation.disable();
+      serverInstrumentation.disable();
       await loggerProvider.shutdown();
     }
   };
@@ -103,6 +118,9 @@ function safeUrlHost(url: string): string | undefined {
 }
 
 export { HttpBodyCaptureInstrumentation } from './instrumentation/http-body-capture';
+export { HttpServerCaptureInstrumentation } from './instrumentation/http-server-capture';
+export { classifyHost } from './instrumentation/classify-host';
+export type { EdgeClass } from './instrumentation/classify-host';
 export { buildLogAttributes, emitCall } from './instrumentation/otlp-record';
 export type { CapturedCall } from './instrumentation/captured-call';
 export type { HttpBodyCaptureConfig } from './instrumentation/config';

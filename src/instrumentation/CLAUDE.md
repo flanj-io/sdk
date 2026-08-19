@@ -8,12 +8,23 @@ non-negotiable lives — **redact at source, drop the raw buffer, never attach r
 
 | File | Role |
 |---|---|
-| `http-body-capture.ts` | `HttpBodyCaptureInstrumentation` — patches core `http`/`https` `request`/`get`, tees request + response bodies, redacts at source, hands a `CapturedCall` to `onCapture`. |
+| `http-body-capture.ts` | `HttpBodyCaptureInstrumentation` — EGRESS: patches core `http`/`https` `request`/`get`, tees request + response bodies, redacts at source, hands a `CapturedCall` to `onCapture`. |
+| `http-server-capture.ts` | `HttpServerCaptureInstrumentation` — INGRESS: patches `Server.prototype.emit`, intercepts `'request'`, tees the incoming request body (via the IncomingMessage `push`) + the response body (via `res.write`/`end`), emits a `direction="server"` record. |
+| `classify-host.ts` | `classifyHost(host)` — the cross-component edge heuristic → `external`\|`internal` (RFC1918 / loopback / link-local / ULA / `.svc.cluster.local`·`.internal`·`.local` / single-label ⇒ internal). Identical byte-for-byte in the collector. |
+| `assemble-call.ts` | `assembleCapturedCall` — the shared, direction-agnostic redact-at-source assembler. Bodies are redacted-and-kept ONLY for external edges with a captureable content-type; internal edges keep NO body. Both client and server paths funnel through here. |
 | `otlp-record.ts` | `buildLogAttributes` / `emitCall` — map a `CapturedCall` to the `vinifera.*` attribute convention (CONTRACTS §2) and emit one log record. Body is empty; all data is in attributes. |
-| `captured-call.ts` | `CapturedCall` — the internal, **already-redacted** hand-off type. By construction it has no field that can hold a raw body. |
+| `captured-call.ts` | `CapturedCall` — the internal, **already-redacted** hand-off type (now carries `peerHost` / `edgeClass` / `captureBodies`). By construction it has no field that can hold a raw body. |
 | `capped-buffer.ts` | `CappedBuffer` — accumulates stream chunks up to `body_cap_bytes`, discards the rest, flags `truncated`. The retained bytes are the only copy; there is no separate uncapped buffer. |
 | `http-args.ts` | `parseRequestArgs` — normalize the overloaded `request(url, opts, cb)` / `request(opts, cb)` shapes into `{ method, protocol, host, path }`. |
 | `config.ts` | `HttpBodyCaptureConfig`, content-type gate, defaults (`DEFAULT_BODY_CAP_BYTES = 16384`). |
+
+## External vs internal (the surfacing floor)
+
+Every captured edge is classified from the **peer** host — egress: the destination; ingress: the
+caller (`X-Forwarded-For` first hop, else `socket.remoteAddress`). **External ⇒ bodies captured +
+redacted; internal ⇒ metadata-only, bodies are NEVER teed.** The redaction floor cannot be bypassed on
+internal edges because there is nothing to bypass — the raw bytes are never read. Emitted on every
+record: `vinifera.peer.host`, `vinifera.edge.class`, `vinifera.capture.bodies`.
 
 ## The capture path (why it is shaped this way)
 
