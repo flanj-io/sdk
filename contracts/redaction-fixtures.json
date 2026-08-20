@@ -27,7 +27,20 @@
     "",
     "Direction is documentary: `inbound` marks request bodies (higher PAN density than responses). The floor applies",
     "identically to every captured body regardless of direction or edge classification.",
-    "All card numbers are well-known public test numbers, never real PANs."
+    "All card numbers are well-known public test numbers, never real PANs.",
+    "",
+    "`fields` (optional; absent = MUST be empty): the captured-value-property records both implementations must",
+    "  emit for WHOLE-VALUE redactions — the scalar was replaced by exactly one token. Span-in-text redactions,",
+    "  redacted object keys, form-encoded pairs and non-JSON text bodies emit no fields (a top-level scalar body",
+    "  that is wholly redacted uses path \"\", the RFC 6901 root). Each record: `path` (RFC 6901 JSON Pointer into",
+    "  the body; `~`->`~0`, `/`->`~1`), `pattern` (the emitted token id) and `props` of the ORIGINAL value:",
+    "  type (string|number; integer flag for numbers), length in UNICODE CODE POINTS of the original scalar text",
+    "  (numbers: their literal), containsLowerCase (a-z), containsUpperCase (A-Z), containsDigits (0-9),",
+    "  containsASCIIControlChars (<=0x1F or 0x7F), containsASCIIPrintableChars (0x20-0x7E),",
+    "  containsASCIIExtendedChars (>0x7F). Props are NON-REVERSIBLE by design: never add anything that narrows",
+    "  the value (no prefixes/suffixes, no entropy). Records are sorted by path. For kind=json BOTH entry points",
+    "  must produce these exact records; for kind=text the text path must. Purpose: drift detection can validate",
+    "  the decidable constraints (type, min/maxLength) of a redacted field instead of skipping it."
   ],
   "cases": [
     {
@@ -35,117 +48,460 @@
       "description": "Bare 16-digit Luhn-valid PAN as a JSON string value",
       "kind": "json",
       "direction": "any",
-      "input": { "card_number": "4111111111111111" },
-      "expected": { "card_number": "⟦REDACTED:PAN⟧" },
-      "patterns": ["PAN"]
+      "input": {
+        "card_number": "4111111111111111"
+      },
+      "expected": {
+        "card_number": "⟦REDACTED:PAN⟧"
+      },
+      "patterns": [
+        "PAN"
+      ],
+      "fields": [
+        {
+          "path": "/card_number",
+          "pattern": "PAN",
+          "props": {
+            "type": "string",
+            "length": 16,
+            "containsLowerCase": false,
+            "containsUpperCase": false,
+            "containsDigits": true,
+            "containsASCIIControlChars": false,
+            "containsASCIIPrintableChars": true,
+            "containsASCIIExtendedChars": false
+          }
+        }
+      ]
     },
     {
       "id": "pan-json-4-4-4-4-spaces",
       "description": "PAN grouped 4-4-4-4 with spaces; detection on normalized digits, the whole original span is redacted",
       "kind": "json",
       "direction": "any",
-      "input": { "card": "4111 1111 1111 1111" },
-      "expected": { "card": "⟦REDACTED:PAN⟧" },
-      "patterns": ["PAN"]
+      "input": {
+        "card": "4111 1111 1111 1111"
+      },
+      "expected": {
+        "card": "⟦REDACTED:PAN⟧"
+      },
+      "patterns": [
+        "PAN"
+      ],
+      "fields": [
+        {
+          "path": "/card",
+          "pattern": "PAN",
+          "props": {
+            "type": "string",
+            "length": 19,
+            "containsLowerCase": false,
+            "containsUpperCase": false,
+            "containsDigits": true,
+            "containsASCIIControlChars": false,
+            "containsASCIIPrintableChars": true,
+            "containsASCIIExtendedChars": false
+          }
+        }
+      ]
     },
     {
       "id": "pan-json-4-4-4-4-dashes",
       "description": "PAN grouped 4-4-4-4 with dashes",
       "kind": "json",
       "direction": "any",
-      "input": { "card": "5555-5555-5555-4444" },
-      "expected": { "card": "⟦REDACTED:PAN⟧" },
-      "patterns": ["PAN"]
+      "input": {
+        "card": "5555-5555-5555-4444"
+      },
+      "expected": {
+        "card": "⟦REDACTED:PAN⟧"
+      },
+      "patterns": [
+        "PAN"
+      ],
+      "fields": [
+        {
+          "path": "/card",
+          "pattern": "PAN",
+          "props": {
+            "type": "string",
+            "length": 19,
+            "containsLowerCase": false,
+            "containsUpperCase": false,
+            "containsDigits": true,
+            "containsASCIIControlChars": false,
+            "containsASCIIPrintableChars": true,
+            "containsASCIIExtendedChars": false
+          }
+        }
+      ]
     },
     {
       "id": "pan-json-amex-4-6-5",
       "description": "15-digit Amex grouped 4-6-5 (the grouping many naive PAN regexes miss)",
       "kind": "json",
       "direction": "any",
-      "input": { "card": "3782 822463 10005" },
-      "expected": { "card": "⟦REDACTED:PAN⟧" },
-      "patterns": ["PAN"]
+      "input": {
+        "card": "3782 822463 10005"
+      },
+      "expected": {
+        "card": "⟦REDACTED:PAN⟧"
+      },
+      "patterns": [
+        "PAN"
+      ],
+      "fields": [
+        {
+          "path": "/card",
+          "pattern": "PAN",
+          "props": {
+            "type": "string",
+            "length": 17,
+            "containsLowerCase": false,
+            "containsUpperCase": false,
+            "containsDigits": true,
+            "containsASCIIControlChars": false,
+            "containsASCIIPrintableChars": true,
+            "containsASCIIExtendedChars": false
+          }
+        }
+      ]
     },
     {
       "id": "pan-json-diners-14",
       "description": "14-digit Diners Club PAN (shortest common length above the 13-digit floor)",
       "kind": "json",
       "direction": "any",
-      "input": { "card": "30569309025904" },
-      "expected": { "card": "⟦REDACTED:PAN⟧" },
-      "patterns": ["PAN"]
+      "input": {
+        "card": "30569309025904"
+      },
+      "expected": {
+        "card": "⟦REDACTED:PAN⟧"
+      },
+      "patterns": [
+        "PAN"
+      ],
+      "fields": [
+        {
+          "path": "/card",
+          "pattern": "PAN",
+          "props": {
+            "type": "string",
+            "length": 14,
+            "containsLowerCase": false,
+            "containsUpperCase": false,
+            "containsDigits": true,
+            "containsASCIIControlChars": false,
+            "containsASCIIPrintableChars": true,
+            "containsASCIIExtendedChars": false
+          }
+        }
+      ]
     },
     {
       "id": "pan-json-visa-13",
       "description": "13-digit Visa PAN (the minimum PAN length)",
       "kind": "json",
       "direction": "any",
-      "input": { "card": "4222222222222" },
-      "expected": { "card": "⟦REDACTED:PAN⟧" },
-      "patterns": ["PAN"]
+      "input": {
+        "card": "4222222222222"
+      },
+      "expected": {
+        "card": "⟦REDACTED:PAN⟧"
+      },
+      "patterns": [
+        "PAN"
+      ],
+      "fields": [
+        {
+          "path": "/card",
+          "pattern": "PAN",
+          "props": {
+            "type": "string",
+            "length": 13,
+            "containsLowerCase": false,
+            "containsUpperCase": false,
+            "containsDigits": true,
+            "containsASCIIControlChars": false,
+            "containsASCIIPrintableChars": true,
+            "containsASCIIExtendedChars": false
+          }
+        }
+      ]
     },
     {
       "id": "pan-json-19-digit",
       "description": "19-digit Luhn-valid PAN (the maximum PAN length; brand-prefix-gated validators reject it, the Luhn floor must not)",
       "kind": "json",
       "direction": "any",
-      "input": { "card": "4111111111111111110" },
-      "expected": { "card": "⟦REDACTED:PAN⟧" },
-      "patterns": ["PAN"]
+      "input": {
+        "card": "4111111111111111110"
+      },
+      "expected": {
+        "card": "⟦REDACTED:PAN⟧"
+      },
+      "patterns": [
+        "PAN"
+      ],
+      "fields": [
+        {
+          "path": "/card",
+          "pattern": "PAN",
+          "props": {
+            "type": "string",
+            "length": 19,
+            "containsLowerCase": false,
+            "containsUpperCase": false,
+            "containsDigits": true,
+            "containsASCIIControlChars": false,
+            "containsASCIIPrintableChars": true,
+            "containsASCIIExtendedChars": false
+          }
+        }
+      ]
     },
     {
       "id": "pan-json-19-digit-grouped-4-4-4-4-3",
       "description": "19-digit PAN printed 4-4-4-4-3 (five groups)",
       "kind": "json",
       "direction": "any",
-      "input": { "card": "6221 2621 2345 6789 014" },
-      "expected": { "card": "⟦REDACTED:PAN⟧" },
-      "patterns": ["PAN"]
+      "input": {
+        "card": "6221 2621 2345 6789 014"
+      },
+      "expected": {
+        "card": "⟦REDACTED:PAN⟧"
+      },
+      "patterns": [
+        "PAN"
+      ],
+      "fields": [
+        {
+          "path": "/card",
+          "pattern": "PAN",
+          "props": {
+            "type": "string",
+            "length": 23,
+            "containsLowerCase": false,
+            "containsUpperCase": false,
+            "containsDigits": true,
+            "containsASCIIControlChars": false,
+            "containsASCIIPrintableChars": true,
+            "containsASCIIExtendedChars": false
+          }
+        }
+      ]
     },
     {
       "id": "pan-json-unlisted-bin-luhn-valid",
       "description": "Luhn-valid PAN whose prefix (2200, Mir) is absent from common brand tables — the floor is Luhn-gated, never BIN-gated, so it is still redacted",
       "kind": "json",
       "direction": "any",
-      "input": { "card": "2200000000000004" },
-      "expected": { "card": "⟦REDACTED:PAN⟧" },
-      "patterns": ["PAN"]
+      "input": {
+        "card": "2200000000000004"
+      },
+      "expected": {
+        "card": "⟦REDACTED:PAN⟧"
+      },
+      "patterns": [
+        "PAN"
+      ],
+      "fields": [
+        {
+          "path": "/card",
+          "pattern": "PAN",
+          "props": {
+            "type": "string",
+            "length": 16,
+            "containsLowerCase": false,
+            "containsUpperCase": false,
+            "containsDigits": true,
+            "containsASCIIControlChars": false,
+            "containsASCIIPrintableChars": true,
+            "containsASCIIExtendedChars": false
+          }
+        }
+      ]
     },
     {
       "id": "pan-json-maestro-16",
       "description": "16-digit Maestro PAN",
       "kind": "json",
       "direction": "any",
-      "input": { "card": "6759649826438453" },
-      "expected": { "card": "⟦REDACTED:PAN⟧" },
-      "patterns": ["PAN"]
+      "input": {
+        "card": "6759649826438453"
+      },
+      "expected": {
+        "card": "⟦REDACTED:PAN⟧"
+      },
+      "patterns": [
+        "PAN"
+      ],
+      "fields": [
+        {
+          "path": "/card",
+          "pattern": "PAN",
+          "props": {
+            "type": "string",
+            "length": 16,
+            "containsLowerCase": false,
+            "containsUpperCase": false,
+            "containsDigits": true,
+            "containsASCIIControlChars": false,
+            "containsASCIIPrintableChars": true,
+            "containsASCIIExtendedChars": false
+          }
+        }
+      ]
     },
     {
       "id": "pan-json-as-number",
       "description": "PAN transmitted as a JSON NUMBER, not a string — still redacted (becomes a string token); an integer amount is not",
       "kind": "json",
       "direction": "any",
-      "input": { "card": 4111111111111111, "amount": 1200 },
-      "expected": { "card": "⟦REDACTED:PAN⟧", "amount": 1200 },
-      "patterns": ["PAN"]
+      "input": {
+        "card": 4111111111111111,
+        "amount": 1200
+      },
+      "expected": {
+        "card": "⟦REDACTED:PAN⟧",
+        "amount": 1200
+      },
+      "patterns": [
+        "PAN"
+      ],
+      "fields": [
+        {
+          "path": "/card",
+          "pattern": "PAN",
+          "props": {
+            "type": "number",
+            "length": 16,
+            "containsLowerCase": false,
+            "containsUpperCase": false,
+            "containsDigits": true,
+            "containsASCIIControlChars": false,
+            "containsASCIIPrintableChars": true,
+            "containsASCIIExtendedChars": false,
+            "integer": true
+          }
+        }
+      ]
     },
     {
       "id": "pan-json-in-array",
       "description": "PANs inside a JSON array of strings",
       "kind": "json",
       "direction": "any",
-      "input": { "cards": ["4111111111111111", "5555555555554444", "not-a-card"] },
-      "expected": { "cards": ["⟦REDACTED:PAN⟧", "⟦REDACTED:PAN⟧", "not-a-card"] },
-      "patterns": ["PAN"]
+      "input": {
+        "cards": [
+          "4111111111111111",
+          "5555555555554444",
+          "not-a-card"
+        ]
+      },
+      "expected": {
+        "cards": [
+          "⟦REDACTED:PAN⟧",
+          "⟦REDACTED:PAN⟧",
+          "not-a-card"
+        ]
+      },
+      "patterns": [
+        "PAN"
+      ],
+      "fields": [
+        {
+          "path": "/cards/0",
+          "pattern": "PAN",
+          "props": {
+            "type": "string",
+            "length": 16,
+            "containsLowerCase": false,
+            "containsUpperCase": false,
+            "containsDigits": true,
+            "containsASCIIControlChars": false,
+            "containsASCIIPrintableChars": true,
+            "containsASCIIExtendedChars": false
+          }
+        },
+        {
+          "path": "/cards/1",
+          "pattern": "PAN",
+          "props": {
+            "type": "string",
+            "length": 16,
+            "containsLowerCase": false,
+            "containsUpperCase": false,
+            "containsDigits": true,
+            "containsASCIIControlChars": false,
+            "containsASCIIPrintableChars": true,
+            "containsASCIIExtendedChars": false
+          }
+        }
+      ]
     },
     {
       "id": "pan-json-in-array-of-objects",
       "description": "PANs inside objects inside an array",
       "kind": "json",
       "direction": "any",
-      "input": { "items": [{ "pan": "4242424242424242", "qty": 1 }, { "pan": "378282246310005", "qty": 2 }] },
-      "expected": { "items": [{ "pan": "⟦REDACTED:PAN⟧", "qty": 1 }, { "pan": "⟦REDACTED:PAN⟧", "qty": 2 }] },
-      "patterns": ["PAN"]
+      "input": {
+        "items": [
+          {
+            "pan": "4242424242424242",
+            "qty": 1
+          },
+          {
+            "pan": "378282246310005",
+            "qty": 2
+          }
+        ]
+      },
+      "expected": {
+        "items": [
+          {
+            "pan": "⟦REDACTED:PAN⟧",
+            "qty": 1
+          },
+          {
+            "pan": "⟦REDACTED:PAN⟧",
+            "qty": 2
+          }
+        ]
+      },
+      "patterns": [
+        "PAN"
+      ],
+      "fields": [
+        {
+          "path": "/items/0/pan",
+          "pattern": "PAN",
+          "props": {
+            "type": "string",
+            "length": 16,
+            "containsLowerCase": false,
+            "containsUpperCase": false,
+            "containsDigits": true,
+            "containsASCIIControlChars": false,
+            "containsASCIIPrintableChars": true,
+            "containsASCIIExtendedChars": false
+          }
+        },
+        {
+          "path": "/items/1/pan",
+          "pattern": "PAN",
+          "props": {
+            "type": "string",
+            "length": 15,
+            "containsLowerCase": false,
+            "containsUpperCase": false,
+            "containsDigits": true,
+            "containsASCIIControlChars": false,
+            "containsASCIIPrintableChars": true,
+            "containsASCIIExtendedChars": false
+          }
+        }
+      ]
     },
     {
       "id": "pan-json-nested-undocumented-field",
@@ -156,7 +512,10 @@
         "charge": {
           "amount": 1200,
           "currency": "usd",
-          "source": { "card_number": "4242 4242 4242 4242", "last4": "4242" },
+          "source": {
+            "card_number": "4242 4242 4242 4242",
+            "last4": "4242"
+          },
           "metadata": {
             "backup_card": "5555-5555-5555-4444",
             "order_id": "4111111111111112",
@@ -168,7 +527,10 @@
         "charge": {
           "amount": 1200,
           "currency": "usd",
-          "source": { "card_number": "⟦REDACTED:PAN⟧", "last4": "4242" },
+          "source": {
+            "card_number": "⟦REDACTED:PAN⟧",
+            "last4": "4242"
+          },
           "metadata": {
             "backup_card": "⟦REDACTED:PAN⟧",
             "order_id": "4111111111111112",
@@ -176,34 +538,133 @@
           }
         }
       },
-      "patterns": ["PAN", "PHONE"]
+      "patterns": [
+        "PAN",
+        "PHONE"
+      ],
+      "fields": [
+        {
+          "path": "/charge/metadata/backup_card",
+          "pattern": "PAN",
+          "props": {
+            "type": "string",
+            "length": 19,
+            "containsLowerCase": false,
+            "containsUpperCase": false,
+            "containsDigits": true,
+            "containsASCIIControlChars": false,
+            "containsASCIIPrintableChars": true,
+            "containsASCIIExtendedChars": false
+          }
+        },
+        {
+          "path": "/charge/source/card_number",
+          "pattern": "PAN",
+          "props": {
+            "type": "string",
+            "length": 19,
+            "containsLowerCase": false,
+            "containsUpperCase": false,
+            "containsDigits": true,
+            "containsASCIIControlChars": false,
+            "containsASCIIPrintableChars": true,
+            "containsASCIIExtendedChars": false
+          }
+        }
+      ]
     },
     {
       "id": "pan-json-deeply-nested",
       "description": "PAN six levels deep, through arrays and objects",
       "kind": "json",
       "direction": "any",
-      "input": { "a": { "b": [{ "c": { "d": [{ "e": { "f": "4111111111111111" } }] } }] } },
-      "expected": { "a": { "b": [{ "c": { "d": [{ "e": { "f": "⟦REDACTED:PAN⟧" } }] } }] } },
-      "patterns": ["PAN"]
+      "input": {
+        "a": {
+          "b": [
+            {
+              "c": {
+                "d": [
+                  {
+                    "e": {
+                      "f": "4111111111111111"
+                    }
+                  }
+                ]
+              }
+            }
+          ]
+        }
+      },
+      "expected": {
+        "a": {
+          "b": [
+            {
+              "c": {
+                "d": [
+                  {
+                    "e": {
+                      "f": "⟦REDACTED:PAN⟧"
+                    }
+                  }
+                ]
+              }
+            }
+          ]
+        }
+      },
+      "patterns": [
+        "PAN"
+      ],
+      "fields": [
+        {
+          "path": "/a/b/0/c/d/0/e/f",
+          "pattern": "PAN",
+          "props": {
+            "type": "string",
+            "length": 16,
+            "containsLowerCase": false,
+            "containsUpperCase": false,
+            "containsDigits": true,
+            "containsASCIIControlChars": false,
+            "containsASCIIPrintableChars": true,
+            "containsASCIIExtendedChars": false
+          }
+        }
+      ]
     },
     {
       "id": "pan-json-in-object-key",
       "description": "PAN used as an object KEY (a map keyed by card number) — keys are scanned too",
       "kind": "json",
       "direction": "any",
-      "input": { "4111111111111111": { "status": "active" } },
-      "expected": { "⟦REDACTED:PAN⟧": { "status": "active" } },
-      "patterns": ["PAN"]
+      "input": {
+        "4111111111111111": {
+          "status": "active"
+        }
+      },
+      "expected": {
+        "⟦REDACTED:PAN⟧": {
+          "status": "active"
+        }
+      },
+      "patterns": [
+        "PAN"
+      ]
     },
     {
       "id": "pan-json-embedded-in-sentence",
       "description": "PAN embedded in a free-text JSON value; only the PAN span is replaced",
       "kind": "json",
       "direction": "any",
-      "input": { "note": "Customer card 4111 1111 1111 1111 exp 12/25, retry tomorrow" },
-      "expected": { "note": "Customer card ⟦REDACTED:PAN⟧ exp 12/25, retry tomorrow" },
-      "patterns": ["PAN"]
+      "input": {
+        "note": "Customer card 4111 1111 1111 1111 exp 12/25, retry tomorrow"
+      },
+      "expected": {
+        "note": "Customer card ⟦REDACTED:PAN⟧ exp 12/25, retry tomorrow"
+      },
+      "patterns": [
+        "PAN"
+      ]
     },
     {
       "id": "pan-text-followed-by-separated-digits",
@@ -212,7 +673,9 @@
       "direction": "any",
       "input": "4111111111111111 1225",
       "expected": "⟦REDACTED:PAN⟧ 1225",
-      "patterns": ["PAN"]
+      "patterns": [
+        "PAN"
+      ]
     },
     {
       "id": "pan-text-preceded-by-junk-group",
@@ -221,7 +684,9 @@
       "direction": "any",
       "input": "ref 1234 4111 1111 1111 1111",
       "expected": "ref 1234 ⟦REDACTED:PAN⟧",
-      "patterns": ["PAN"]
+      "patterns": [
+        "PAN"
+      ]
     },
     {
       "id": "pan-text-form-encoded-value",
@@ -230,7 +695,9 @@
       "direction": "inbound",
       "input": "card=4111111111111111&amount=1200",
       "expected": "card=⟦REDACTED:PAN⟧&amount=1200",
-      "patterns": ["PAN"]
+      "patterns": [
+        "PAN"
+      ]
     },
     {
       "id": "pan-text-xml",
@@ -239,7 +706,9 @@
       "direction": "any",
       "input": "<charge><pan>4111111111111111</pan><amount>1200</amount></charge>",
       "expected": "<charge><pan>⟦REDACTED:PAN⟧</pan><amount>1200</amount></charge>",
-      "patterns": ["PAN"]
+      "patterns": [
+        "PAN"
+      ]
     },
     {
       "id": "pan-text-url-path",
@@ -248,7 +717,9 @@
       "direction": "any",
       "input": "/v1/cards/4111111111111111/balance?currency=usd",
       "expected": "/v1/cards/⟦REDACTED:PAN⟧/balance?currency=usd",
-      "patterns": ["PAN"]
+      "patterns": [
+        "PAN"
+      ]
     },
     {
       "id": "pan-text-truncated-json-body",
@@ -257,7 +728,25 @@
       "direction": "any",
       "input": "{\"customer\":{\"card\":\"4111111111111111\",\"name\":\"Jane\"},\"items\":[{\"sku\":\"A1\"},{\"sku\":\"B2\"},{\"no",
       "expected": "{\"customer\":{\"card\":\"⟦REDACTED:PAN⟧\",\"name\":\"Jane\"},\"items\":[{\"sku\":\"A1\"},{\"sku\":\"B2\"},{\"no",
-      "patterns": ["PAN"]
+      "patterns": [
+        "PAN"
+      ],
+      "fields": [
+        {
+          "path": "/customer/card",
+          "pattern": "PAN",
+          "props": {
+            "type": "string",
+            "length": 16,
+            "containsLowerCase": false,
+            "containsUpperCase": false,
+            "containsDigits": true,
+            "containsASCIIControlChars": false,
+            "containsASCIIPrintableChars": true,
+            "containsASCIIExtendedChars": false
+          }
+        }
+      ]
     },
     {
       "id": "pan-text-truncated-inside-string",
@@ -266,7 +755,9 @@
       "direction": "any",
       "input": "{\"id\":\"ch_1\",\"card\":\"4111111111111111",
       "expected": "{\"id\":\"ch_1\",\"card\":\"⟦REDACTED:PAN⟧",
-      "patterns": ["PAN"]
+      "patterns": [
+        "PAN"
+      ]
     },
     {
       "id": "pan-text-pretty-printed-json-preserved",
@@ -275,7 +766,25 @@
       "direction": "any",
       "input": "{\n  \"card\": \"4111111111111111\",\n  \"amount\": 1200,\n  \"note\": \"a < b & c\"\n}",
       "expected": "{\n  \"card\": \"⟦REDACTED:PAN⟧\",\n  \"amount\": 1200,\n  \"note\": \"a < b & c\"\n}",
-      "patterns": ["PAN"]
+      "patterns": [
+        "PAN"
+      ],
+      "fields": [
+        {
+          "path": "/card",
+          "pattern": "PAN",
+          "props": {
+            "type": "string",
+            "length": 16,
+            "containsLowerCase": false,
+            "containsUpperCase": false,
+            "containsDigits": true,
+            "containsASCIIControlChars": false,
+            "containsASCIIPrintableChars": true,
+            "containsASCIIExtendedChars": false
+          }
+        }
+      ]
     },
     {
       "id": "pan-text-malformed-json-residue",
@@ -284,7 +793,10 @@
       "direction": "any",
       "input": "{not really json 4111111111111111 and jane@example.com}",
       "expected": "{not really json ⟦REDACTED:PAN⟧ and ⟦REDACTED:EMAIL⟧}",
-      "patterns": ["PAN", "EMAIL"]
+      "patterns": [
+        "PAN",
+        "EMAIL"
+      ]
     },
     {
       "id": "pan-text-json-number-literal",
@@ -293,15 +805,40 @@
       "direction": "any",
       "input": "{\"card\":4111111111111111,\"amount\":1200}",
       "expected": "{\"card\":\"⟦REDACTED:PAN⟧\",\"amount\":1200}",
-      "patterns": ["PAN"]
+      "patterns": [
+        "PAN"
+      ],
+      "fields": [
+        {
+          "path": "/card",
+          "pattern": "PAN",
+          "props": {
+            "type": "number",
+            "length": 16,
+            "integer": true,
+            "containsLowerCase": false,
+            "containsUpperCase": false,
+            "containsDigits": true,
+            "containsASCIIControlChars": false,
+            "containsASCIIPrintableChars": true,
+            "containsASCIIExtendedChars": false
+          }
+        }
+      ]
     },
     {
       "id": "neg-non-luhn-16-digit-id",
       "description": "NEGATIVE: a 16-digit id that fails Luhn (order_id) must survive — no over-redaction",
       "kind": "json",
       "direction": "any",
-      "input": { "order_id": "4111111111111112", "ref": "1111111111111111" },
-      "expected": { "order_id": "4111111111111112", "ref": "1111111111111111" },
+      "input": {
+        "order_id": "4111111111111112",
+        "ref": "1111111111111111"
+      },
+      "expected": {
+        "order_id": "4111111111111112",
+        "ref": "1111111111111111"
+      },
       "patterns": []
     },
     {
@@ -309,8 +846,16 @@
       "description": "NEGATIVE: a 4-digit last4 is never redacted",
       "kind": "json",
       "direction": "any",
-      "input": { "last4": "1111", "exp_month": "12", "exp_year": "2030" },
-      "expected": { "last4": "1111", "exp_month": "12", "exp_year": "2030" },
+      "input": {
+        "last4": "1111",
+        "exp_month": "12",
+        "exp_year": "2030"
+      },
+      "expected": {
+        "last4": "1111",
+        "exp_month": "12",
+        "exp_year": "2030"
+      },
       "patterns": []
     },
     {
@@ -318,8 +863,18 @@
       "description": "NEGATIVE: integer amounts and a 13-digit non-Luhn epoch-ms timestamp (number AND string) are untouched",
       "kind": "json",
       "direction": "any",
-      "input": { "amount": 1200, "amount_minor": 120000, "created": 1724100000000, "created_str": "1724100000000" },
-      "expected": { "amount": 1200, "amount_minor": 120000, "created": 1724100000000, "created_str": "1724100000000" },
+      "input": {
+        "amount": 1200,
+        "amount_minor": 120000,
+        "created": 1724100000000,
+        "created_str": "1724100000000"
+      },
+      "expected": {
+        "amount": 1200,
+        "amount_minor": 120000,
+        "created": 1724100000000,
+        "created_str": "1724100000000"
+      },
       "patterns": []
     },
     {
@@ -327,8 +882,24 @@
       "description": "NEGATIVE: booleans, null, empty string/object/array and zero are untouched",
       "kind": "json",
       "direction": "any",
-      "input": { "active": true, "deleted": false, "parent": null, "n": 0, "s": "", "o": {}, "a": [] },
-      "expected": { "active": true, "deleted": false, "parent": null, "n": 0, "s": "", "o": {}, "a": [] },
+      "input": {
+        "active": true,
+        "deleted": false,
+        "parent": null,
+        "n": 0,
+        "s": "",
+        "o": {},
+        "a": []
+      },
+      "expected": {
+        "active": true,
+        "deleted": false,
+        "parent": null,
+        "n": 0,
+        "s": "",
+        "o": {},
+        "a": []
+      },
       "patterns": []
     },
     {
@@ -336,8 +907,14 @@
       "description": "NEGATIVE: UUIDs and hex digests have digit runs adjacent to letters; they are never PAN candidates",
       "kind": "json",
       "direction": "any",
-      "input": { "id": "3f2504e0-4f89-11d3-9a0c-0305e82c3301", "sha": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855" },
-      "expected": { "id": "3f2504e0-4f89-11d3-9a0c-0305e82c3301", "sha": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855" },
+      "input": {
+        "id": "3f2504e0-4f89-11d3-9a0c-0305e82c3301",
+        "sha": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "expected": {
+        "id": "3f2504e0-4f89-11d3-9a0c-0305e82c3301",
+        "sha": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
       "patterns": []
     },
     {
@@ -345,8 +922,12 @@
       "description": "NEGATIVE: a 20-digit run is above the PAN length ceiling and is not a candidate",
       "kind": "json",
       "direction": "any",
-      "input": { "tracking": "12345678901234567890" },
-      "expected": { "tracking": "12345678901234567890" },
+      "input": {
+        "tracking": "12345678901234567890"
+      },
+      "expected": {
+        "tracking": "12345678901234567890"
+      },
       "patterns": []
     },
     {
@@ -354,8 +935,14 @@
       "description": "NEGATIVE (deliberate anchoring trade-off): a Luhn-valid run glued to letters/underscore inside an identifier is not a PAN candidate; the schema-aware enhancer covers documented PAN fields",
       "kind": "json",
       "direction": "any",
-      "input": { "ref": "TXN4111111111111111", "ref2": "id_4111111111111111_x" },
-      "expected": { "ref": "TXN4111111111111111", "ref2": "id_4111111111111111_x" },
+      "input": {
+        "ref": "TXN4111111111111111",
+        "ref2": "id_4111111111111111_x"
+      },
+      "expected": {
+        "ref": "TXN4111111111111111",
+        "ref2": "id_4111111111111111_x"
+      },
       "patterns": []
     },
     {
@@ -363,8 +950,14 @@
       "description": "NEGATIVE: a national-format number (no +country) cannot be validated without a region and is left alone (a loose phone regex here is what over-redacts ids)",
       "kind": "json",
       "direction": "any",
-      "input": { "phone": "415-555-2671", "alt": "(415) 555-2671" },
-      "expected": { "phone": "415-555-2671", "alt": "(415) 555-2671" },
+      "input": {
+        "phone": "415-555-2671",
+        "alt": "(415) 555-2671"
+      },
+      "expected": {
+        "phone": "415-555-2671",
+        "alt": "(415) 555-2671"
+      },
       "patterns": []
     },
     {
@@ -372,8 +965,12 @@
       "description": "NEGATIVE: +-prefixed but invalid per phone metadata (fictional 555-555-5555) is not redacted — validated, not pattern-matched",
       "kind": "json",
       "direction": "any",
-      "input": { "phone": "+1 555 555 5555" },
-      "expected": { "phone": "+1 555 555 5555" },
+      "input": {
+        "phone": "+1 555 555 5555"
+      },
+      "expected": {
+        "phone": "+1 555 555 5555"
+      },
       "patterns": []
     },
     {
@@ -381,8 +978,18 @@
       "description": "NEGATIVE: 3-4 digit numbers outside a cvv/cvc key are not CVVs; a 5-digit value under a cvv key is not a CVV shape",
       "kind": "json",
       "direction": "any",
-      "input": { "retries": 123, "pin_length": "4", "port": "8080", "cvv": "12345" },
-      "expected": { "retries": 123, "pin_length": "4", "port": "8080", "cvv": "12345" },
+      "input": {
+        "retries": 123,
+        "pin_length": "4",
+        "port": "8080",
+        "cvv": "12345"
+      },
+      "expected": {
+        "retries": 123,
+        "pin_length": "4",
+        "port": "8080",
+        "cvv": "12345"
+      },
       "patterns": []
     },
     {
@@ -390,8 +997,12 @@
       "description": "NEGATIVE: a bare 9-digit number is not an SSN (format-anchored ###-##-####)",
       "kind": "json",
       "direction": "any",
-      "input": { "id": "123456789" },
-      "expected": { "id": "123456789" },
+      "input": {
+        "id": "123456789"
+      },
+      "expected": {
+        "id": "123456789"
+      },
       "patterns": []
     },
     {
@@ -399,8 +1010,12 @@
       "description": "NEGATIVE: IBAN-shaped string with a failing mod-97 checksum is not redacted",
       "kind": "json",
       "direction": "any",
-      "input": { "iban": "DE00370400440532013000" },
-      "expected": { "iban": "DE00370400440532013000" },
+      "input": {
+        "iban": "DE00370400440532013000"
+      },
+      "expected": {
+        "iban": "DE00370400440532013000"
+      },
       "patterns": []
     },
     {
@@ -408,8 +1023,16 @@
       "description": "NEGATIVE: ordinary words that happen to be valid base64 are not decoded into false positives",
       "kind": "json",
       "direction": "any",
-      "input": { "status": "active", "token": "abcd", "mode": "test" },
-      "expected": { "status": "active", "token": "abcd", "mode": "test" },
+      "input": {
+        "status": "active",
+        "token": "abcd",
+        "mode": "test"
+      },
+      "expected": {
+        "status": "active",
+        "token": "abcd",
+        "mode": "test"
+      },
       "patterns": []
     },
     {
@@ -417,8 +1040,12 @@
       "description": "NEGATIVE: a base64 value that decodes to text with no PII is untouched",
       "kind": "json",
       "direction": "any",
-      "input": { "blob": "aGVsbG8gd29ybGQsIG5vdGhpbmcgc2Vuc2l0aXZlIGhlcmUgYXQgYWxs" },
-      "expected": { "blob": "aGVsbG8gd29ybGQsIG5vdGhpbmcgc2Vuc2l0aXZlIGhlcmUgYXQgYWxs" },
+      "input": {
+        "blob": "aGVsbG8gd29ybGQsIG5vdGhpbmcgc2Vuc2l0aXZlIGhlcmUgYXQgYWxs"
+      },
+      "expected": {
+        "blob": "aGVsbG8gd29ybGQsIG5vdGhpbmcgc2Vuc2l0aXZlIGhlcmUgYXQgYWxs"
+      },
       "patterns": []
     },
     {
@@ -426,8 +1053,12 @@
       "description": "NEGATIVE: base64 of binary data (a PNG header) decodes to non-text and is never scanned or redacted",
       "kind": "json",
       "direction": "any",
-      "input": { "image": "iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAABccqg=" },
-      "expected": { "image": "iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAABccqg=" },
+      "input": {
+        "image": "iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAABccqg="
+      },
+      "expected": {
+        "image": "iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAABccqg="
+      },
       "patterns": []
     },
     {
@@ -435,8 +1066,12 @@
       "description": "NEGATIVE: three dotted segments starting with eyJ whose header does not decode to a JSON object is not a JWT token",
       "kind": "json",
       "direction": "any",
-      "input": { "ref": "eyJxxxxxx.yyyyyyyy.zzzzzzzz" },
-      "expected": { "ref": "eyJxxxxxx.yyyyyyyy.zzzzzzzz" },
+      "input": {
+        "ref": "eyJxxxxxx.yyyyyyyy.zzzzzzzz"
+      },
+      "expected": {
+        "ref": "eyJxxxxxx.yyyyyyyy.zzzzzzzz"
+      },
       "patterns": []
     },
     {
@@ -453,18 +1088,62 @@
       "description": "Email as a JSON value",
       "kind": "json",
       "direction": "any",
-      "input": { "email": "jane.doe@example.com" },
-      "expected": { "email": "⟦REDACTED:EMAIL⟧" },
-      "patterns": ["EMAIL"]
+      "input": {
+        "email": "jane.doe@example.com"
+      },
+      "expected": {
+        "email": "⟦REDACTED:EMAIL⟧"
+      },
+      "patterns": [
+        "EMAIL"
+      ],
+      "fields": [
+        {
+          "path": "/email",
+          "pattern": "EMAIL",
+          "props": {
+            "type": "string",
+            "length": 20,
+            "containsLowerCase": true,
+            "containsUpperCase": false,
+            "containsDigits": false,
+            "containsASCIIControlChars": false,
+            "containsASCIIPrintableChars": true,
+            "containsASCIIExtendedChars": false
+          }
+        }
+      ]
     },
     {
       "id": "email-json-plus-tag-subdomain",
       "description": "Email with +tag and multi-label domain",
       "kind": "json",
       "direction": "any",
-      "input": { "email": "user+tag@sub.example.co.uk" },
-      "expected": { "email": "⟦REDACTED:EMAIL⟧" },
-      "patterns": ["EMAIL"]
+      "input": {
+        "email": "user+tag@sub.example.co.uk"
+      },
+      "expected": {
+        "email": "⟦REDACTED:EMAIL⟧"
+      },
+      "patterns": [
+        "EMAIL"
+      ],
+      "fields": [
+        {
+          "path": "/email",
+          "pattern": "EMAIL",
+          "props": {
+            "type": "string",
+            "length": 26,
+            "containsLowerCase": true,
+            "containsUpperCase": false,
+            "containsDigits": false,
+            "containsASCIIControlChars": false,
+            "containsASCIIPrintableChars": true,
+            "containsASCIIExtendedChars": false
+          }
+        }
+      ]
     },
     {
       "id": "email-text-trailing-punctuation",
@@ -473,7 +1152,9 @@
       "direction": "any",
       "input": "Please mail jane.doe@example.com.",
       "expected": "Please mail ⟦REDACTED:EMAIL⟧.",
-      "patterns": ["EMAIL"]
+      "patterns": [
+        "EMAIL"
+      ]
     },
     {
       "id": "email-text-in-angle-brackets",
@@ -482,34 +1163,150 @@
       "direction": "any",
       "input": "From: Jane Doe <jane.doe@example.com>",
       "expected": "From: Jane Doe <⟦REDACTED:EMAIL⟧>",
-      "patterns": ["EMAIL"]
+      "patterns": [
+        "EMAIL"
+      ]
     },
     {
       "id": "iban-json-compact",
       "description": "German IBAN, electronic (compact) format",
       "kind": "json",
       "direction": "any",
-      "input": { "iban": "DE89370400440532013000" },
-      "expected": { "iban": "⟦REDACTED:IBAN⟧" },
-      "patterns": ["IBAN"]
+      "input": {
+        "iban": "DE89370400440532013000"
+      },
+      "expected": {
+        "iban": "⟦REDACTED:IBAN⟧"
+      },
+      "patterns": [
+        "IBAN"
+      ],
+      "fields": [
+        {
+          "path": "/iban",
+          "pattern": "IBAN",
+          "props": {
+            "type": "string",
+            "length": 22,
+            "containsLowerCase": false,
+            "containsUpperCase": true,
+            "containsDigits": true,
+            "containsASCIIControlChars": false,
+            "containsASCIIPrintableChars": true,
+            "containsASCIIExtendedChars": false
+          }
+        }
+      ]
     },
     {
       "id": "iban-json-grouped",
       "description": "IBAN in print format (groups of four separated by spaces)",
       "kind": "json",
       "direction": "any",
-      "input": { "iban": "DE89 3704 0044 0532 0130 00" },
-      "expected": { "iban": "⟦REDACTED:IBAN⟧" },
-      "patterns": ["IBAN"]
+      "input": {
+        "iban": "DE89 3704 0044 0532 0130 00"
+      },
+      "expected": {
+        "iban": "⟦REDACTED:IBAN⟧"
+      },
+      "patterns": [
+        "IBAN"
+      ],
+      "fields": [
+        {
+          "path": "/iban",
+          "pattern": "IBAN",
+          "props": {
+            "type": "string",
+            "length": 27,
+            "containsLowerCase": false,
+            "containsUpperCase": true,
+            "containsDigits": true,
+            "containsASCIIControlChars": false,
+            "containsASCIIPrintableChars": true,
+            "containsASCIIExtendedChars": false
+          }
+        }
+      ]
     },
     {
       "id": "iban-json-alphanumeric-bban",
       "description": "IBANs with letters in the BBAN (GB, FR, NL, ES) — mod-97 validated, not PAN-confused",
       "kind": "json",
       "direction": "any",
-      "input": { "gb": "GB82WEST12345698765432", "fr": "FR1420041010050500013M02606", "nl": "NL91ABNA0417164300", "es": "ES9121000418450200051332" },
-      "expected": { "gb": "⟦REDACTED:IBAN⟧", "fr": "⟦REDACTED:IBAN⟧", "nl": "⟦REDACTED:IBAN⟧", "es": "⟦REDACTED:IBAN⟧" },
-      "patterns": ["IBAN"]
+      "input": {
+        "gb": "GB82WEST12345698765432",
+        "fr": "FR1420041010050500013M02606",
+        "nl": "NL91ABNA0417164300",
+        "es": "ES9121000418450200051332"
+      },
+      "expected": {
+        "gb": "⟦REDACTED:IBAN⟧",
+        "fr": "⟦REDACTED:IBAN⟧",
+        "nl": "⟦REDACTED:IBAN⟧",
+        "es": "⟦REDACTED:IBAN⟧"
+      },
+      "patterns": [
+        "IBAN"
+      ],
+      "fields": [
+        {
+          "path": "/es",
+          "pattern": "IBAN",
+          "props": {
+            "type": "string",
+            "length": 24,
+            "containsLowerCase": false,
+            "containsUpperCase": true,
+            "containsDigits": true,
+            "containsASCIIControlChars": false,
+            "containsASCIIPrintableChars": true,
+            "containsASCIIExtendedChars": false
+          }
+        },
+        {
+          "path": "/fr",
+          "pattern": "IBAN",
+          "props": {
+            "type": "string",
+            "length": 27,
+            "containsLowerCase": false,
+            "containsUpperCase": true,
+            "containsDigits": true,
+            "containsASCIIControlChars": false,
+            "containsASCIIPrintableChars": true,
+            "containsASCIIExtendedChars": false
+          }
+        },
+        {
+          "path": "/gb",
+          "pattern": "IBAN",
+          "props": {
+            "type": "string",
+            "length": 22,
+            "containsLowerCase": false,
+            "containsUpperCase": true,
+            "containsDigits": true,
+            "containsASCIIControlChars": false,
+            "containsASCIIPrintableChars": true,
+            "containsASCIIExtendedChars": false
+          }
+        },
+        {
+          "path": "/nl",
+          "pattern": "IBAN",
+          "props": {
+            "type": "string",
+            "length": 18,
+            "containsLowerCase": false,
+            "containsUpperCase": true,
+            "containsDigits": true,
+            "containsASCIIControlChars": false,
+            "containsASCIIPrintableChars": true,
+            "containsASCIIExtendedChars": false
+          }
+        }
+      ]
     },
     {
       "id": "iban-text-in-prose",
@@ -518,34 +1315,166 @@
       "direction": "any",
       "input": "Pay to DE89 3704 0044 0532 0130 00 BEFORE friday",
       "expected": "Pay to ⟦REDACTED:IBAN⟧ BEFORE friday",
-      "patterns": ["IBAN"]
+      "patterns": [
+        "IBAN"
+      ]
     },
     {
       "id": "ssn-json",
       "description": "US SSN in ###-##-#### format",
       "kind": "json",
       "direction": "any",
-      "input": { "ssn": "123-45-6789" },
-      "expected": { "ssn": "⟦REDACTED:SSN⟧" },
-      "patterns": ["SSN"]
+      "input": {
+        "ssn": "123-45-6789"
+      },
+      "expected": {
+        "ssn": "⟦REDACTED:SSN⟧"
+      },
+      "patterns": [
+        "SSN"
+      ],
+      "fields": [
+        {
+          "path": "/ssn",
+          "pattern": "SSN",
+          "props": {
+            "type": "string",
+            "length": 11,
+            "containsLowerCase": false,
+            "containsUpperCase": false,
+            "containsDigits": true,
+            "containsASCIIControlChars": false,
+            "containsASCIIPrintableChars": true,
+            "containsASCIIExtendedChars": false
+          }
+        }
+      ]
     },
     {
       "id": "phone-json-e164",
       "description": "E.164 phone number, validated against phone metadata",
       "kind": "json",
       "direction": "any",
-      "input": { "phone": "+14155552671" },
-      "expected": { "phone": "⟦REDACTED:PHONE⟧" },
-      "patterns": ["PHONE"]
+      "input": {
+        "phone": "+14155552671"
+      },
+      "expected": {
+        "phone": "⟦REDACTED:PHONE⟧"
+      },
+      "patterns": [
+        "PHONE"
+      ],
+      "fields": [
+        {
+          "path": "/phone",
+          "pattern": "PHONE",
+          "props": {
+            "type": "string",
+            "length": 12,
+            "containsLowerCase": false,
+            "containsUpperCase": false,
+            "containsDigits": true,
+            "containsASCIIControlChars": false,
+            "containsASCIIPrintableChars": true,
+            "containsASCIIExtendedChars": false
+          }
+        }
+      ]
     },
     {
       "id": "phone-json-international-formats",
       "description": "International numbers in common separated formats: spaces, parentheses, dashes, dots",
       "kind": "json",
       "direction": "any",
-      "input": { "a": "+1 415 555 2671", "b": "+1 (415) 555-2671", "c": "+44 20 7946 0958", "d": "+49.30.901820", "e": "+972 3 555 1234" },
-      "expected": { "a": "⟦REDACTED:PHONE⟧", "b": "⟦REDACTED:PHONE⟧", "c": "⟦REDACTED:PHONE⟧", "d": "⟦REDACTED:PHONE⟧", "e": "⟦REDACTED:PHONE⟧" },
-      "patterns": ["PHONE"]
+      "input": {
+        "a": "+1 415 555 2671",
+        "b": "+1 (415) 555-2671",
+        "c": "+44 20 7946 0958",
+        "d": "+49.30.901820",
+        "e": "+972 3 555 1234"
+      },
+      "expected": {
+        "a": "⟦REDACTED:PHONE⟧",
+        "b": "⟦REDACTED:PHONE⟧",
+        "c": "⟦REDACTED:PHONE⟧",
+        "d": "⟦REDACTED:PHONE⟧",
+        "e": "⟦REDACTED:PHONE⟧"
+      },
+      "patterns": [
+        "PHONE"
+      ],
+      "fields": [
+        {
+          "path": "/a",
+          "pattern": "PHONE",
+          "props": {
+            "type": "string",
+            "length": 15,
+            "containsLowerCase": false,
+            "containsUpperCase": false,
+            "containsDigits": true,
+            "containsASCIIControlChars": false,
+            "containsASCIIPrintableChars": true,
+            "containsASCIIExtendedChars": false
+          }
+        },
+        {
+          "path": "/b",
+          "pattern": "PHONE",
+          "props": {
+            "type": "string",
+            "length": 17,
+            "containsLowerCase": false,
+            "containsUpperCase": false,
+            "containsDigits": true,
+            "containsASCIIControlChars": false,
+            "containsASCIIPrintableChars": true,
+            "containsASCIIExtendedChars": false
+          }
+        },
+        {
+          "path": "/c",
+          "pattern": "PHONE",
+          "props": {
+            "type": "string",
+            "length": 16,
+            "containsLowerCase": false,
+            "containsUpperCase": false,
+            "containsDigits": true,
+            "containsASCIIControlChars": false,
+            "containsASCIIPrintableChars": true,
+            "containsASCIIExtendedChars": false
+          }
+        },
+        {
+          "path": "/d",
+          "pattern": "PHONE",
+          "props": {
+            "type": "string",
+            "length": 13,
+            "containsLowerCase": false,
+            "containsUpperCase": false,
+            "containsDigits": true,
+            "containsASCIIControlChars": false,
+            "containsASCIIPrintableChars": true,
+            "containsASCIIExtendedChars": false
+          }
+        },
+        {
+          "path": "/e",
+          "pattern": "PHONE",
+          "props": {
+            "type": "string",
+            "length": 15,
+            "containsLowerCase": false,
+            "containsUpperCase": false,
+            "containsDigits": true,
+            "containsASCIIControlChars": false,
+            "containsASCIIPrintableChars": true,
+            "containsASCIIExtendedChars": false
+          }
+        }
+      ]
     },
     {
       "id": "phone-text-followed-by-extension",
@@ -554,7 +1483,9 @@
       "direction": "any",
       "input": "call +1 415 555 2671 ext 1225 before 5",
       "expected": "call ⟦REDACTED:PHONE⟧ ext 1225 before 5",
-      "patterns": ["PHONE"]
+      "patterns": [
+        "PHONE"
+      ]
     },
     {
       "id": "phone-text-followed-by-separated-digits-trimmed",
@@ -563,25 +1494,152 @@
       "direction": "any",
       "input": "tel +1 415 555 2671 1225",
       "expected": "tel ⟦REDACTED:PHONE⟧ 1225",
-      "patterns": ["PHONE"]
+      "patterns": [
+        "PHONE"
+      ]
     },
     {
       "id": "cvv-json-string-and-number",
       "description": "CVV is contextual: the value of a cvv/cvc key, whether a string or a number, becomes a string token",
       "kind": "json",
       "direction": "inbound",
-      "input": { "cvv": "123", "cvc": 456 },
-      "expected": { "cvv": "⟦REDACTED:CVV⟧", "cvc": "⟦REDACTED:CVV⟧" },
-      "patterns": ["CVV"]
+      "input": {
+        "cvv": "123",
+        "cvc": 456
+      },
+      "expected": {
+        "cvv": "⟦REDACTED:CVV⟧",
+        "cvc": "⟦REDACTED:CVV⟧"
+      },
+      "patterns": [
+        "CVV"
+      ],
+      "fields": [
+        {
+          "path": "/cvc",
+          "pattern": "CVV",
+          "props": {
+            "type": "number",
+            "length": 3,
+            "containsLowerCase": false,
+            "containsUpperCase": false,
+            "containsDigits": true,
+            "containsASCIIControlChars": false,
+            "containsASCIIPrintableChars": true,
+            "containsASCIIExtendedChars": false,
+            "integer": true
+          }
+        },
+        {
+          "path": "/cvv",
+          "pattern": "CVV",
+          "props": {
+            "type": "string",
+            "length": 3,
+            "containsLowerCase": false,
+            "containsUpperCase": false,
+            "containsDigits": true,
+            "containsASCIIControlChars": false,
+            "containsASCIIPrintableChars": true,
+            "containsASCIIExtendedChars": false
+          }
+        }
+      ]
     },
     {
       "id": "cvv-json-key-variants",
       "description": "CVV key variants: cvv2, cvc2, card_cvc, security_code, CVV (case-insensitive)",
       "kind": "json",
       "direction": "inbound",
-      "input": { "cvv2": "1234", "cvc2": "999", "card_cvc": "321", "security_code": "111", "CVV": "222" },
-      "expected": { "cvv2": "⟦REDACTED:CVV⟧", "cvc2": "⟦REDACTED:CVV⟧", "card_cvc": "⟦REDACTED:CVV⟧", "security_code": "⟦REDACTED:CVV⟧", "CVV": "⟦REDACTED:CVV⟧" },
-      "patterns": ["CVV"]
+      "input": {
+        "cvv2": "1234",
+        "cvc2": "999",
+        "card_cvc": "321",
+        "security_code": "111",
+        "CVV": "222"
+      },
+      "expected": {
+        "cvv2": "⟦REDACTED:CVV⟧",
+        "cvc2": "⟦REDACTED:CVV⟧",
+        "card_cvc": "⟦REDACTED:CVV⟧",
+        "security_code": "⟦REDACTED:CVV⟧",
+        "CVV": "⟦REDACTED:CVV⟧"
+      },
+      "patterns": [
+        "CVV"
+      ],
+      "fields": [
+        {
+          "path": "/CVV",
+          "pattern": "CVV",
+          "props": {
+            "type": "string",
+            "length": 3,
+            "containsLowerCase": false,
+            "containsUpperCase": false,
+            "containsDigits": true,
+            "containsASCIIControlChars": false,
+            "containsASCIIPrintableChars": true,
+            "containsASCIIExtendedChars": false
+          }
+        },
+        {
+          "path": "/card_cvc",
+          "pattern": "CVV",
+          "props": {
+            "type": "string",
+            "length": 3,
+            "containsLowerCase": false,
+            "containsUpperCase": false,
+            "containsDigits": true,
+            "containsASCIIControlChars": false,
+            "containsASCIIPrintableChars": true,
+            "containsASCIIExtendedChars": false
+          }
+        },
+        {
+          "path": "/cvc2",
+          "pattern": "CVV",
+          "props": {
+            "type": "string",
+            "length": 3,
+            "containsLowerCase": false,
+            "containsUpperCase": false,
+            "containsDigits": true,
+            "containsASCIIControlChars": false,
+            "containsASCIIPrintableChars": true,
+            "containsASCIIExtendedChars": false
+          }
+        },
+        {
+          "path": "/cvv2",
+          "pattern": "CVV",
+          "props": {
+            "type": "string",
+            "length": 4,
+            "containsLowerCase": false,
+            "containsUpperCase": false,
+            "containsDigits": true,
+            "containsASCIIControlChars": false,
+            "containsASCIIPrintableChars": true,
+            "containsASCIIExtendedChars": false
+          }
+        },
+        {
+          "path": "/security_code",
+          "pattern": "CVV",
+          "props": {
+            "type": "string",
+            "length": 3,
+            "containsLowerCase": false,
+            "containsUpperCase": false,
+            "containsDigits": true,
+            "containsASCIIControlChars": false,
+            "containsASCIIPrintableChars": true,
+            "containsASCIIExtendedChars": false
+          }
+        }
+      ]
     },
     {
       "id": "cvv-text-form-and-loose",
@@ -590,16 +1648,72 @@
       "direction": "inbound",
       "input": "cvv=123&exp=1225 (cvc: 4567)",
       "expected": "cvv=⟦REDACTED:CVV⟧&exp=1225 (cvc: ⟦REDACTED:CVV⟧)",
-      "patterns": ["CVV"]
+      "patterns": [
+        "CVV"
+      ]
     },
     {
       "id": "token-json-secret-keys",
       "description": "Secret-key shaped credentials (sk_live / sk_test / pk_live) inside JSON",
       "kind": "json",
       "direction": "any",
-      "input": { "secret": "sk_live_51HabcDEfGhIjkLmNoPqRsTuV", "test": "sk_test_4eC39HqLyjWDarjtT1zdp7dc", "pub": "pk_live_abcdef123456" },
-      "expected": { "secret": "⟦REDACTED:TOKEN⟧", "test": "⟦REDACTED:TOKEN⟧", "pub": "⟦REDACTED:TOKEN⟧" },
-      "patterns": ["TOKEN"]
+      "input": {
+        "secret": "sk_live_51HabcDEfGhIjkLmNoPqRsTuV",
+        "test": "sk_test_4eC39HqLyjWDarjtT1zdp7dc",
+        "pub": "pk_live_abcdef123456"
+      },
+      "expected": {
+        "secret": "⟦REDACTED:TOKEN⟧",
+        "test": "⟦REDACTED:TOKEN⟧",
+        "pub": "⟦REDACTED:TOKEN⟧"
+      },
+      "patterns": [
+        "TOKEN"
+      ],
+      "fields": [
+        {
+          "path": "/pub",
+          "pattern": "TOKEN",
+          "props": {
+            "type": "string",
+            "length": 20,
+            "containsLowerCase": true,
+            "containsUpperCase": false,
+            "containsDigits": true,
+            "containsASCIIControlChars": false,
+            "containsASCIIPrintableChars": true,
+            "containsASCIIExtendedChars": false
+          }
+        },
+        {
+          "path": "/secret",
+          "pattern": "TOKEN",
+          "props": {
+            "type": "string",
+            "length": 33,
+            "containsLowerCase": true,
+            "containsUpperCase": true,
+            "containsDigits": true,
+            "containsASCIIControlChars": false,
+            "containsASCIIPrintableChars": true,
+            "containsASCIIExtendedChars": false
+          }
+        },
+        {
+          "path": "/test",
+          "pattern": "TOKEN",
+          "props": {
+            "type": "string",
+            "length": 32,
+            "containsLowerCase": true,
+            "containsUpperCase": true,
+            "containsDigits": true,
+            "containsASCIIControlChars": false,
+            "containsASCIIPrintableChars": true,
+            "containsASCIIExtendedChars": false
+          }
+        }
+      ]
     },
     {
       "id": "token-text-bearer-jwt",
@@ -608,7 +1722,9 @@
       "direction": "any",
       "input": "Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJqYW5lQGV4YW1wbGUuY29tIiwiaWF0IjoxNzI0MTAwMDAwfQ.abcdefghijklmnop",
       "expected": "Authorization: Bearer ⟦REDACTED:TOKEN⟧",
-      "patterns": ["TOKEN"]
+      "patterns": [
+        "TOKEN"
+      ]
     },
     {
       "id": "token-text-bearer-opaque",
@@ -617,43 +1733,135 @@
       "direction": "any",
       "input": "authorization: bearer 9f8e7d6c5b4a3f2e1d0c",
       "expected": "authorization: bearer ⟦REDACTED:TOKEN⟧",
-      "patterns": ["TOKEN"]
+      "patterns": [
+        "TOKEN"
+      ]
     },
     {
       "id": "base64-json-field-encoding-json-with-pan",
       "description": "A base64 field whose decoded content is JSON containing a PAN: the WHOLE encoded value becomes the PAN token",
       "kind": "json",
       "direction": "any",
-      "input": { "payload": "eyJjYXJkIjoiNDExMTExMTExMTExMTExMSIsImFtb3VudCI6MTIwMH0=", "v": 1 },
-      "expected": { "payload": "⟦REDACTED:PAN⟧", "v": 1 },
-      "patterns": ["PAN"]
+      "input": {
+        "payload": "eyJjYXJkIjoiNDExMTExMTExMTExMTExMSIsImFtb3VudCI6MTIwMH0=",
+        "v": 1
+      },
+      "expected": {
+        "payload": "⟦REDACTED:PAN⟧",
+        "v": 1
+      },
+      "patterns": [
+        "PAN"
+      ],
+      "fields": [
+        {
+          "path": "/payload",
+          "pattern": "PAN",
+          "props": {
+            "type": "string",
+            "length": 56,
+            "containsLowerCase": true,
+            "containsUpperCase": true,
+            "containsDigits": true,
+            "containsASCIIControlChars": false,
+            "containsASCIIPrintableChars": true,
+            "containsASCIIExtendedChars": false
+          }
+        }
+      ]
     },
     {
       "id": "base64-json-url-safe-unpadded",
       "description": "base64url (unpadded, - and _) encoding of JSON with a PAN",
       "kind": "json",
       "direction": "any",
-      "input": { "payload": "eyJjYXJkIjoiNDExMTExMTExMTExMTExMSIsImFtb3VudCI6MTIwMH0" },
-      "expected": { "payload": "⟦REDACTED:PAN⟧" },
-      "patterns": ["PAN"]
+      "input": {
+        "payload": "eyJjYXJkIjoiNDExMTExMTExMTExMTExMSIsImFtb3VudCI6MTIwMH0"
+      },
+      "expected": {
+        "payload": "⟦REDACTED:PAN⟧"
+      },
+      "patterns": [
+        "PAN"
+      ],
+      "fields": [
+        {
+          "path": "/payload",
+          "pattern": "PAN",
+          "props": {
+            "type": "string",
+            "length": 55,
+            "containsLowerCase": true,
+            "containsUpperCase": true,
+            "containsDigits": true,
+            "containsASCIIControlChars": false,
+            "containsASCIIPrintableChars": true,
+            "containsASCIIExtendedChars": false
+          }
+        }
+      ]
     },
     {
       "id": "base64-json-plain-text-with-pan",
       "description": "base64 of plain prose containing a spaced PAN",
       "kind": "json",
       "direction": "any",
-      "input": { "memo": "Y2FyZCA0MTExIDExMTEgMTExMSAxMTExIG9uIGZpbGU=" },
-      "expected": { "memo": "⟦REDACTED:PAN⟧" },
-      "patterns": ["PAN"]
+      "input": {
+        "memo": "Y2FyZCA0MTExIDExMTEgMTExMSAxMTExIG9uIGZpbGU="
+      },
+      "expected": {
+        "memo": "⟦REDACTED:PAN⟧"
+      },
+      "patterns": [
+        "PAN"
+      ],
+      "fields": [
+        {
+          "path": "/memo",
+          "pattern": "PAN",
+          "props": {
+            "type": "string",
+            "length": 44,
+            "containsLowerCase": true,
+            "containsUpperCase": true,
+            "containsDigits": true,
+            "containsASCIIControlChars": false,
+            "containsASCIIPrintableChars": true,
+            "containsASCIIExtendedChars": false
+          }
+        }
+      ]
     },
     {
       "id": "base64-json-email-only",
       "description": "base64 whose decoded content holds only an email: whole value becomes the EMAIL token",
       "kind": "json",
       "direction": "any",
-      "input": { "memo": "Y29udGFjdCBqYW5lLmRvZUBleGFtcGxlLmNvbSBmb3IgdGhlIGludm9pY2U=" },
-      "expected": { "memo": "⟦REDACTED:EMAIL⟧" },
-      "patterns": ["EMAIL"]
+      "input": {
+        "memo": "Y29udGFjdCBqYW5lLmRvZUBleGFtcGxlLmNvbSBmb3IgdGhlIGludm9pY2U="
+      },
+      "expected": {
+        "memo": "⟦REDACTED:EMAIL⟧"
+      },
+      "patterns": [
+        "EMAIL"
+      ],
+      "fields": [
+        {
+          "path": "/memo",
+          "pattern": "EMAIL",
+          "props": {
+            "type": "string",
+            "length": 60,
+            "containsLowerCase": true,
+            "containsUpperCase": true,
+            "containsDigits": true,
+            "containsASCIIControlChars": false,
+            "containsASCIIPrintableChars": true,
+            "containsASCIIExtendedChars": false
+          }
+        }
+      ]
     },
     {
       "id": "base64-text-whole-body",
@@ -662,7 +1870,25 @@
       "direction": "any",
       "input": "eyJjYXJkIjoiNDExMTExMTExMTExMTExMSIsImFtb3VudCI6MTIwMH0=",
       "expected": "⟦REDACTED:PAN⟧",
-      "patterns": ["PAN"]
+      "patterns": [
+        "PAN"
+      ],
+      "fields": [
+        {
+          "path": "",
+          "pattern": "PAN",
+          "props": {
+            "type": "string",
+            "length": 56,
+            "containsLowerCase": true,
+            "containsUpperCase": true,
+            "containsDigits": true,
+            "containsASCIIControlChars": false,
+            "containsASCIIPrintableChars": true,
+            "containsASCIIExtendedChars": false
+          }
+        }
+      ]
     },
     {
       "id": "base64-text-embedded-in-form-value",
@@ -671,7 +1897,9 @@
       "direction": "inbound",
       "input": "data=eyJjYXJkIjoiNDExMTExMTExMTExMTExMSIsImFtb3VudCI6MTIwMH0=&v=1",
       "expected": "data=⟦REDACTED:PAN⟧&v=1",
-      "patterns": ["PAN"]
+      "patterns": [
+        "PAN"
+      ]
     },
     {
       "id": "inbound-json-request-high-density",
@@ -679,31 +1907,232 @@
       "kind": "json",
       "direction": "inbound",
       "input": {
-        "customer": { "name": "Jane Doe", "email": "jane@example.com", "phone": "+1 415 555 2671", "ssn": "123-45-6789" },
+        "customer": {
+          "name": "Jane Doe",
+          "email": "jane@example.com",
+          "phone": "+1 415 555 2671",
+          "ssn": "123-45-6789"
+        },
         "payment": {
-          "card": { "number": "4111 1111 1111 1111", "cvc": "123", "exp_month": 12, "exp_year": 2030, "last4": "1111" },
+          "card": {
+            "number": "4111 1111 1111 1111",
+            "cvc": "123",
+            "exp_month": 12,
+            "exp_year": 2030,
+            "last4": "1111"
+          },
           "billing_iban": "DE89 3704 0044 0532 0130 00"
         },
-        "metadata": { "order_id": "4111111111111112", "amount": 1200, "ip": "203.0.113.7" }
+        "metadata": {
+          "order_id": "4111111111111112",
+          "amount": 1200,
+          "ip": "203.0.113.7"
+        }
       },
       "expected": {
-        "customer": { "name": "Jane Doe", "email": "⟦REDACTED:EMAIL⟧", "phone": "⟦REDACTED:PHONE⟧", "ssn": "⟦REDACTED:SSN⟧" },
+        "customer": {
+          "name": "Jane Doe",
+          "email": "⟦REDACTED:EMAIL⟧",
+          "phone": "⟦REDACTED:PHONE⟧",
+          "ssn": "⟦REDACTED:SSN⟧"
+        },
         "payment": {
-          "card": { "number": "⟦REDACTED:PAN⟧", "cvc": "⟦REDACTED:CVV⟧", "exp_month": 12, "exp_year": 2030, "last4": "1111" },
+          "card": {
+            "number": "⟦REDACTED:PAN⟧",
+            "cvc": "⟦REDACTED:CVV⟧",
+            "exp_month": 12,
+            "exp_year": 2030,
+            "last4": "1111"
+          },
           "billing_iban": "⟦REDACTED:IBAN⟧"
         },
-        "metadata": { "order_id": "4111111111111112", "amount": 1200, "ip": "203.0.113.7" }
+        "metadata": {
+          "order_id": "4111111111111112",
+          "amount": 1200,
+          "ip": "203.0.113.7"
+        }
       },
-      "patterns": ["PAN", "EMAIL", "IBAN", "SSN", "PHONE", "CVV"]
+      "patterns": [
+        "PAN",
+        "EMAIL",
+        "IBAN",
+        "SSN",
+        "PHONE",
+        "CVV"
+      ],
+      "fields": [
+        {
+          "path": "/customer/email",
+          "pattern": "EMAIL",
+          "props": {
+            "type": "string",
+            "length": 16,
+            "containsLowerCase": true,
+            "containsUpperCase": false,
+            "containsDigits": false,
+            "containsASCIIControlChars": false,
+            "containsASCIIPrintableChars": true,
+            "containsASCIIExtendedChars": false
+          }
+        },
+        {
+          "path": "/customer/phone",
+          "pattern": "PHONE",
+          "props": {
+            "type": "string",
+            "length": 15,
+            "containsLowerCase": false,
+            "containsUpperCase": false,
+            "containsDigits": true,
+            "containsASCIIControlChars": false,
+            "containsASCIIPrintableChars": true,
+            "containsASCIIExtendedChars": false
+          }
+        },
+        {
+          "path": "/customer/ssn",
+          "pattern": "SSN",
+          "props": {
+            "type": "string",
+            "length": 11,
+            "containsLowerCase": false,
+            "containsUpperCase": false,
+            "containsDigits": true,
+            "containsASCIIControlChars": false,
+            "containsASCIIPrintableChars": true,
+            "containsASCIIExtendedChars": false
+          }
+        },
+        {
+          "path": "/payment/billing_iban",
+          "pattern": "IBAN",
+          "props": {
+            "type": "string",
+            "length": 27,
+            "containsLowerCase": false,
+            "containsUpperCase": true,
+            "containsDigits": true,
+            "containsASCIIControlChars": false,
+            "containsASCIIPrintableChars": true,
+            "containsASCIIExtendedChars": false
+          }
+        },
+        {
+          "path": "/payment/card/cvc",
+          "pattern": "CVV",
+          "props": {
+            "type": "string",
+            "length": 3,
+            "containsLowerCase": false,
+            "containsUpperCase": false,
+            "containsDigits": true,
+            "containsASCIIControlChars": false,
+            "containsASCIIPrintableChars": true,
+            "containsASCIIExtendedChars": false
+          }
+        },
+        {
+          "path": "/payment/card/number",
+          "pattern": "PAN",
+          "props": {
+            "type": "string",
+            "length": 19,
+            "containsLowerCase": false,
+            "containsUpperCase": false,
+            "containsDigits": true,
+            "containsASCIIControlChars": false,
+            "containsASCIIPrintableChars": true,
+            "containsASCIIExtendedChars": false
+          }
+        }
+      ]
     },
     {
       "id": "inbound-json-batch-of-cards",
       "description": "INBOUND batch request: an array of card objects, every PAN caught, every non-PAN scalar kept",
       "kind": "json",
       "direction": "inbound",
-      "input": { "cards": [{ "number": "4242424242424242", "holder": "A" }, { "number": "5555-5555-5555-4444", "holder": "B" }, { "number": "3782 822463 10005", "holder": "C" }], "dry_run": true },
-      "expected": { "cards": [{ "number": "⟦REDACTED:PAN⟧", "holder": "A" }, { "number": "⟦REDACTED:PAN⟧", "holder": "B" }, { "number": "⟦REDACTED:PAN⟧", "holder": "C" }], "dry_run": true },
-      "patterns": ["PAN"]
+      "input": {
+        "cards": [
+          {
+            "number": "4242424242424242",
+            "holder": "A"
+          },
+          {
+            "number": "5555-5555-5555-4444",
+            "holder": "B"
+          },
+          {
+            "number": "3782 822463 10005",
+            "holder": "C"
+          }
+        ],
+        "dry_run": true
+      },
+      "expected": {
+        "cards": [
+          {
+            "number": "⟦REDACTED:PAN⟧",
+            "holder": "A"
+          },
+          {
+            "number": "⟦REDACTED:PAN⟧",
+            "holder": "B"
+          },
+          {
+            "number": "⟦REDACTED:PAN⟧",
+            "holder": "C"
+          }
+        ],
+        "dry_run": true
+      },
+      "patterns": [
+        "PAN"
+      ],
+      "fields": [
+        {
+          "path": "/cards/0/number",
+          "pattern": "PAN",
+          "props": {
+            "type": "string",
+            "length": 16,
+            "containsLowerCase": false,
+            "containsUpperCase": false,
+            "containsDigits": true,
+            "containsASCIIControlChars": false,
+            "containsASCIIPrintableChars": true,
+            "containsASCIIExtendedChars": false
+          }
+        },
+        {
+          "path": "/cards/1/number",
+          "pattern": "PAN",
+          "props": {
+            "type": "string",
+            "length": 19,
+            "containsLowerCase": false,
+            "containsUpperCase": false,
+            "containsDigits": true,
+            "containsASCIIControlChars": false,
+            "containsASCIIPrintableChars": true,
+            "containsASCIIExtendedChars": false
+          }
+        },
+        {
+          "path": "/cards/2/number",
+          "pattern": "PAN",
+          "props": {
+            "type": "string",
+            "length": 17,
+            "containsLowerCase": false,
+            "containsUpperCase": false,
+            "containsDigits": true,
+            "containsASCIIControlChars": false,
+            "containsASCIIPrintableChars": true,
+            "containsASCIIExtendedChars": false
+          }
+        }
+      ]
     },
     {
       "id": "inbound-text-form-encoded-request",
@@ -712,15 +2141,43 @@
       "direction": "inbound",
       "input": "card_number=4111111111111111&cvv=123&email=jane%40example.com&note=hello+world&amount=1200",
       "expected": "card_number=⟦REDACTED:PAN⟧&cvv=⟦REDACTED:CVV⟧&email=⟦REDACTED:EMAIL⟧&note=hello+world&amount=1200",
-      "patterns": ["PAN", "EMAIL", "CVV"]
+      "patterns": [
+        "PAN",
+        "EMAIL",
+        "CVV"
+      ]
     },
     {
       "id": "outbound-json-response-tokenized-card",
       "description": "OUTBOUND-style response: a provider response that correctly tokenized the card (last4 + brand) has nothing to redact",
       "kind": "json",
       "direction": "outbound",
-      "input": { "id": "ch_3Nq", "status": "succeeded", "amount": 1200, "payment_method": { "card": { "brand": "visa", "last4": "4242", "exp_month": 12, "exp_year": 2030 } } },
-      "expected": { "id": "ch_3Nq", "status": "succeeded", "amount": 1200, "payment_method": { "card": { "brand": "visa", "last4": "4242", "exp_month": 12, "exp_year": 2030 } } },
+      "input": {
+        "id": "ch_3Nq",
+        "status": "succeeded",
+        "amount": 1200,
+        "payment_method": {
+          "card": {
+            "brand": "visa",
+            "last4": "4242",
+            "exp_month": 12,
+            "exp_year": 2030
+          }
+        }
+      },
+      "expected": {
+        "id": "ch_3Nq",
+        "status": "succeeded",
+        "amount": 1200,
+        "payment_method": {
+          "card": {
+            "brand": "visa",
+            "last4": "4242",
+            "exp_month": 12,
+            "exp_year": 2030
+          }
+        }
+      },
       "patterns": []
     },
     {
@@ -728,17 +2185,98 @@
       "description": "Fired pattern ids are reported in canonical order PAN, EMAIL, IBAN, SSN, PHONE, CVV, TOKEN, IP regardless of position",
       "kind": "json",
       "direction": "any",
-      "input": { "cvv": "999", "email": "a@b.com", "pan": "4111111111111111", "token": "sk_live_abcdEF1234567890XyZ" },
-      "expected": { "cvv": "⟦REDACTED:CVV⟧", "email": "⟦REDACTED:EMAIL⟧", "pan": "⟦REDACTED:PAN⟧", "token": "⟦REDACTED:TOKEN⟧" },
-      "patterns": ["PAN", "EMAIL", "CVV", "TOKEN"]
+      "input": {
+        "cvv": "999",
+        "email": "a@b.com",
+        "pan": "4111111111111111",
+        "token": "sk_live_abcdEF1234567890XyZ"
+      },
+      "expected": {
+        "cvv": "⟦REDACTED:CVV⟧",
+        "email": "⟦REDACTED:EMAIL⟧",
+        "pan": "⟦REDACTED:PAN⟧",
+        "token": "⟦REDACTED:TOKEN⟧"
+      },
+      "patterns": [
+        "PAN",
+        "EMAIL",
+        "CVV",
+        "TOKEN"
+      ],
+      "fields": [
+        {
+          "path": "/cvv",
+          "pattern": "CVV",
+          "props": {
+            "type": "string",
+            "length": 3,
+            "containsLowerCase": false,
+            "containsUpperCase": false,
+            "containsDigits": true,
+            "containsASCIIControlChars": false,
+            "containsASCIIPrintableChars": true,
+            "containsASCIIExtendedChars": false
+          }
+        },
+        {
+          "path": "/email",
+          "pattern": "EMAIL",
+          "props": {
+            "type": "string",
+            "length": 7,
+            "containsLowerCase": true,
+            "containsUpperCase": false,
+            "containsDigits": false,
+            "containsASCIIControlChars": false,
+            "containsASCIIPrintableChars": true,
+            "containsASCIIExtendedChars": false
+          }
+        },
+        {
+          "path": "/pan",
+          "pattern": "PAN",
+          "props": {
+            "type": "string",
+            "length": 16,
+            "containsLowerCase": false,
+            "containsUpperCase": false,
+            "containsDigits": true,
+            "containsASCIIControlChars": false,
+            "containsASCIIPrintableChars": true,
+            "containsASCIIExtendedChars": false
+          }
+        },
+        {
+          "path": "/token",
+          "pattern": "TOKEN",
+          "props": {
+            "type": "string",
+            "length": 27,
+            "containsLowerCase": true,
+            "containsUpperCase": true,
+            "containsDigits": true,
+            "containsASCIIControlChars": false,
+            "containsASCIIPrintableChars": true,
+            "containsASCIIExtendedChars": false
+          }
+        }
+      ]
     },
     {
       "id": "idempotent-json-already-redacted",
       "description": "Re-redacting an already-redacted body is a no-op: tokens are inert, nothing fires",
       "kind": "json",
       "direction": "any",
-      "input": { "card": "⟦REDACTED:PAN⟧", "email": "⟦REDACTED:EMAIL⟧", "note": "see ⟦REDACTED:PHONE⟧" },
-      "expected": { "card": "⟦REDACTED:PAN⟧", "email": "⟦REDACTED:EMAIL⟧", "note": "see ⟦REDACTED:PHONE⟧" },
+      "input": {
+        "card": "⟦REDACTED:PAN⟧",
+        "email": "⟦REDACTED:EMAIL⟧",
+        "note": "see ⟦REDACTED:PHONE⟧"
+      },
+      "expected": {
+        "card": "⟦REDACTED:PAN⟧",
+        "email": "⟦REDACTED:EMAIL⟧",
+        "note": "see ⟦REDACTED:PHONE⟧"
+      },
       "patterns": []
     },
     {
@@ -748,90 +2286,304 @@
       "direction": "any",
       "input": "pre ⟦REDACTED:PAN⟧ mid ⟦REDACTED:EMAIL⟧ post 4242424242424242",
       "expected": "pre ⟦REDACTED:PAN⟧ mid ⟦REDACTED:EMAIL⟧ post ⟦REDACTED:PAN⟧",
-      "patterns": ["PAN"]
+      "patterns": [
+        "PAN"
+      ]
     },
     {
       "id": "poisoned-spec-omits-pan-field",
       "description": "POISONED SPEC: a spec that declares nothing sensitive cannot remove the floor's PAN token",
       "kind": "json",
       "direction": "inbound",
-      "input": { "card_number": "4111111111111111", "order_id": "4111111111111112" },
-      "expected": { "card_number": "⟦REDACTED:PAN⟧", "order_id": "4111111111111112" },
-      "patterns": ["PAN"],
+      "input": {
+        "card_number": "4111111111111111",
+        "order_id": "4111111111111112"
+      },
+      "expected": {
+        "card_number": "⟦REDACTED:PAN⟧",
+        "order_id": "4111111111111112"
+      },
+      "patterns": [
+        "PAN"
+      ],
       "enhancer": {
         "spec": [],
-        "expected": { "card_number": "⟦REDACTED:PAN⟧", "order_id": "4111111111111112" },
+        "expected": {
+          "card_number": "⟦REDACTED:PAN⟧",
+          "order_id": "4111111111111112"
+        },
         "patterns": []
-      }
+      },
+      "fields": [
+        {
+          "path": "/card_number",
+          "pattern": "PAN",
+          "props": {
+            "type": "string",
+            "length": 16,
+            "containsLowerCase": false,
+            "containsUpperCase": false,
+            "containsDigits": true,
+            "containsASCIIControlChars": false,
+            "containsASCIIPrintableChars": true,
+            "containsASCIIExtendedChars": false
+          }
+        }
+      ]
     },
     {
       "id": "poisoned-spec-declares-wrong-field",
       "description": "POISONED SPEC: a spec pointing at the wrong field ADDS a redaction there; the floor's PAN token is untouched",
       "kind": "json",
       "direction": "inbound",
-      "input": { "card_number": "4111111111111111", "order_id": "4111111111111112" },
-      "expected": { "card_number": "⟦REDACTED:PAN⟧", "order_id": "4111111111111112" },
-      "patterns": ["PAN"],
+      "input": {
+        "card_number": "4111111111111111",
+        "order_id": "4111111111111112"
+      },
+      "expected": {
+        "card_number": "⟦REDACTED:PAN⟧",
+        "order_id": "4111111111111112"
+      },
+      "patterns": [
+        "PAN"
+      ],
       "enhancer": {
-        "spec": [{ "path": "order_id", "type": "PAN" }],
-        "expected": { "card_number": "⟦REDACTED:PAN⟧", "order_id": "⟦REDACTED:PAN⟧" },
-        "patterns": ["PAN"]
-      }
+        "spec": [
+          {
+            "path": "order_id",
+            "type": "PAN"
+          }
+        ],
+        "expected": {
+          "card_number": "⟦REDACTED:PAN⟧",
+          "order_id": "⟦REDACTED:PAN⟧"
+        },
+        "patterns": [
+          "PAN"
+        ]
+      },
+      "fields": [
+        {
+          "path": "/card_number",
+          "pattern": "PAN",
+          "props": {
+            "type": "string",
+            "length": 16,
+            "containsLowerCase": false,
+            "containsUpperCase": false,
+            "containsDigits": true,
+            "containsASCIIControlChars": false,
+            "containsASCIIPrintableChars": true,
+            "containsASCIIExtendedChars": false
+          }
+        }
+      ]
     },
     {
       "id": "poisoned-spec-relabels-floor-token",
       "description": "POISONED SPEC: a spec that mislabels the card field as EMAIL cannot rewrite the floor's PAN token (tokens are immutable to the enhancer)",
       "kind": "json",
       "direction": "inbound",
-      "input": { "card_number": "4111111111111111" },
-      "expected": { "card_number": "⟦REDACTED:PAN⟧" },
-      "patterns": ["PAN"],
+      "input": {
+        "card_number": "4111111111111111"
+      },
+      "expected": {
+        "card_number": "⟦REDACTED:PAN⟧"
+      },
+      "patterns": [
+        "PAN"
+      ],
       "enhancer": {
-        "spec": [{ "path": "card_number", "type": "EMAIL" }],
-        "expected": { "card_number": "⟦REDACTED:PAN⟧" },
+        "spec": [
+          {
+            "path": "card_number",
+            "type": "EMAIL"
+          }
+        ],
+        "expected": {
+          "card_number": "⟦REDACTED:PAN⟧"
+        },
         "patterns": []
-      }
+      },
+      "fields": [
+        {
+          "path": "/card_number",
+          "pattern": "PAN",
+          "props": {
+            "type": "string",
+            "length": 16,
+            "containsLowerCase": false,
+            "containsUpperCase": false,
+            "containsDigits": true,
+            "containsASCIIControlChars": false,
+            "containsASCIIPrintableChars": true,
+            "containsASCIIExtendedChars": false
+          }
+        }
+      ]
     },
     {
       "id": "poisoned-spec-nonexistent-path",
       "description": "POISONED SPEC: paths that do not exist in the body are ignored",
       "kind": "json",
       "direction": "inbound",
-      "input": { "card_number": "4111111111111111", "x": { "y": "z" } },
-      "expected": { "card_number": "⟦REDACTED:PAN⟧", "x": { "y": "z" } },
-      "patterns": ["PAN"],
+      "input": {
+        "card_number": "4111111111111111",
+        "x": {
+          "y": "z"
+        }
+      },
+      "expected": {
+        "card_number": "⟦REDACTED:PAN⟧",
+        "x": {
+          "y": "z"
+        }
+      },
+      "patterns": [
+        "PAN"
+      ],
       "enhancer": {
-        "spec": [{ "path": "nope.deep.field", "type": "SSN" }, { "path": "x.missing", "type": "PAN" }],
-        "expected": { "card_number": "⟦REDACTED:PAN⟧", "x": { "y": "z" } },
+        "spec": [
+          {
+            "path": "nope.deep.field",
+            "type": "SSN"
+          },
+          {
+            "path": "x.missing",
+            "type": "PAN"
+          }
+        ],
+        "expected": {
+          "card_number": "⟦REDACTED:PAN⟧",
+          "x": {
+            "y": "z"
+          }
+        },
         "patterns": []
-      }
+      },
+      "fields": [
+        {
+          "path": "/card_number",
+          "pattern": "PAN",
+          "props": {
+            "type": "string",
+            "length": 16,
+            "containsLowerCase": false,
+            "containsUpperCase": false,
+            "containsDigits": true,
+            "containsASCIIControlChars": false,
+            "containsASCIIPrintableChars": true,
+            "containsASCIIExtendedChars": false
+          }
+        }
+      ]
     },
     {
       "id": "spec-adds-above-floor-national-id",
       "description": "GOOD SPEC: the spec marks a field the floor has no recognizer for (a UK NI number as SSN-class); the enhancer ADDS it above the floor",
       "kind": "json",
       "direction": "inbound",
-      "input": { "national_id": "AB123456C", "card": "4111111111111111", "name": "Jane" },
-      "expected": { "national_id": "AB123456C", "card": "⟦REDACTED:PAN⟧", "name": "Jane" },
-      "patterns": ["PAN"],
+      "input": {
+        "national_id": "AB123456C",
+        "card": "4111111111111111",
+        "name": "Jane"
+      },
+      "expected": {
+        "national_id": "AB123456C",
+        "card": "⟦REDACTED:PAN⟧",
+        "name": "Jane"
+      },
+      "patterns": [
+        "PAN"
+      ],
       "enhancer": {
-        "spec": [{ "path": "national_id", "type": "SSN" }],
-        "expected": { "national_id": "⟦REDACTED:SSN⟧", "card": "⟦REDACTED:PAN⟧", "name": "Jane" },
-        "patterns": ["SSN"]
-      }
+        "spec": [
+          {
+            "path": "national_id",
+            "type": "SSN"
+          }
+        ],
+        "expected": {
+          "national_id": "⟦REDACTED:SSN⟧",
+          "card": "⟦REDACTED:PAN⟧",
+          "name": "Jane"
+        },
+        "patterns": [
+          "SSN"
+        ]
+      },
+      "fields": [
+        {
+          "path": "/card",
+          "pattern": "PAN",
+          "props": {
+            "type": "string",
+            "length": 16,
+            "containsLowerCase": false,
+            "containsUpperCase": false,
+            "containsDigits": true,
+            "containsASCIIControlChars": false,
+            "containsASCIIPrintableChars": true,
+            "containsASCIIExtendedChars": false
+          }
+        }
+      ]
     },
     {
       "id": "spec-adds-over-array-wildcard",
       "description": "GOOD SPEC: `[]` addresses every array element; nested path under each element",
       "kind": "json",
       "direction": "inbound",
-      "input": { "items": [{ "acct": "X1", "qty": 1 }, { "acct": "X2", "qty": 2 }], "note": "ok" },
-      "expected": { "items": [{ "acct": "X1", "qty": 1 }, { "acct": "X2", "qty": 2 }], "note": "ok" },
+      "input": {
+        "items": [
+          {
+            "acct": "X1",
+            "qty": 1
+          },
+          {
+            "acct": "X2",
+            "qty": 2
+          }
+        ],
+        "note": "ok"
+      },
+      "expected": {
+        "items": [
+          {
+            "acct": "X1",
+            "qty": 1
+          },
+          {
+            "acct": "X2",
+            "qty": 2
+          }
+        ],
+        "note": "ok"
+      },
       "patterns": [],
       "enhancer": {
-        "spec": [{ "path": "items[].acct", "type": "IBAN" }],
-        "expected": { "items": [{ "acct": "⟦REDACTED:IBAN⟧", "qty": 1 }, { "acct": "⟦REDACTED:IBAN⟧", "qty": 2 }], "note": "ok" },
-        "patterns": ["IBAN"]
+        "spec": [
+          {
+            "path": "items[].acct",
+            "type": "IBAN"
+          }
+        ],
+        "expected": {
+          "items": [
+            {
+              "acct": "⟦REDACTED:IBAN⟧",
+              "qty": 1
+            },
+            {
+              "acct": "⟦REDACTED:IBAN⟧",
+              "qty": 2
+            }
+          ],
+          "note": "ok"
+        },
+        "patterns": [
+          "IBAN"
+        ]
       }
     }
   ]

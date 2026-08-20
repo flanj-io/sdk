@@ -62,6 +62,9 @@ record: `vinifera.peer.host`, `vinifera.edge.class`, `vinifera.capture.bodies`.
 - **`redaction.patterns` is reported in canonical order** (`PAN, EMAIL, IBAN, SSN, PHONE, CVV, TOKEN,
   IP`) and covers bodies **and** the redacted target/URL, so the emitted set reflects everything that
   fired.
+- **`vinifera.redaction.fields`** (optional; omitted when empty) carries the whole-value body redactions
+  with the ORIGINAL values' captured, non-reversible properties (`{part, path, pattern, props}` — CONTRACTS
+  §2). Emitted by `assembleCapturedCall` from `redactDetailed(...).fields`; bodies only, never target/URL.
 
 ## Config keys (map to CONTRACTS §8)
 

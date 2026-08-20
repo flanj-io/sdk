@@ -1,4 +1,13 @@
-import type { PatternId } from '@vinifera/redaction-patterns';
+import type { PatternId, RedactedField } from '@vinifera/redaction-patterns';
+
+/**
+ * One whole-value body redaction, scoped to which body it happened in. Carries the
+ * ORIGINAL value's non-reversible properties (type/length/charset) so the collector's
+ * drift detector can still validate the decidable spec constraints of redacted fields.
+ */
+export interface WireRedactedField extends RedactedField {
+  part: 'request' | 'response';
+}
 
 /**
  * A single completed HTTP client call, fully redacted at source. This is the
@@ -38,4 +47,6 @@ export interface CapturedCall {
   redactionApplied: boolean;
   redactionPatterns: PatternId[];
   redactionSpecAware: boolean;
+  /** Whole-value body redactions with captured properties (CONTRACTS §2/§6); often empty. */
+  redactionFields: WireRedactedField[];
 }

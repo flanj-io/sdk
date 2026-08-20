@@ -51,7 +51,8 @@ const call: CapturedCall = {
   durationMs: 42,
   redactionApplied: true,
   redactionPatterns: ['PAN'],
-  redactionSpecAware: false
+  redactionSpecAware: false,
+  redactionFields: []
 };
 
 describe('buildLogAttributes vs golden-otlp-call.json', () => {

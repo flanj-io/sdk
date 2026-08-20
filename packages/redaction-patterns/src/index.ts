@@ -5,6 +5,10 @@ export type { RedactResult, RedactValueResult, Redactor, RedactorOptions } from 
 // The swappable interface: build a redactor, structural + text entry points.
 export { createRedactor } from './redactor';
 export type { Recognizer, ScanContext, Span } from './recognizer';
+
+// Captured value properties (whole-value redactions; drift consumes these).
+export { computeProps } from './props';
+export type { RedactedField, ValueProps } from './props';
 export {
   DEFAULT_RECOGNIZERS,
   TOKEN_RECOGNIZER,

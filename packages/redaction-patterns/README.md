@@ -58,11 +58,16 @@ redactHeaders({ authorization: 'Bearer sk_live_x', 'x-request-id': 'req_1', 'x-s
 ```ts
 interface Recognizer { readonly id: PatternId; find(value: string, ctx: { key?: string }): Span[] }
 interface Redactor {
-  redact(value: unknown): { redacted: unknown; hits: PatternId[] };
-  redactText(text: string): { text: string; patterns: PatternId[] };
+  redact(value: unknown): { redacted: unknown; hits: PatternId[]; fields: RedactedField[] };
+  redactText(text: string): { text: string; patterns: PatternId[]; fields: RedactedField[] };
 }
 createRedactor({ recognizers?: Recognizer[]; includeIp?: boolean }): Redactor
 ```
+
+`fields` records every **whole-value** redaction — the RFC 6901 path, the pattern, and the ORIGINAL value's
+non-reversible properties (type, length in code points, character-class flags; see `src/props.ts`). Downstream,
+drift detection uses them to validate the decidable spec constraints (type, min/maxLength) of redacted fields.
+Span-in-text redactions, redacted keys, form pairs and non-JSON text emit no records.
 
 A `Recognizer` returns the **confirmed** sensitive spans inside one scalar; the `Redactor` owns traversal, the
 token format, base64 and idempotency. Engine choice is per recognizer: swap one without touching the rest.

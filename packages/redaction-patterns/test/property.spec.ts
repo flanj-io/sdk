@@ -107,15 +107,16 @@ describe('property: no planted PAN survives, in any format, at any position', ()
       const s = redactor.redact(payload);
       expect(luhnRuns(JSON.stringify(s.redacted))).toEqual([]);
       expect(s.hits).toContain('PAN');
-      expect(redactor.redact(s.redacted)).toEqual({ redacted: s.redacted, hits: [] });
+      expect(redactor.redact(s.redacted)).toEqual({ redacted: s.redacted, hits: [], fields: [] });
 
       // Text path over the serialized body (compact and pretty-printed)
       for (const text of [JSON.stringify(payload), JSON.stringify(payload, null, 2)]) {
         const t = redactor.redactText(text);
         expect(luhnRuns(t.text)).toEqual([]);
         expect(t.patterns).toContain('PAN');
-        expect(redactor.redactText(t.text)).toEqual({ text: t.text, patterns: [] });
+        expect(redactor.redactText(t.text)).toEqual({ text: t.text, patterns: [], fields: [] });
         expect(JSON.parse(t.text)).toEqual(s.redacted); // both paths agree structurally
+        expect(t.fields).toEqual(s.fields); // and report identical whole-value fields
       }
     });
   }

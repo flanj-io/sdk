@@ -59,7 +59,10 @@ export function enhance(value: unknown, spec: readonly SensitiveField[]): Redact
     if (!segments) continue;
     current = apply(current, segments, 0, field.type, fired);
   }
-  return { redacted: current, hits: REPORT_ORDER.filter((id) => fired.has(id)) };
+  // The enhancer emits no captured-value fields: it is spec-driven, so the spec already
+  // knows the declared shape of every field it redacts (adding props here is a possible
+  // later additive extension, not needed for drift).
+  return { redacted: current, hits: REPORT_ORDER.filter((id) => fired.has(id)), fields: [] };
 }
 
 function applyArrays(value: unknown, depth: number, next: () => (v: unknown) => unknown): unknown {

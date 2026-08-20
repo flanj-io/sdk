@@ -82,8 +82,27 @@ describe('Recognizer interface', () => {
 describe('createRedactor options', () => {
   it('IP is off by default and on with includeIp', () => {
     const body = { peer: '203.0.113.7' };
-    expect(createRedactor().redact(body)).toEqual({ redacted: body, hits: [] });
-    expect(createRedactor({ includeIp: true }).redact(body)).toEqual({ redacted: { peer: '⟦REDACTED:IP⟧' }, hits: ['IP'] });
+    expect(createRedactor().redact(body)).toEqual({ redacted: body, hits: [], fields: [] });
+    expect(createRedactor({ includeIp: true }).redact(body)).toEqual({
+      redacted: { peer: '⟦REDACTED:IP⟧' },
+      hits: ['IP'],
+      fields: [
+        {
+          path: '/peer',
+          pattern: 'IP',
+          props: {
+            type: 'string',
+            length: 11,
+            containsLowerCase: false,
+            containsUpperCase: false,
+            containsDigits: true,
+            containsASCIIControlChars: false,
+            containsASCIIPrintableChars: true,
+            containsASCIIExtendedChars: false
+          }
+        }
+      ]
+    });
   });
 
   it('recognizers are swappable behind the interface without touching traversal/base64/tokens', () => {
@@ -95,10 +114,10 @@ describe('createRedactor options', () => {
       }
     };
     const r = createRedactor({ recognizers: [shout] });
-    expect(r.redact({ a: ['secret', 'plain'], b: { c: 'secret' } })).toEqual({
-      redacted: { a: ['⟦REDACTED:TOKEN⟧', 'plain'], b: { c: '⟦REDACTED:TOKEN⟧' } },
-      hits: ['TOKEN']
-    });
+    const out = r.redact({ a: ['secret', 'plain'], b: { c: 'secret' } });
+    expect(out.redacted).toEqual({ a: ['⟦REDACTED:TOKEN⟧', 'plain'], b: { c: '⟦REDACTED:TOKEN⟧' } });
+    expect(out.hits).toEqual(['TOKEN']);
+    expect(out.fields.map((f) => f.path)).toEqual(['/a/0', '/b/c']); // whole-value hits carry paths
     // base64 decode-then-scan is owned by the wrapper, not the recognizer.
     expect(r.redactText(Buffer.from('the secret is out').toString('base64')).patterns).toEqual(['TOKEN']);
   });
@@ -121,7 +140,7 @@ describe('createRedactor options', () => {
 
 describe('text path robustness', () => {
   it('handles an empty body', () => {
-    expect(redactDetailed('')).toEqual({ text: '', patterns: [] });
+    expect(redactDetailed('')).toEqual({ text: '', patterns: [], fields: [] });
   });
 
   it('a JSON string body (top-level scalar) is scanned', () => {

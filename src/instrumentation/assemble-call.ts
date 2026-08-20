@@ -3,9 +3,10 @@ import {
   redactHeaders,
   DEFAULT_HEADER_ALLOWLIST,
   REPORT_ORDER,
-  type PatternId
+  type PatternId,
+  type RedactedField
 } from '@vinifera/redaction-patterns';
-import { CapturedCall } from './captured-call';
+import { CapturedCall, WireRedactedField } from './captured-call';
 import { DEFAULT_CAPTURE_CONTENT_TYPES, isCaptureableContentType } from './config';
 import type { EdgeClass } from './classify-host';
 
@@ -57,8 +58,9 @@ export function assembleCapturedCall(input: AssembleCallInput): CapturedCall {
   const captureReq = input.captureBodies && isCaptureableContentType(input.reqContentType, contentTypes);
   const captureRes = input.captureBodies && isCaptureableContentType(input.resContentType, contentTypes);
 
-  const reqRedaction = captureReq ? redactDetailed(input.reqBodyRaw) : { text: '', patterns: [] as PatternId[] };
-  const resRedaction = captureRes ? redactDetailed(input.resBodyRaw) : { text: '', patterns: [] as PatternId[] };
+  const empty = { text: '', patterns: [] as PatternId[], fields: [] as RedactedField[] };
+  const reqRedaction = captureReq ? redactDetailed(input.reqBodyRaw) : empty;
+  const resRedaction = captureRes ? redactDetailed(input.resBodyRaw) : empty;
 
   const targetRedaction = redactDetailed(input.path);
   const urlRedaction = redactDetailed(`${input.protocol}//${input.host}${input.path}`);
@@ -73,6 +75,14 @@ export function assembleCapturedCall(input: AssembleCallInput): CapturedCall {
     firedPatterns.add(p);
   }
   const patterns = REPORT_ORDER.filter((id) => firedPatterns.has(id));
+
+  // Whole-value body redactions, with the original values' captured properties (already
+  // sorted by path per part; request precedes response). Target/URL redactions carry no
+  // fields — specs don't address redacted URL text.
+  const redactionFields: WireRedactedField[] = [
+    ...reqRedaction.fields.map((f): WireRedactedField => ({ part: 'request', ...f })),
+    ...resRedaction.fields.map((f): WireRedactedField => ({ part: 'response', ...f }))
+  ];
 
   return {
     integration: input.integration,
@@ -97,6 +107,7 @@ export function assembleCapturedCall(input: AssembleCallInput): CapturedCall {
     durationMs: input.durationMs,
     redactionApplied: patterns.length > 0,
     redactionPatterns: patterns,
-    redactionSpecAware: false
+    redactionSpecAware: false,
+    redactionFields
   };
 }

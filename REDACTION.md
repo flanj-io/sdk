@@ -173,11 +173,20 @@ redacted bodies — and a spec constraint can "fail" solely because a value beca
 cannot match; `integer`→`string` after the PAN-as-number rewrite). The drift detector is token-aware: schema
 errors whose offending scalar carries a `⟦REDACTED:…⟧` token are **skipped** — redacted means *unknown*, never
 *violated*. The skip is scalar-only (container-level errors like required-missing still fire; the floor never
-adds or removes keys) and one-directional (it cannot mask drift on values the floor did not touch). Planned
-above this: the SDK will capture non-reversible **properties** of each redacted value at source (type, length
-in code points, character-class flags) so drift can validate the *decidable* constraints of a redacted field —
-type and length checks survive redaction — while undecidable ones keep skipping. Property definitions will be
-pinned in the fixture battery like everything else.
+adds or removes keys) and one-directional (it cannot mask drift on values the floor did not touch).
+
+Above the skip sits **captured value properties**: for every WHOLE-VALUE redaction (the scalar became exactly
+one token) both floors emit a field record — the RFC 6901 path, the pattern, and non-reversible `props` of the
+ORIGINAL value (`type`, `length` in Unicode code points, `integer` for numbers, and six character-class flags;
+exact definitions in `src/props.ts` and the fixture notes). The SDK ships them as the optional
+`vinifera.redaction.fields` attribute (CONTRACTS §2); the collector's defense-in-depth pass merges in records
+for anything *it* catches. Drift then validates the **decidable** constraints of a redacted field against the
+props — `type` and `minLength`/`maxLength` violations are real findings again, phrased in property terms —
+while undecidable constraints (`pattern`/`format`/`enum`) and token values without a record keep skipping
+(which also covers older SDKs in the compatibility window). Span-in-text redactions, redacted keys, form pairs
+and non-JSON text emit no records: their host strings are corrupted by the token bytes, so no judgement is
+safe. Property expectations are pinned per-case in the fixture battery (`fields`), asserted byte-identically by
+both language suites on both entry points.
 
 ## 5. Invariants (all enforced by tests)
 

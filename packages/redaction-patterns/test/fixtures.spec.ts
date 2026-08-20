@@ -3,7 +3,7 @@ import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, resolve } from 'node:path';
 import { createRedactor, enhance, redactDetailed, REDACTED_TOKEN_RE } from '../src/index';
-import type { PatternId, SensitiveField } from '../src/index';
+import type { PatternId, RedactedField, SensitiveField } from '../src/index';
 
 /**
  * THE cross-language PARITY suite. `contracts/redaction-fixtures.json` (vendored from the canonical
@@ -29,6 +29,8 @@ interface FixtureCase {
   input: unknown;
   expected: unknown;
   patterns: PatternId[];
+  /** Whole-value redaction property records; absent = MUST be empty. */
+  fields?: RedactedField[];
   enhancer?: { spec: SensitiveField[]; expected: unknown; patterns: PatternId[] };
 }
 
@@ -61,21 +63,24 @@ describe('redaction-fixtures.json — cross-language parity suite', () => {
     describe(`${c.id} — ${c.description}`, () => {
       if (c.kind === 'json') {
         it('structural redact(value) deep-equals expected', () => {
-          const { redacted, hits } = redactor.redact(c.input);
+          const { redacted, hits, fields } = redactor.redact(c.input);
           expect(redacted).toEqual(c.expected);
           expect(hits).toEqual(c.patterns);
+          expect(fields).toEqual(c.fields ?? []);
         });
 
         it('text path redactText(JSON.stringify(value)) parses back to expected', () => {
-          const { text, patterns } = redactor.redactText(JSON.stringify(c.input));
+          const { text, patterns, fields } = redactor.redactText(JSON.stringify(c.input));
           expect(JSON.parse(text)).toEqual(c.expected);
           expect(patterns).toEqual(c.patterns);
+          expect(fields).toEqual(c.fields ?? []);
         });
 
-        it('is idempotent on the structural path', () => {
+        it('is idempotent on the structural path (and emits no fields again)', () => {
           const again = redactor.redact(c.expected);
           expect(again.redacted).toEqual(c.expected);
           expect(again.hits).toEqual([]);
+          expect(again.fields).toEqual([]);
         });
 
         it('never mutates its input', () => {
@@ -85,9 +90,10 @@ describe('redaction-fixtures.json — cross-language parity suite', () => {
         });
       } else {
         it('text path matches byte-for-byte', () => {
-          const { text, patterns } = redactor.redactText(c.input as string);
+          const { text, patterns, fields } = redactor.redactText(c.input as string);
           expect(text).toBe(c.expected);
           expect(patterns).toEqual(c.patterns);
+          expect(fields).toEqual(c.fields ?? []);
         });
 
         it('the module-level redactDetailed agrees', () => {

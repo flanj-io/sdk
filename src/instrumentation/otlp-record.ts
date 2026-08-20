@@ -33,6 +33,12 @@ export function buildLogAttributes(call: CapturedCall): LogAttributes {
     'vinifera.redaction.spec_aware': call.redactionSpecAware
   };
 
+  if (call.redactionFields.length > 0) {
+    // Optional attr (omitted when empty, like content_type/corr.*): whole-value body
+    // redactions with the originals' captured properties — drift's evidence for
+    // validating redacted fields (CONTRACTS §2/§6).
+    attrs['vinifera.redaction.fields'] = JSON.stringify(call.redactionFields);
+  }
   if (call.requestContentType) attrs['vinifera.http.request.content_type'] = call.requestContentType;
   if (call.responseContentType) attrs['vinifera.http.response.content_type'] = call.responseContentType;
   if (call.correlation.requestId) attrs['vinifera.corr.request_id'] = call.correlation.requestId;

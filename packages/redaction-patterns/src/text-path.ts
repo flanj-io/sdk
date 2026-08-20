@@ -1,6 +1,7 @@
 import { charAt, isDigitAt } from './chars';
 import { encodeJsonString } from './json-string';
 import { classifyIntegerDigits } from './numbers';
+import { computeProps, escapePointerSegment, wholeTokenId, type RedactedField } from './props';
 import type { Recognizer, ScanContext } from './recognizer';
 import { redactScalar } from './scalar';
 import { makeToken, type PatternId } from './tokens';
@@ -31,6 +32,8 @@ import { makeToken, type PatternId } from './tokens';
 export interface TextPathResult {
   text: string;
   fired: Set<PatternId>;
+  /** Whole-value redactions (JSON scanner + root scalar only; unsorted — caller sorts). */
+  fields: RedactedField[];
 }
 
 interface Frame {
@@ -39,6 +42,8 @@ interface Frame {
   state: 'key' | 'colon' | 'value' | 'comma';
   /** The original (un-redacted) current key, once read. */
   key?: string;
+  /** For arrays: the index of the value currently being read. */
+  index: number;
 }
 
 const WS = new Set([' ', '\t', '\n', '\r']);
@@ -46,13 +51,21 @@ const STRUCTURAL = new Set(['"', '{', '}', '[', ']', ':', ',']);
 
 export function redactTextPath(text: string, recognizers: readonly Recognizer[]): TextPathResult {
   const fired = new Set<PatternId>();
-  if (text.length === 0) return { text, fired };
+  const fields: RedactedField[] = [];
+  if (text.length === 0) return { text, fired, fields };
   let i = 0;
   while (i < text.length && WS.has(text.charAt(i))) i++;
   const first = charAt(text, i);
-  if (first === '{' || first === '[') return { text: scanJson(text, recognizers, fired), fired };
-  if (isFormBody(text)) return { text: scanForm(text, recognizers, fired), fired };
-  return { text: scalar(text, {}, recognizers, fired), fired };
+  if (first === '{' || first === '[') return { text: scanJson(text, recognizers, fired, fields), fired, fields };
+  // Form pairs carry no fields (spec-addressable form bodies are a later enhancement).
+  if (isFormBody(text)) return { text: scanForm(text, recognizers, fired), fired, fields };
+  const out = scalar(text, {}, recognizers, fired);
+  // A top-level scalar body wholly redacted reports the RFC 6901 root path ''.
+  if (out !== text) {
+    const id = wholeTokenId(out);
+    if (id) fields.push({ path: '', pattern: id, props: computeProps(text, 'string') });
+  }
+  return { text: out, fired, fields };
 }
 
 function scalar(s: string, ctx: ScanContext, recognizers: readonly Recognizer[], fired: Set<PatternId>): string {
@@ -63,7 +76,12 @@ function scalar(s: string, ctx: ScanContext, recognizers: readonly Recognizer[],
 
 // --- JSON ------------------------------------------------------------------------------
 
-function scanJson(text: string, recognizers: readonly Recognizer[], fired: Set<PatternId>): string {
+function scanJson(
+  text: string,
+  recognizers: readonly Recognizer[],
+  fired: Set<PatternId>,
+  fields: RedactedField[]
+): string {
   const n = text.length;
   const stack: Frame[] = [];
   const top = (): Frame | undefined => stack[stack.length - 1];
@@ -74,6 +92,15 @@ function scanJson(text: string, recognizers: readonly Recognizer[], fired: Set<P
   const valueDone = (): void => {
     const t = top();
     if (t && t.kind === 'obj') t.state = 'comma';
+  };
+  // RFC 6901 pointer to the value currently being read (object keys from frames,
+  // array indices from each array frame's counter).
+  const currentPath = (): string => {
+    let path = '';
+    for (const f of stack) {
+      path += f.kind === 'arr' ? `/${f.index}` : `/${escapePointerSegment(f.key ?? '')}`;
+    }
+    return path;
   };
 
   let out = '';
@@ -86,7 +113,7 @@ function scanJson(text: string, recognizers: readonly Recognizer[], fired: Set<P
       continue;
     }
     if (c === '{' || c === '[') {
-      stack.push(c === '{' ? { kind: 'obj', state: 'key' } : { kind: 'arr', state: 'value' });
+      stack.push(c === '{' ? { kind: 'obj', state: 'key', index: 0 } : { kind: 'arr', state: 'value', index: 0 });
       out += c;
       i++;
       continue;
@@ -101,6 +128,7 @@ function scanJson(text: string, recognizers: readonly Recognizer[], fired: Set<P
     if (c === ':' || c === ',') {
       const t = top();
       if (t && t.kind === 'obj') t.state = c === ':' ? 'value' : 'key';
+      if (c === ',' && t && t.kind === 'arr') t.index++;
       out += c;
       i++;
       continue;
@@ -132,14 +160,20 @@ function scanJson(text: string, recognizers: readonly Recognizer[], fired: Set<P
       const t = top();
       const isKey = t !== undefined && t.kind === 'obj' && t.state === 'key';
       let ctx: ScanContext = {};
+      let valuePath: string | undefined;
       if (isKey) {
         t.key = decoded;
         t.state = 'colon';
       } else {
         if (t && t.kind === 'obj' && t.key !== undefined) ctx = { key: t.key };
+        valuePath = currentPath();
         valueDone();
       }
       const redacted = scalar(decoded, ctx, recognizers, fired);
+      if (valuePath !== undefined && redacted !== decoded) {
+        const id = wholeTokenId(redacted);
+        if (id) fields.push({ path: valuePath, pattern: id, props: computeProps(decoded, 'string') });
+      }
       out += redacted === decoded ? literal : encodeJsonString(redacted);
       i = j + 1;
       continue;
@@ -152,6 +186,7 @@ function scanJson(text: string, recognizers: readonly Recognizer[], fired: Set<P
         const id = isIntegerLiteral(lit) ? classifyIntegerDigits(lit.replace('-', ''), key) : null;
         if (id) {
           fired.add(id);
+          fields.push({ path: currentPath(), pattern: id, props: computeProps(lit, 'number', true) });
           out += encodeJsonString(makeToken(id));
         } else {
           out += lit;
