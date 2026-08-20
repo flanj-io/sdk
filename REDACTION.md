@@ -166,6 +166,19 @@ is layered work above the floor and does not change the law.
 
 ---
 
+## 4b. Downstream: drift detection on redacted bodies
+
+The floor runs **before** drift detection (privacy first), so the collector's drift processor only ever sees
+redacted bodies — and a spec constraint can "fail" solely because a value became a token (a `pattern` the token
+cannot match; `integer`→`string` after the PAN-as-number rewrite). The drift detector is token-aware: schema
+errors whose offending scalar carries a `⟦REDACTED:…⟧` token are **skipped** — redacted means *unknown*, never
+*violated*. The skip is scalar-only (container-level errors like required-missing still fire; the floor never
+adds or removes keys) and one-directional (it cannot mask drift on values the floor did not touch). Planned
+above this: the SDK will capture non-reversible **properties** of each redacted value at source (type, length
+in code points, character-class flags) so drift can validate the *decidable* constraints of a redacted field —
+type and length checks survive redaction — while undecidable ones keep skipping. Property definitions will be
+pinned in the fixture battery like everything else.
+
 ## 5. Invariants (all enforced by tests)
 
 1. **Add-only** — redaction only replaces sensitive spans; it never un-redacts; the enhancer can only add.
