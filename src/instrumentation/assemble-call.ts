@@ -1,10 +1,13 @@
-import { redactDetailed, redactHeaders, DEFAULT_HEADER_ALLOWLIST, type PatternId } from '@vinifera/redaction-patterns';
+import {
+  redactDetailed,
+  redactHeaders,
+  DEFAULT_HEADER_ALLOWLIST,
+  REPORT_ORDER,
+  type PatternId
+} from '@vinifera/redaction-patterns';
 import { CapturedCall } from './captured-call';
 import { DEFAULT_CAPTURE_CONTENT_TYPES, isCaptureableContentType } from './config';
 import type { EdgeClass } from './classify-host';
-
-/** Canonical `redaction.patterns` report order (CONTRACTS §2 / §4). */
-const REPORT_ORDER: readonly PatternId[] = ['PAN', 'EMAIL', 'IBAN', 'SSN', 'PHONE', 'CVV', 'TOKEN', 'IP'];
 
 type HeaderValue = string | string[] | number | undefined;
 

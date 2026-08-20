@@ -2,8 +2,9 @@
 
 ## Reporting a Vulnerability
 
-We take the security of Vinifera seriously — this project handles payment-adjacent
-traffic and its whole reason for being is to keep sensitive data from leaking.
+We take the security of Vinifera seriously — this project sits in the path of real API traffic,
+which routinely carries sensitive and regulated data, and its whole reason for being is to keep
+that data from leaking.
 
 **Please do not report security vulnerabilities through public GitHub issues.**
 
@@ -25,8 +26,34 @@ remediation timeline within **10 business days**. We ask that you give us a
 reasonable window to release a fix before any public disclosure, and we're happy
 to credit you in the advisory unless you prefer to remain anonymous.
 
-## Scope — a note on redaction
+## Redaction
 
-Because this project captures request/response bodies, **any path by which raw
-PAN/PII can reach storage or the wire unredacted is a security issue** and is
-in scope. If you find a redaction bypass, please report it privately as above.
+The SDK captures request/response bodies, so redaction is the security property everything else
+rests on. How it is designed is documented in [REDACTION.md](./REDACTION.md); the guarantees are:
+
+- **Redaction at source.** Every captured body — inbound and outbound, regardless of edge
+  classification — is run through the redaction floor (`@vinifera/redaction-patterns`) in your
+  process, and the raw buffer is dropped the moment the redacted string exists. No raw body is
+  ever set as an attribute, stored, or transmitted — not even transiently. Internal edges are
+  metadata-only: their bodies are never read at all.
+- **Local, zero external calls.** The floor is a pure function of its input. It never performs
+  network, DNS, process or filesystem I/O; this is enforced by a lint ban on every such primitive
+  in the floor's source and by a runtime network sentinel test that runs the entire redaction
+  battery. Its dependencies (`validator`, `libphonenumber-js`) are offline validators with no
+  network code paths and no opt-in "phone home" hooks.
+- **Hardened, not hand-rolled.** Detection decisions are made by vetted validators (Luhn for
+  PANs, mod-97 for IBANs, phone metadata for numbers, a strict email grammar); our code only
+  locates candidates, recurses nested structures, decodes base64, and anchors matches.
+- **Cross-language parity.** The collector re-applies the identical floor in Go as defense in
+  depth. A shared fixture suite (`contracts/redaction-fixtures.json`) is run by both the
+  TypeScript and Go test suites, so the same payload redacts identically in both.
+- **Add-only, idempotent.** Tokens (`⟦REDACTED:<TYPE>⟧`) are never un-redacted and never
+  double-wrapped; schema-aware redaction can only add above the floor, never subtract.
+
+### Reporting a redaction gap
+
+**Any path by which raw PAN/PII can reach storage or the wire unredacted is a security issue and
+is in scope** — including a payload shape the floor does not recognise, an encoding it does not
+decode, or a difference between the TypeScript and Go behaviour. Report it privately as above. A
+minimal, **synthetic** payload that reproduces the gap is the most useful thing you can include
+(use public test card numbers; never a real card number or real personal data).

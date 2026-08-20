@@ -1,34 +1,28 @@
-import { PATTERNS } from './patterns';
-import { REPORT_ORDER } from './report-order';
-import { PatternId } from './tokens';
+import { createRedactor, type RedactResult, type Redactor } from './redactor';
 
-export interface RedactResult {
-  /** The redacted text; every sensitive value replaced by a `⟦REDACTED:…⟧` token. */
-  text: string;
-  /** Which pattern ids fired, in canonical report order (deduped). */
-  patterns: PatternId[];
+/** The default floor: every mandatory recognizer, IP off. Built once per process. */
+let defaultRedactor: Redactor | undefined;
+
+function floor(): Redactor {
+  if (!defaultRedactor) defaultRedactor = createRedactor();
+  return defaultRedactor;
 }
 
 /**
- * Redact sensitive values from free text, returning the redacted text and the
- * set of fired pattern ids. Invariants (governed by contracts/redaction-vectors.json):
+ * Redact sensitive values from a captured body / free text, returning the redacted text
+ * and the set of fired pattern ids. This is the TEXT entry point of the default floor
+ * (see {@link createRedactor} for the structural entry point and custom recognizer sets).
+ * Invariants (governed by contracts/redaction-vectors.json + redaction-fixtures.json):
  *  - add-only: only replaces sensitive spans, never un-redacts;
- *  - idempotent: redactDetailed(redactDetailed(x).text).text === redactDetailed(x).text.
+ *  - idempotent: redactDetailed(redactDetailed(x).text).text === redactDetailed(x).text;
+ *  - zero I/O: pure function of its input.
  */
 export function redactDetailed(input: string): RedactResult {
-  let text = input;
-  const fired = new Set<PatternId>();
-  for (const pattern of PATTERNS) {
-    const next = pattern.apply(text);
-    if (next !== text) fired.add(pattern.id);
-    text = next;
-  }
-  const patterns = REPORT_ORDER.filter((id) => fired.has(id));
-  return { text, patterns };
+  return floor().redactText(input);
 }
 
 /**
- * Redact sensitive values from free text. Primary entry point.
+ * Redact sensitive values from text. Primary convenience entry point.
  * Idempotent and add-only. Safe to run over already-redacted text.
  */
 export function redact(input: string): string {

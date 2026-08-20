@@ -42,7 +42,7 @@ jobs:
       - run: corepack enable
       - run: yarn install --immutable
       - run: yarn lint
-      - run: yarn test    # unit + redaction-vector conformance + OTLP contract test
+      - run: yarn test    # unit + redaction vectors + cross-language parity fixtures + zero-network sentinel + OTLP contract test
 
   notify-e2e:
     # Integration gate lives in the private e2e repo; tell it a new SDK landed on main.

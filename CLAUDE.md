@@ -33,10 +33,18 @@ src/
     otlp-record.ts                 # build the vinifera.* OTLP log record from a captured call
   redaction/                       # thin re-export of @vinifera/redaction-patterns applied at source
 packages/
-  redaction-patterns/              # published Apache package: the redaction floor (PAN/Luhn, PII, tokens)
-    src/index.ts
+  redaction-patterns/              # published Apache package: the redaction floor (see REDACTION.md)
+    src/recognizer.ts              # the swappable interface: Recognizer.find(scalar, ctx) -> confirmed spans
+    src/recognizers/*.ts           # PAN (Luhn via validator), EMAIL, IBAN, PHONE (libphonenumber-js), SSN, CVV, TOKEN, IP
+    src/scalar.ts                  # per-scalar engine: token protection -> recognizers -> base64 decode-then-scan
+    src/text-path.ts               # the production path for body strings: JSON scanner (span-splice) + form path
+    src/redactor.ts                # createRedactor(): redact(value) structural + redactText(text)
+    src/enhancer.ts                # schema-aware enhancer (ADD-only, never subtracts)
     test/vectors.spec.ts           # conformance against contracts/redaction-vectors.json
+    test/fixtures.spec.ts          # the CROSS-LANGUAGE parity battery (contracts/redaction-fixtures.json; Go runs it too)
+    test/no-network.spec.ts        # zero-external-calls sentinel
 contracts/                         # vendored from the canonical e2e/contracts (do not hand-edit; sync)
+REDACTION.md                       # the floor's design: composed validators, owned responsibilities, parity, never-subtract
 ```
 
 ## Non-negotiables (do not regress)
@@ -54,8 +62,13 @@ contracts/                         # vendored from the canonical e2e/contracts (
 ## Contract
 
 Wire formats are pinned in `contracts/` (vendored; schema_version **1**). The redaction floor is governed by
-`contracts/redaction-vectors.json` — **lead with that test suite**; it is security-critical. Never change a
-wire format here; change it in the canonical contract first.
+`contracts/redaction-vectors.json` AND `contracts/redaction-fixtures.json` (the cross-language parity battery the
+Go collector also runs) — **lead with those suites**; they are security-critical. Never change a wire format or a
+redaction behaviour here; change it in the canonical contract first, re-vendor to sdk/collector/control-plane,
+and keep all three suites green. The floor must never do I/O (ESLint bans every network/process/fs import in
+`packages/redaction-patterns/src/**`; `test/no-network.spec.ts` is the runtime sentinel). Do not hand-roll regex
+detection: locate candidates, let the composed validators decide (see `REDACTION.md`). When the package changes,
+re-pack it into `control-plane/vendor/` (the CP consumes the tarball until npm publish).
 
 ## Conventions
 

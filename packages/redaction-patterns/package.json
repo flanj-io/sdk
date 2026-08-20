@@ -1,7 +1,7 @@
 {
   "name": "@vinifera/redaction-patterns",
   "version": "0.0.1",
-  "description": "The Vinifera redaction floor: pattern-based PAN/PII/secret redaction at source. Governed by the cross-repo redaction-vectors contract.",
+  "description": "The Vinifera redaction floor: composed, hardened validators (Luhn PAN, email, IBAN, phone) behind a swappable Recognizer/Redactor interface; deep-traversal, base64 decode-then-scan, PAN/PII/secret redaction at source. Governed by the cross-repo redaction contracts.",
   "license": "Apache-2.0",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
@@ -13,6 +13,13 @@
     "build": "tsc -p tsconfig.json",
     "test": "vitest run",
     "test:watch": "vitest"
+  },
+  "dependencies": {
+    "libphonenumber-js": "^1.13.11",
+    "validator": "^13.15.35"
+  },
+  "devDependencies": {
+    "@types/validator": "^13.15.2"
   },
   "keywords": [
     "redaction",
