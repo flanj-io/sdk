@@ -14,6 +14,8 @@ before anything is stored or leaves your process.
 
 Also publishes **`@vinifera/redaction-patterns`**, the standalone redaction floor.
 
+Open-source collector and SDK; hosted network layer.
+
 ## Status
 
 Pre-release (v0). See [docs/CONCEPTS.md](docs/CONCEPTS.md) for the engineering model and [CLAUDE.md](CLAUDE.md)
