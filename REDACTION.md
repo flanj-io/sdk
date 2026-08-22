@@ -9,7 +9,7 @@ The floor exists twice, in two languages, and must behave identically:
 | Where | Language | Package | Role |
 |---|---|---|---|
 | SDK (this repo) | TypeScript | `@vinifera/redaction-patterns` | redacts at the call site, before export |
-| Control plane | TypeScript | `@vinifera/redaction-patterns` (vendored tarball until published) | DLP on human free-text (reply box) |
+| Control plane | TypeScript | `@vinifera/redaction-patterns` | DLP on human free-text (reply box) |
 | Collector | Go | `internal/redact` | defense-in-depth re-scan of every ingested body |
 
 ---
@@ -178,7 +178,7 @@ adds or removes keys) and one-directional (it cannot mask drift on values the fl
 Above the skip sits **captured value properties**: for every WHOLE-VALUE redaction (the scalar became exactly
 one token) both floors emit a field record — the RFC 6901 path, the pattern, and non-reversible `props` of the
 ORIGINAL value (`type`, `length` in Unicode code points, `integer` for numbers, and six character-class flags;
-exact definitions in `src/props.ts` and the fixture notes). The SDK ships them as the optional
+exact definitions in `packages/redaction-patterns/src/props.ts` and the fixture notes). The SDK ships them as the optional
 `vinifera.redaction.fields` attribute (CONTRACTS §2); the collector's defense-in-depth pass merges in records
 for anything *it* catches. Drift then validates the **decidable** constraints of a redacted field against the
 props — `type` and `minLength`/`maxLength` violations are real findings again, phrased in property terms —

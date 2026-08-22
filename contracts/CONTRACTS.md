@@ -154,7 +154,7 @@ rather than emitting duplicates. The flag's `idempotency_key` derives from the `
 same drift returns the existing thread. Individual calls stay marked drifted in Traffic.
 
 Detection is **technical adherence only** — fields/types/shapes/enums. Never business/economic
-correctness (FX/fees/spreads). `live-vs-spec` via `kin-openapi` `openapi3filter.ValidateResponse`
+correctness (pricing, quantities, business rules). `live-vs-spec` via `kin-openapi` `openapi3filter.ValidateResponse`
 (`MultiError: true`). `version-diff` via `oasdiff` checker (`Level=ERR` → `severity="breaking"`,
 change-id → `rule`), computed once at spec load, `source_call_id=null`.
 
@@ -317,6 +317,7 @@ covers older SDKs in the compatibility window that emit no fields).
 | `consumer_display_name` *(optional)* | human name of this consumer org, e.g. `Acme Consumer Ltd`; sent on the flag. |
 | `spec_path` | path to the provider OpenAPI spec (v1) mounted into the collector; validates OUTBOUND (client-direction) calls |
 | `spec_v2_path` *(optional)* | a newer spec, enables the version-diff finding |
+| `peer_host` *(optional)* | scopes `spec_path` validation to the one discovered edge with this peer host; unset, every outbound (client-direction) call is validated against the loaded spec |
 | `self_spec_path` *(optional)* | the OpenAPI spec THIS org publishes as a provider; validates INBOUND (server-direction) responses against the org's own contract |
 | `self_integration_id` *(optional)* | labels self-spec findings (default `self`); must differ from `integration_id` |
 | `cp_base_url` | control-plane base URL for the flag POST |

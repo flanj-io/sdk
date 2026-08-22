@@ -1,6 +1,6 @@
 # CLAUDE.md — `src/instrumentation/`
 
-The capture core: turn one completed http/https **client** call into one fully-redacted
+The capture core: turn one completed http/https **client or server** call into one fully-redacted
 `CapturedCall`, then into the frozen `vinifera.*` OTLP log record. This is where the day-one
 non-negotiable lives — **redact at source, drop the raw buffer, never attach raw**.
 
@@ -73,7 +73,9 @@ identity or edge key, omitted when the socket layer exposed none.
 
 `integration` → `vinifera.integration`; `bodyCapBytes` → `body_cap_bytes` (default 16384);
 `captureContentTypes` → the content-type gate; `headerAllowlist` → the header allowlist;
-`onCapture` → the sink `start()` wires to the OTLP logger.
+`ignoreUrls` → URL patterns never captured (`start()` seeds it with its own OTLP export endpoint, so the SDK
+never captures its own export — `test/integration/ignore-self-export.spec.ts`); `onCapture` → the sink
+`start()` wires to the OTLP logger.
 
 ## Tests
 
@@ -81,3 +83,6 @@ identity or edge key, omitted when the socket layer exposed none.
 - `../../test/integration/http-capture.spec.ts` — drives a real in-process http call end-to-end and
   asserts: every required `vinifera.*` key present, bodies redacted, correlation keys carried, app
   undisturbed, and **no raw PAN reachable** anywhere in the emitted attributes.
+- `../../test/integration/http-server-capture.spec.ts` — the INGRESS path end-to-end (`direction="server"`).
+- `../../test/integration/ignore-self-export.spec.ts` — the SDK's own OTLP export is never captured.
+- `classify-host.spec.ts` — the external/internal edge heuristic.

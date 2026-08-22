@@ -6,8 +6,9 @@ Guidance for Claude Code (and engineers) working in this repo.
 
 The **Vinifera SDK**: a thin OpenTelemetry-JS distribution that adds HTTP **request/response body capture**
 and **redaction-at-source**, then exports one OTLP log record per call to the collector. It is the first
-step of the gate-2 loop (**capture** → detect → surface → flag → peek). Public, **Apache-2.0** — keep it
-pristine (fintech legal inspects it; no copyleft/source-available deps, prefer Apache/MIT/BSD/ISC).
+step of the pipeline (**capture** → detect → surface → flag → peek). Public, **Apache-2.0** — keep it
+pristine (legal and compliance teams at regulated organizations inspect it; no copyleft/source-available deps,
+prefer Apache/MIT/BSD/ISC).
 
 It also publishes **`@vinifera/redaction-patterns`** (Apache), the shared redaction floor the control plane
 reuses for reply-box DLP.
@@ -23,15 +24,20 @@ Redaction happens here, at the call site, **before** anything is attached or exp
 - TypeScript, Node 23, Yarn 4. OTel-JS `@opentelemetry/api ^1.9`, SDK+instrumentation `^0.221`.
 - `yarn install` · `yarn build` · `yarn test` (unit + redaction vectors + OTLP contract) · `yarn test:watch` · `yarn lint`.
 
-## Layout (target)
+## Layout
 
 ```
 src/
-  index.ts                         # the distro entrypoint (start(): register instrumentation + OTLP logs exporter)
-  instrumentation/
-    http-body-capture.ts           # PassThrough-tee capture of req/resp bodies on the http/https client path
-    otlp-record.ts                 # build the vinifera.* OTLP log record from a captured call
-  redaction/                       # thin re-export of @vinifera/redaction-patterns applied at source
+  index.ts                         # the distro entrypoint (start(): register both instrumentations + OTLP logs exporter)
+  register.ts                      # the `./register` zero-code entry (see package.json exports)
+  version.ts                       # package version (OTLP scope)
+  instrumentation/                 # the capture core — see instrumentation/CLAUDE.md
+    http-body-capture.ts           # EGRESS: PassThrough-tee capture of req/resp bodies on the http/https client path
+    http-server-capture.ts         # INGRESS: incoming request + response body capture (direction="server")
+    assemble-call.ts               # direction-agnostic redact-at-source assembler (both paths funnel through here)
+    classify-host.ts               # external | internal edge heuristic (byte-identical in the collector)
+    otlp-record.ts                 # build the vinifera.* OTLP log record from a CapturedCall
+    captured-call.ts, capped-buffer.ts, http-args.ts, config.ts
 packages/
   redaction-patterns/              # published Apache package: the redaction floor (see REDACTION.md)
     src/recognizer.ts              # the swappable interface: Recognizer.find(scalar, ctx) -> confirmed spans
@@ -39,11 +45,16 @@ packages/
     src/scalar.ts                  # per-scalar engine: token protection -> recognizers -> base64 decode-then-scan
     src/text-path.ts               # the production path for body strings: JSON scanner (span-splice) + form path
     src/redactor.ts                # createRedactor(): redact(value) structural + redactText(text)
+    src/redact.ts, redact-headers.ts   # redact()/redactDetailed() + the header allowlist/token pass
     src/enhancer.ts                # schema-aware enhancer (ADD-only, never subtracts)
+    src/props.ts                   # captured, non-reversible properties of whole-value redactions (redaction.fields)
+    src/tokens.ts, report-order.ts, luhn.ts, base64.ts, numbers.ts, json-string.ts, chars.ts
     test/vectors.spec.ts           # conformance against contracts/redaction-vectors.json
     test/fixtures.spec.ts          # the CROSS-LANGUAGE parity battery (contracts/redaction-fixtures.json; Go runs it too)
     test/no-network.spec.ts        # zero-external-calls sentinel
-contracts/                         # vendored from the canonical e2e/contracts (do not hand-edit; sync)
+    test/property.spec.ts, recognizers.spec.ts, redact-headers.spec.ts
+test/integration/                  # real in-process http calls end-to-end (client, server, ignore-self-export)
+contracts/                         # vendored from the canonical e2e/contracts (do not hand-edit; sync) — see contracts/README.md
 REDACTION.md                       # the floor's design: composed validators, owned responsibilities, parity, never-subtract
 ```
 
@@ -52,8 +63,8 @@ REDACTION.md                       # the floor's design: composed validators, ow
 1. **Redact before attach/export.** Assemble the capped raw buffer, redact, keep only the redacted string,
    **drop the raw buffer**. A raw body must never be set as an attribute — not even transiently.
 2. **Capture correctly.** Use the PassThrough-tee custom instrumentation for response bodies (a passive
-   `on('data')` listener breaks apps that read the body via `for await`). v0 targets the `http`/`https`
-   client path; `fetch`/undici body capture is deferred.
+   `on('data')` listener breaks apps that read the body via `for await`). v0 targets the core `http`/`https`
+   client path (egress) and server path (ingress); `fetch`/undici body capture is deferred.
 3. **Caps & gating.** Content-type gate (JSON/text/form only); 16 KiB body cap (`body_cap_bytes`); header
    allowlist (never emit `authorization`/`cookie` raw).
 4. **Emit the exact `vinifera.*` convention** in `contracts/CONTRACTS.md` §2. The emitted record must match
@@ -68,7 +79,7 @@ redaction behaviour here; change it in the canonical contract first, re-vendor t
 and keep all three suites green. The floor must never do I/O (ESLint bans every network/process/fs import in
 `packages/redaction-patterns/src/**`; `test/no-network.spec.ts` is the runtime sentinel). Do not hand-roll regex
 detection: locate candidates, let the composed validators decide (see `REDACTION.md`). When the package changes,
-re-pack it into `control-plane/vendor/` (the CP consumes the tarball until npm publish).
+republish it so downstream consumers pick up the new version.
 
 ## Conventions
 
