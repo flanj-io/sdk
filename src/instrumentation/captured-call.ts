@@ -20,6 +20,12 @@ export interface CapturedCall {
   direction: 'client' | 'server';
   /** The OTHER end's host[:port] — egress: destination; ingress: caller/source. The edge key. */
   peerHost: string;
+  /**
+   * The peer's socket address (IP) when known — egress: the resolved remote
+   * address; ingress: `socket.remoteAddress`. Transport detail for display and
+   * debugging; NEVER an identity or edge key (IPs churn, NAT/LBs collapse them).
+   */
+  peerAddr?: string;
   /** SDK classification of {@link peerHost}. */
   edgeClass: 'external' | 'internal';
   /** `true` when bodies are present (external edge); `false` when metadata-only (internal). */

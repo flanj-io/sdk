@@ -78,4 +78,13 @@ describe('buildLogAttributes vs golden-otlp-call.json', () => {
   it('never emits a raw PAN', () => {
     expect(JSON.stringify(attrs)).not.toContain('4111111111111111');
   });
+
+  it('emits vinifera.peer.addr only when the socket exposed one', () => {
+    // Absent on the golden call: the key must not appear at all.
+    expect('vinifera.peer.addr' in attrs).toBe(false);
+    const withAddr = buildLogAttributes({ ...call, peerAddr: '203.0.113.7' });
+    expect(withAddr['vinifera.peer.addr']).toBe('203.0.113.7');
+    // The optional attr must be the ONLY difference vs the golden key set.
+    expect(new Set(Object.keys(withAddr))).toEqual(new Set([...Object.keys(goldenAttrs), 'vinifera.peer.addr']));
+  });
 });

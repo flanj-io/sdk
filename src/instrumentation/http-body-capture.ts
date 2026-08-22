@@ -163,10 +163,15 @@ export class HttpBodyCaptureInstrumentation extends InstrumentationBase<HttpBody
     const reqContentType = headerValue(req.getHeader('content-type'));
     const resContentType = typeof res.headers['content-type'] === 'string' ? res.headers['content-type'] : undefined;
 
+    // The resolved remote IP the connection actually went to — transport
+    // detail alongside the peer.host identity (the name the app dialed).
+    const peerAddr = (res.socket as unknown as { remoteAddress?: string } | undefined)?.remoteAddress;
+
     return assembleCapturedCall({
       integration: cfg.integration,
       direction: 'client',
       peerHost: info.host,
+      peerAddr,
       edgeClass,
       captureBodies,
       method: info.method,

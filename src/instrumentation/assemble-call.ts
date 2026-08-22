@@ -22,6 +22,8 @@ export interface AssembleCallInput {
   integration: string;
   direction: 'client' | 'server';
   peerHost: string;
+  /** The peer's socket address (IP) when known; transport detail, not identity. */
+  peerAddr?: string;
   edgeClass: EdgeClass;
   /** `true` only for external edges — internal edges are metadata-only. */
   captureBodies: boolean;
@@ -88,6 +90,7 @@ export function assembleCapturedCall(input: AssembleCallInput): CapturedCall {
     integration: input.integration,
     direction: input.direction,
     peerHost: input.peerHost,
+    peerAddr: input.peerAddr,
     edgeClass: input.edgeClass,
     captureBodies: input.captureBodies,
     method: input.method,

@@ -167,10 +167,16 @@ export class HttpServerCaptureInstrumentation extends InstrumentationBase<HttpBo
     const reqContentType = headerValue(req.headers['content-type']);
     const resContentType = headerValue(res.getHeader('content-type'));
 
+    // The caller's socket address — kept alongside peerHost even when a
+    // forwarded header supplied the identity (behind a proxy this is the LB's
+    // address; still useful transport detail).
+    const peerAddr = (req.socket as unknown as { remoteAddress?: string } | undefined)?.remoteAddress;
+
     return assembleCapturedCall({
       integration: cfg.integration,
       direction: 'server',
       peerHost: input.peerHost,
+      peerAddr,
       edgeClass: input.edgeClass,
       captureBodies: input.captureBodies,
       method: (req.method ?? 'GET').toUpperCase(),

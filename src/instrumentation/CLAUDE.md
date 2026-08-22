@@ -24,7 +24,10 @@ Every captured edge is classified from the **peer** host — egress: the destina
 caller (`X-Forwarded-For` first hop, else `socket.remoteAddress`). **External ⇒ bodies captured +
 redacted; internal ⇒ metadata-only, bodies are NEVER teed.** The redaction floor cannot be bypassed on
 internal edges because there is nothing to bypass — the raw bytes are never read. Emitted on every
-record: `vinifera.peer.host`, `vinifera.edge.class`, `vinifera.capture.bodies`.
+record: `vinifera.peer.host`, `vinifera.edge.class`, `vinifera.capture.bodies`; plus the
+OPTIONAL `vinifera.peer.addr` (the peer's socket address — egress: the resolved remote
+address; ingress: `socket.remoteAddress`) — transport detail for display, never an
+identity or edge key, omitted when the socket layer exposed none.
 
 ## The capture path (why it is shaped this way)
 

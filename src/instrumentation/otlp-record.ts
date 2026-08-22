@@ -39,6 +39,9 @@ export function buildLogAttributes(call: CapturedCall): LogAttributes {
     // validating redacted fields (CONTRACTS §2/§6).
     attrs['vinifera.redaction.fields'] = JSON.stringify(call.redactionFields);
   }
+  // Optional: the peer's socket address (IP) — transport detail alongside the
+  // peer.host identity; omitted when the socket layer did not expose one.
+  if (call.peerAddr) attrs['vinifera.peer.addr'] = call.peerAddr;
   if (call.requestContentType) attrs['vinifera.http.request.content_type'] = call.requestContentType;
   if (call.responseContentType) attrs['vinifera.http.response.content_type'] = call.responseContentType;
   if (call.correlation.requestId) attrs['vinifera.corr.request_id'] = call.correlation.requestId;
