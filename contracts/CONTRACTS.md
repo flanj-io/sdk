@@ -41,7 +41,7 @@ if ever moved to a span event):
 | Attribute | Type | Notes |
 |---|---|---|
 | `vinifera.capture.version` | string | `"1"` — the redaction/capture manifest version |
-| `vinifera.record.type` | string | `"call"` (findings reuse the pipeline as `"finding"`) |
+| `vinifera.record.type` | string | `"call"` — the SDK emits calls only. The collector reuses the same pipeline for its own internal record types `"finding"` and `"spec_info"` (below), which also cross the front→store hop of the tiered topology. |
 | `vinifera.direction` | string | `"client"` = egress (org is **consumer**) \| `"server"` = ingress (org is **provider**) |
 | `vinifera.peer.host` | string | the OTHER end's host[:port] — egress: the destination; ingress: the caller/source. The edge key. |
 | `vinifera.peer.addr` *(optional)* | string | the peer's socket address (IP) when the socket layer exposed one — egress: the resolved remote address; ingress: `socket.remoteAddress` (behind a proxy: the last hop's). Transport detail for display/debugging; NEVER an identity or edge key. Omitted when unknown. |
@@ -70,6 +70,19 @@ if ever moved to a span event):
 | `vinifera.redaction.patterns` | string | JSON array of fired pattern ids, e.g. `["PAN"]` |
 | `vinifera.redaction.spec_aware` | bool | v0 = `false` |
 | `vinifera.redaction.fields` *(optional)* | string | JSON array of whole-value body redactions with the ORIGINAL value's captured properties; omitted when empty. Entries `{part: "request"\|"response", path, pattern, props}` — `path` an RFC 6901 JSON Pointer into that body; `props` = `{type: "string"\|"number", length (Unicode code points of the original scalar text), integer? (numbers), containsLowerCase (a-z), containsUpperCase (A-Z), containsDigits (0-9), containsASCIIControlChars (≤0x1F or 0x7F), containsASCIIPrintableChars (0x20–0x7E), containsASCIIExtendedChars (>0x7F)}`. Sorted by part (request first) then path. Non-reversible by design (never anything that narrows the value). Emitted only for whole-value redactions (the scalar became exactly one token); span-in-text redactions, redacted keys, form pairs and non-JSON text carry no fields. Purpose: the collector's drift detector validates the DECIDABLE constraints (type, min/maxLength) of redacted fields instead of skipping them (§6 Drift interplay). |
+
+**Collector-internal record types** (never emitted by the SDK; produced by the collector's drift
+processor and consumed by its store exporter — in the tiered topology they travel from a front
+collector to the store pod over the core `otlphttp` exporter as ordinary OTLP log records):
+
+| `vinifera.record.type` | Carries | Notes |
+|---|---|---|
+| `"finding"` | `vinifera.finding.json` = the whole §4 Finding as JSON | Appended after the calls of the batch that produced it. Order is NOT load-bearing: the store pins a finding's source call whichever arrives first (late pin). |
+| `"spec_info"` | `vinifera.spec_info.json` = the loaded contract's metadata `{integration, role ("provider"\|"self"), peer_host?, format, title?, version?, docs_url?, endpoints?, loaded_at}`; the raw spec document in the log record **body as bytes** (may be empty) | Emitted by a collector that loaded a spec: on the first batch after start, then at most every 10 minutes, so a store pod (or a freshly wiped store) converges. Idempotent upsert keyed by `integration`. |
+
+A store that does not recognise a record type drops it silently (it never becomes a call: the
+store exporter requires method + route). Unknown types are therefore forward-compatible; upgrade
+the store pod before the fronts.
 
 Canonical example: [`v1/golden-otlp-call.json`](./v1/golden-otlp-call.json) — one drifting charge call
 (response `amount` returned as the string `"1200"` where the spec declares integer), card number already
@@ -329,3 +342,8 @@ covers older SDKs in the compatibility window that emit no fields).
 | `window_max_rows` / `window_max_bytes` | rolling-window ceilings (with `backend=postgres`, set identically on every pod sharing the database) |
 | `ui_endpoint` | localhost bind for the UI extension, default `127.0.0.1:5335` |
 | `otlp_endpoint` | OTLP receiver bind, default `0.0.0.0:4318` |
+
+*Tiered topology (N front collectors → one store pod, collector `docs/STORE.md` "Topologies") adds NO
+vinifera keys: a front's forwarding is the core OpenTelemetry `otlphttp` exporter (upstream's keys —
+`endpoint` = the store pod's base URL, e.g. `http://vinifera-store:4318`), and the store pod runs the
+same `viniferastore` / `viniferaui` keys above. Role is chosen by which config file runs.*
