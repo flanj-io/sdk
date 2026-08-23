@@ -18,7 +18,7 @@ The easiest way is `git commit -s`. PRs with unsigned commits will not be merged
 
 ## Ground rules
 
-- Keep this package **pristinely Apache-2.0** — fintech legal teams inspect it. Do not add code under
+- Keep this package **pristinely Apache-2.0** — legal and compliance teams at regulated organizations inspect it. Do not add code under
   copyleft or source-available licenses, and do not depend on packages that are not Apache/MIT/BSD/ISC.
 - **Redaction is the security bar.** Any change touching capture or redaction must keep the redaction
   golden-vector suite green (`contracts/redaction-vectors.json`) and must never let a raw body reach an

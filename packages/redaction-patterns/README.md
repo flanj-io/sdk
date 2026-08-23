@@ -81,7 +81,7 @@ token format, base64 and idempotency. Engine choice is per recognizer: swap one 
 | `IBAN` | ISO-13616, electronic or print format | `validator.isIBAN` (registry + mod-97) | `⟦REDACTED:IBAN⟧` |
 | `SSN` | US SSN `###-##-####` (format; no checksum exists) | — | `⟦REDACTED:SSN⟧` |
 | `PHONE` | international (`+` country code) numbers in common formats | `libphonenumber-js/max` | `⟦REDACTED:PHONE⟧` |
-| `CVV` | 3–4 digits as the value of a `cvv`/`cvc`/`cvv2`/`csc`/`security_code` key (or `cvv=123` in text) | context | `⟦REDACTED:CVV⟧` |
+| `CVV` | 3–4 digits as the value of a `cvv`/`cvv2`/`cvc`/`cvc2`/`csc`/`security_code` (optionally `card_`-prefixed) key (or `cvv=123` in text) | context | `⟦REDACTED:CVV⟧` |
 | `TOKEN` | Bearer tokens, JWTs (header validated), `sk_`/`pk_`-style keys | format | `⟦REDACTED:TOKEN⟧` |
 | `IP` *(optional)* | IPv4 / IPv6 (`includeIp: true`) | `validator.isIP` | `⟦REDACTED:IP⟧` |
 
