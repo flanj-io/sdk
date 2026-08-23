@@ -173,50 +173,59 @@ change-id → `rule`), computed once at spec load, `source_call_id=null`.
 
 ---
 
-## 5. Control-plane API — collector-facing subset
+## 5. Control-plane API — collector-facing subset  *(v0.1a, 2026-08-23)*
 
 Only the endpoints the **collector** calls are specified here: the collector is a public repo and implements
-the client side of these. The control plane's own surface (peek pages, session/token handling, thread
-lifecycle, DLP) is a private contract maintained alongside the control plane and is not part of this
-document.
+the client side of these. The control plane's own surface (thread pages, sessions, identity, notifications,
+DLP) is a private contract maintained alongside the control plane and is not part of this document.
+
+**Model:** the collector **Connects** once per deployment (`register` with the install-time `cp_deploy_token`
+→ a per-deployment **collector key**, persisted in the collector's store, never logged, never per-pod) and the
+contact confirms their email with one click. Creating or sharing a thread requires the collector key **and** a
+confirmed contact (`412 {"error":"not_connected"|"contact_unconfirmed"}`); viewing local data never does. Every
+thread records the key that created it; thread-scoped mutations need that key (`403 wrong_origin` otherwise).
+Thread state is `open | closed` (reopenable); `turn` labels are derived. Errors are JSON `{ "error", "message" }`.
 
 OpenAPI-style summary; JSON Schema for the flag request body:
-[`v1/cp-flag-request.schema.json`](./v1/cp-flag-request.schema.json).
+[`v1/cp-flag-request.schema.json`](./v1/cp-flag-request.schema.json) (`invitee_email` optional, ignored).
 
-### `POST /api/v1/flags`  (collector UI-extension → CP)
-Auth: `Authorization: Bearer <cp_deploy_token>`. Headers: `X-Vinifera-Collector-Version`, `X-Vinifera-Schema-Version`.
+### `POST /api/v1/collectors/register`  (Bearer `cp_deploy_token`)
+`{ "consumer_display_name", "contact_email", "contact_display_name"?, "local_ui_url"? }` → `201` (or `200` on the
+idempotent replay with the same deploy token + contact) `{ "collector_id", "collector_public_id", "collector_key"
+(returned once), "contact_status": "pending"|"confirmed" }`. The CP emails the contact a one-click confirmation;
+`local_ui_url` is display-only (the CP never calls the collector).
+
+### `GET /api/v1/collectors/me`  (Bearer collector key)
+`{ "collector_id", "collector_public_id", "consumer_display_name", "contact_email", "contact_display_name",
+"contact_status", "registered_at", "confirmed_at" }` — the local UI polls this for the Connect panel.
+
+### `POST /api/v1/flags`  (Bearer collector key)
+Headers: `X-Vinifera-Collector-Version`, `X-Vinifera-Schema-Version`.
 ```jsonc
 // request
-{
-  "idempotency_key": "flag_0191…",           // re-flag returns the existing thread
+{ "idempotency_key": "flag_0191…",           // re-flag returns the existing thread
   "consumer_display_name": "Acme Consumer Ltd",
-  "provider_display_name": "Acme Payments",  // OPTIONAL — who the flag is about. If omitted the CP
-                                             // humanizes call.integration (e.g. acme-payments → Acme Payments).
-  "invitee_email": "api-support@provider.test",
+  "provider_display_name": "Acme Payments",  // OPTIONAL — else the CP humanizes call.integration
   "message": "Your /v1/charges response returns amount as a string; spec says integer.",
-  "call": { /* RedactedCall */ },
-  "finding": { /* Finding */ }
-}
-// response 201
-{ "thread_id": "0191…", "peek_url": "https://<peek-origin>/t/<thread_public_id>#k=<token>", "magic_token": "<opaque>", "status": "created" }
-// response 200 (idempotent replay) → { …, "status": "existing" }  (same thread_public_id, fresh token)
+  "call": { /* RedactedCall */ }, "finding": { /* Finding */ } }
+// response 201 (200 on replay → "status":"existing", same thread_public_id, fresh token)
+{ "thread_id": "0191…", "thread_public_id": "<opaque>",
+  "thread_url": "https://<peek-origin>/t/<thread_public_id>#k=<token>",   // the Thread link the consumer copies
+  "peek_url": "<deprecated alias of thread_url>", "magic_token": "<deprecated alias>", "state": "open", "status": "created" }
+// 412 not_connected | contact_unconfirmed
 ```
+`thread_public_id` is random/opaque/≥128-bit/URL-safe; the bearer `<token>` (≥128-bit CSPRNG, stored hashed)
+lives ONLY in the URL fragment; expiry slides on every reply (30d, 90d hard cap, 30d after close). The CP sends no
+email on flag — the consumer pastes the link where the two teams already talk.
 
-### `POST /api/v1/threads/{threadId}/peek-links`  (collector UI-extension → CP; Bearer `cp_deploy_token`)
-Copy-link + regenerate: mints a fresh channel-tagged token on the SAME per-thread link.
-```jsonc
-// request — all fields optional
-{ "channel": "slack",              // link|slack|whatsapp|telegram|teams|other (email only via the flag path)
-  "revoke_existing": true,          // regenerate: revoke every outstanding token first (immediate)
-  "card_endpoint_detail": false }   // per-thread consumer toggle: endpoint+finding type on the unfurl card
-// response 201
-{ "peek_url": "https://<peek-origin>/t/<public_id>#k=<token>", "magic_token": "<opaque>",
-  "channel": "slack", "expires_at": "…", "revoked": 1 }
-```
-
-### `POST /api/v1/threads/{threadId}/peek-links/revoke`  (Bearer `cp_deploy_token`)
-Revokes every outstanding token on the thread — immediate, including live peek sessions minted
-from them. → `{ "revoked": n }`
+### Thread routes  (Bearer collector key; `403 wrong_origin` unless the key created the thread)
+| Route | Body | Response |
+|---|---|---|
+| `POST /api/v1/threads/{threadId}/peek-links` | `{ "revoke_existing"?: bool, "card_endpoint_detail"?: bool }` | `201 { "thread_url", "peek_url" (alias), "magic_token" (alias), "expires_at", "revoked": n }` — Replace thread link |
+| `POST /api/v1/threads/{threadId}/peek-links/revoke` | — | `200 { "revoked": n }` (respondent tokens + sessions; owner access untouched) |
+| `POST /api/v1/threads/{threadId}/close` · `/reopen` | — | `200 { "state", "closed_at", "reopened_at" }` |
+| `POST /api/v1/threads/{threadId}/handoff` | — | `201 { "owner_url": "https://<peek-origin>/o/<public_id>#o=<handoff>", "expires_at" }` — 10-min single-use, opened in the browser; never stored, never logged |
+| `GET /api/v1/threads/{threadId}/summary` | — | `{ "id", "thread_public_id", "state", "closed_at", "reopened_at", "turn": "waiting_on_provider"\|"provider_replied"\|"fix_reported"\|"replied_while_closed", "provider_display_name", "endpoint", "evidence_count", "opened_count", "knock_count", "message_count", "last_reply_at", "fixed_claim": {"display_name","at"}\|null, "link": {"status": "active"\|"replaced"\|"expired", "expires_at"}, "archived" }` — the local UI's Threads list polls this (state only; the conversation is read on the CP) |
 
 ---
 
