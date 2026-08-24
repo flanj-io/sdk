@@ -223,6 +223,20 @@ correctness (pricing, quantities, business rules). `live-vs-spec` via `kin-opena
 (`MultiError: true`). `version-diff` via `oasdiff` checker (`Level=ERR` → `severity="breaking"`,
 change-id → `rule`), computed once at spec load, `source_call_id=null`.
 
+**MCP finding kinds — v0.5 (Step C)** (additive; produced by the collector's MCP detection path from
+the §2 MCP call / `contract_snapshot` records — same `Finding` shape, same per-signature dedup;
+`endpoint` = the tool name, i.e. the contract `Operation.id`):
+
+| `kind` | Evidence | Cross-org flaggable? |
+|---|---|---|
+| `output_mismatch` | a `tools/call` `structuredContent` violates the tool's declared `outputSchema` (same JSON Schema validator + token-aware redaction rules as `live-vs-spec`; captured props of whole-value redactions decide type/length constraints). A tool with **no** `outputSchema` never produces one. `source_call_id` = a representative call carrying the MCP correlation keys. | **Yes** (severity `breaking`) |
+| `definition_change` | two consecutive observed `tools/list` snapshots differ; one finding per (edge, tool, `rule`, `field_path`) from the definition-diff classifier. `expected`/`actual` = before/after schema **fragments**; `spec_version_from`/`to` = abbreviated snapshot content hashes; both snapshot timestamps in `detail`; `source_call_id` = null. | **Yes** for BREAKING (severity `breaking`) and NON_BREAKING (`info`). A DESCRIPTION-only change (`rule` = `description-changed`, severity `warning`) is a **local warning — never flaggable**. |
+| `stale_client` | the consumer's agent called a tool absent from the **current** `tools/list` (`rule` = `tool-not-listed`) or with arguments violating the **current** `inputSchema`. Consumer-side; severity `warning`. | **No — local only, ever.** No flag control anywhere. |
+
+The evidence rule (v0.5 spec §6) is enforced **server-side in the collector relay**, not only by UI
+absence: `POST /api/flag` for a `stale_client` or description-only `definition_change` finding returns
+`403 {"error":"not_flaggable"}`, and such findings never reach the CP.
+
 ---
 
 ## 5. Control-plane API — collector-facing subset  *(v0.1a, 2026-08-23)*
