@@ -233,6 +233,8 @@ the §2 MCP call / `contract_snapshot` records — same `Finding` shape, same pe
 | `definition_change` | two consecutive observed `tools/list` snapshots differ; one finding per (edge, tool, `rule`, `field_path`) from the definition-diff classifier. `expected`/`actual` = before/after schema **fragments**; `spec_version_from`/`to` = abbreviated snapshot content hashes; both snapshot timestamps in `detail`; `source_call_id` = null. | **Yes** for BREAKING (severity `breaking`) and NON_BREAKING (`info`). A DESCRIPTION-only change (`rule` = `description-changed`, severity `warning`) is a **local warning — never flaggable**. |
 | `stale_client` | the consumer's agent called a tool absent from the **current** `tools/list` (`rule` = `tool-not-listed`) or with arguments violating the **current** `inputSchema`. Consumer-side; severity `warning`. | **No — local only, ever.** No flag control anywhere. |
 
+The two flaggable MCP kinds also carry the additive **optional** `snapshot_observed_at` (ISO date-time): the `tools/list` observation backing the finding — the **current** snapshot's `ObservedAt` for `output_mismatch`, the **after** snapshot's for `definition_change`; absent on other kinds and on findings from older collectors (readers must tolerate its absence).
+
 The evidence rule (v0.5 spec §6) is enforced **server-side in the collector relay**, not only by UI
 absence: `POST /api/flag` for a `stale_client` or description-only `definition_change` finding returns
 `403 {"error":"not_flaggable"}`, and such findings never reach the CP.
