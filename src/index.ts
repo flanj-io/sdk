@@ -117,6 +117,29 @@ function safeUrlHost(url: string): string | undefined {
   }
 }
 
+// MCP client instrumentation (v0.5 Step B): wrap the MCP Client — transport-
+// independent, out-of-band, both package lines feature-detected as optional peers.
+export { instrumentMcpClient } from './mcp/instrument-mcp-client';
+export type { InstrumentMcpClientOptions, McpClientLike } from './mcp/instrument-mcp-client';
+export { patchMcpClientConstructor, registerMcpAutoInstrumentation } from './mcp/auto-instrument';
+export { assembleMcpCall } from './mcp/assemble-mcp-call';
+export { assembleContractSnapshot } from './mcp/assemble-contract-snapshot';
+export { resolveMcpEdge, UNKNOWN_MCP_SERVER } from './mcp/resolve-mcp-edge';
+export type { McpEdge, ResolveMcpEdgeInput } from './mcp/resolve-mcp-edge';
+export {
+  buildMcpCallAttributes,
+  buildContractSnapshotAttributes,
+  emitMcpCall,
+  emitContractSnapshot
+} from './mcp/mcp-record';
+export type {
+  McpCallMeta,
+  McpCapturedCall,
+  McpContractSnapshot,
+  McpServerIdentity,
+  McpServerKind
+} from './mcp/mcp-types';
+
 export { HttpBodyCaptureInstrumentation } from './instrumentation/http-body-capture';
 export { HttpServerCaptureInstrumentation } from './instrumentation/http-server-capture';
 export { classifyHost } from './instrumentation/classify-host';

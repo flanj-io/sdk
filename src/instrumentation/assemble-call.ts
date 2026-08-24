@@ -24,7 +24,7 @@ export interface AssembleCallInput {
   peerHost: string;
   /** The peer's socket address (IP) when known; transport detail, not identity. */
   peerAddr?: string;
-  edgeClass: EdgeClass;
+  edgeClass: EdgeClass | 'local-process';
   /** `true` only for external edges — internal edges are metadata-only. */
   captureBodies: boolean;
   method: string;

@@ -1,0 +1,236 @@
+{
+  "_comment": "v0.5 (Step B). Canonical OTLP/HTTP-JSON logs payload the SDK emits for one MCP tools/call. The tool rides the method/route slots (tools/call + /create_refund); arguments are the request body (card number redacted at source, captured props in vinifera.redaction.fields); structuredContent is the response body with refund.amount as the STRING \"1200\" where the tool's outputSchema declares integer -> Step C's output_mismatch evidence. No vinifera.http.status_code (MCP has none; vinifera.mcp.is_error carries the outcome). vinifera.corr.client_request_id is the JSON-RPC id observed on the client's own outgoing message - CLIENT-generated, labeled as such, never presented as a provider-issued id.",
+  "resourceLogs": [
+    {
+      "resource": {
+        "attributes": [
+          {
+            "key": "service.name",
+            "value": {
+              "stringValue": "acme-consumer"
+            }
+          },
+          {
+            "key": "telemetry.sdk.name",
+            "value": {
+              "stringValue": "@vinifera/sdk"
+            }
+          }
+        ]
+      },
+      "scopeLogs": [
+        {
+          "scope": {
+            "name": "@vinifera/sdk",
+            "version": "0.0.1"
+          },
+          "logRecords": [
+            {
+              "timeUnixNano": "1755504000000000000",
+              "observedTimeUnixNano": "1755504000042000000",
+              "severityNumber": 9,
+              "severityText": "INFO",
+              "body": {
+                "stringValue": ""
+              },
+              "attributes": [
+                {
+                  "key": "vinifera.capture.version",
+                  "value": {
+                    "stringValue": "1"
+                  }
+                },
+                {
+                  "key": "vinifera.record.type",
+                  "value": {
+                    "stringValue": "call"
+                  }
+                },
+                {
+                  "key": "vinifera.direction",
+                  "value": {
+                    "stringValue": "client"
+                  }
+                },
+                {
+                  "key": "vinifera.peer.host",
+                  "value": {
+                    "stringValue": "mcp.acme.test"
+                  }
+                },
+                {
+                  "key": "vinifera.edge.class",
+                  "value": {
+                    "stringValue": "external"
+                  }
+                },
+                {
+                  "key": "vinifera.capture.bodies",
+                  "value": {
+                    "boolValue": true
+                  }
+                },
+                {
+                  "key": "vinifera.integration",
+                  "value": {
+                    "stringValue": "acme-payments"
+                  }
+                },
+                {
+                  "key": "vinifera.http.method",
+                  "value": {
+                    "stringValue": "tools/call"
+                  }
+                },
+                {
+                  "key": "vinifera.http.route",
+                  "value": {
+                    "stringValue": "/create_refund"
+                  }
+                },
+                {
+                  "key": "vinifera.http.target",
+                  "value": {
+                    "stringValue": "/create_refund"
+                  }
+                },
+                {
+                  "key": "vinifera.http.url.full",
+                  "value": {
+                    "stringValue": "mcp://mcp.acme.test/create_refund"
+                  }
+                },
+                {
+                  "key": "vinifera.http.request.body",
+                  "value": {
+                    "stringValue": "{\"amount\":1200,\"card_number\":\"⟦REDACTED:PAN⟧\",\"currency\":\"usd\"}"
+                  }
+                },
+                {
+                  "key": "vinifera.http.request.body.truncated",
+                  "value": {
+                    "boolValue": false
+                  }
+                },
+                {
+                  "key": "vinifera.http.request.headers",
+                  "value": {
+                    "stringValue": "{}"
+                  }
+                },
+                {
+                  "key": "vinifera.http.response.body",
+                  "value": {
+                    "stringValue": "{\"refund\":{\"id\":\"re_71\",\"amount\":\"1200\",\"status\":\"succeeded\"}}"
+                  }
+                },
+                {
+                  "key": "vinifera.http.response.body.truncated",
+                  "value": {
+                    "boolValue": false
+                  }
+                },
+                {
+                  "key": "vinifera.http.response.headers",
+                  "value": {
+                    "stringValue": "{}"
+                  }
+                },
+                {
+                  "key": "vinifera.http.duration_ms",
+                  "value": {
+                    "intValue": "18"
+                  }
+                },
+                {
+                  "key": "vinifera.redaction.applied",
+                  "value": {
+                    "boolValue": true
+                  }
+                },
+                {
+                  "key": "vinifera.redaction.patterns",
+                  "value": {
+                    "stringValue": "[\"PAN\"]"
+                  }
+                },
+                {
+                  "key": "vinifera.redaction.spec_aware",
+                  "value": {
+                    "boolValue": false
+                  }
+                },
+                {
+                  "key": "vinifera.redaction.fields",
+                  "value": {
+                    "stringValue": "[{\"part\":\"request\",\"path\":\"/card_number\",\"pattern\":\"PAN\",\"props\":{\"type\":\"string\",\"length\":16,\"containsLowerCase\":false,\"containsUpperCase\":false,\"containsDigits\":true,\"containsASCIIControlChars\":false,\"containsASCIIPrintableChars\":true,\"containsASCIIExtendedChars\":false}}]"
+                  }
+                },
+                {
+                  "key": "vinifera.http.request.content_type",
+                  "value": {
+                    "stringValue": "application/json"
+                  }
+                },
+                {
+                  "key": "vinifera.http.response.content_type",
+                  "value": {
+                    "stringValue": "application/json"
+                  }
+                },
+                {
+                  "key": "vinifera.transport",
+                  "value": {
+                    "stringValue": "mcp"
+                  }
+                },
+                {
+                  "key": "vinifera.mcp.tool.name",
+                  "value": {
+                    "stringValue": "create_refund"
+                  }
+                },
+                {
+                  "key": "vinifera.mcp.is_error",
+                  "value": {
+                    "boolValue": false
+                  }
+                },
+                {
+                  "key": "vinifera.mcp.server.name",
+                  "value": {
+                    "stringValue": "acme-payments-mcp"
+                  }
+                },
+                {
+                  "key": "vinifera.mcp.server.version",
+                  "value": {
+                    "stringValue": "3.2.0"
+                  }
+                },
+                {
+                  "key": "vinifera.mcp.protocol.version",
+                  "value": {
+                    "stringValue": "2025-06-18"
+                  }
+                },
+                {
+                  "key": "vinifera.mcp.session.id",
+                  "value": {
+                    "stringValue": "sess_9f3c1a"
+                  }
+                },
+                {
+                  "key": "vinifera.corr.client_request_id",
+                  "value": {
+                    "stringValue": "4"
+                  }
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

@@ -5,7 +5,9 @@ Guidance for Claude Code (and engineers) working in this repo.
 ## What this repo is
 
 The **Vinifera SDK**: a thin OpenTelemetry-JS distribution that adds HTTP **request/response body capture**
-and **redaction-at-source**, then exports one OTLP log record per call to the collector. It is the first
+and **redaction-at-source**, then exports one OTLP log record per call to the collector. Since v0.5 (Step B)
+it also instruments the **MCP client** (`instrumentMcpClient` — transport-independent, out-of-band, both
+`@modelcontextprotocol` package lines as optional peers; see `src/mcp/CLAUDE.md`). It is the first
 step of the pipeline (**capture** → detect → surface → flag → peek). Public, **Apache-2.0** — keep it
 pristine (legal and compliance teams at regulated organizations inspect it; no copyleft/source-available deps,
 prefer Apache/MIT/BSD/ISC).
@@ -38,6 +40,12 @@ src/
     classify-host.ts               # external | internal edge heuristic (byte-identical in the collector)
     otlp-record.ts                 # build the vinifera.* OTLP log record from a CapturedCall
     captured-call.ts, capped-buffer.ts, http-args.ts, config.ts
+  mcp/                             # v0.5 Step B: MCP CLIENT instrumentation — see mcp/CLAUDE.md
+    instrument-mcp-client.ts       # instrumentMcpClient(client): wrap listTools/callTool, pass-through, both package lines
+    auto-instrument.ts             # constructor auto-patch path (optional peers, feature-detected, never required)
+    assemble-mcp-call.ts           # tools/call -> CapturedCall via the shared assembler (same floor, same caps)
+    assemble-contract-snapshot.ts  # complete tools/list -> floor-redacted ToolDef-shaped contract_snapshot
+    mcp-record.ts, resolve-mcp-edge.ts, mcp-types.ts
 packages/
   redaction-patterns/              # published Apache package: the redaction floor (see REDACTION.md)
     src/recognizer.ts              # the swappable interface: Recognizer.find(scalar, ctx) -> confirmed spans

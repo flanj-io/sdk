@@ -26,6 +26,18 @@
     "lint": "eslint .",
     "clean": "rm -rf dist packages/*/dist *.tsbuildinfo packages/*/*.tsbuildinfo"
   },
+  "peerDependencies": {
+    "@modelcontextprotocol/client": "^2.0.0",
+    "@modelcontextprotocol/sdk": "^1.0.0"
+  },
+  "peerDependenciesMeta": {
+    "@modelcontextprotocol/client": {
+      "optional": true
+    },
+    "@modelcontextprotocol/sdk": {
+      "optional": true
+    }
+  },
   "dependencies": {
     "@opentelemetry/api": "^1.9.0",
     "@opentelemetry/api-logs": "^0.221.0",

@@ -33,7 +33,9 @@ backward-compatible with older self-hosted collectors (see §7).
 ## 2. OTLP wire convention (SDK → collector)
 
 Transport: **OTLP/HTTP protobuf on `:4318`** (path `/v1/logs`). One **OTLP Log record per completed
-HTTP call**. The SDK redacts at source **before** the record is constructed; raw bodies never reach OTLP.
+HTTP call** — and, since v0.5 (Step B), one per completed **MCP tool call** plus one `contract_snapshot`
+record per observed `tools/list` (the MCP blocks below). The SDK redacts at source **before** the record
+is constructed; raw bodies never reach OTLP.
 
 Log record `body` is empty; all data is in **attributes**. Attribute keys (carrier-agnostic — identical
 if ever moved to a span event):
@@ -41,11 +43,11 @@ if ever moved to a span event):
 | Attribute | Type | Notes |
 |---|---|---|
 | `vinifera.capture.version` | string | `"1"` — the redaction/capture manifest version |
-| `vinifera.record.type` | string | `"call"` — the SDK emits calls only. The collector reuses the same pipeline for its own internal record types `"finding"` and `"spec_info"` (below), which also cross the front→store hop of the tiered topology. |
+| `vinifera.record.type` | string | `"call"` — one completed call. Since v0.5 (Step B) the SDK also emits `"contract_snapshot"` (an observed MCP `tools/list` — see the MCP block below); older collectors drop the unknown type silently, so the addition is forward-compatible with no `schema_version` bump. The collector reuses the same pipeline for its own internal record types `"finding"` and `"spec_info"` (below), which also cross the front→store hop of the tiered topology. |
 | `vinifera.direction` | string | `"client"` = egress (org is **consumer**) \| `"server"` = ingress (org is **provider**) |
 | `vinifera.peer.host` | string | the OTHER end's host[:port] — egress: the destination; ingress: the caller/source. The edge key. |
 | `vinifera.peer.addr` *(optional)* | string | the peer's socket address (IP) when the socket layer exposed one — egress: the resolved remote address; ingress: `socket.remoteAddress` (behind a proxy: the last hop's). Transport detail for display/debugging; NEVER an identity or edge key. Omitted when unknown. |
-| `vinifera.edge.class` | string | `"external"` \| `"internal"` — classification of `peer.host`, byte-identical in SDK + collector. **Internal** = RFC1918 (10/8, 172.16-31/12, 192.168/16) / loopback (127/8, `::1`) / unspecified (`::`) / link-local (169.254/16, `fe80::/10`) / ULA (`fc00::/7`) / a name ending `.svc.cluster.local`·`.internal`·`.local` / single-label host. `::ffff:` IPv4-mapped addresses are unmapped first. Else **external**. |
+| `vinifera.edge.class` | string | `"external"` \| `"internal"` — classification of `peer.host`, byte-identical in SDK + collector. **Internal** = RFC1918 (10/8, 172.16-31/12, 192.168/16) / loopback (127/8, `::1`) / unspecified (`::`) / link-local (169.254/16, `fe80::/10`) / ULA (`fc00::/7`) / a name ending `.svc.cluster.local`·`.internal`·`.local` / single-label host. `::ffff:` IPv4-mapped addresses are unmapped first. Else **external**. v0.5 (Step B) adds the additive value `"local-process"`: a stdio MCP server (see the MCP block below) — bodies ARE captured + redacted (a local MCP process usually fronts an external API; the contract is the server's), unlike `internal` which stays metadata-only. |
 | `vinifera.capture.bodies` | bool | `true` on external edges (bodies present) · `false` on internal (bodies OMITTED — internal is metadata-only, classified out of surfacing). |
 | `vinifera.integration` | string | the integration id, e.g. `"acme-payments"` (may be derived from `peer.host` when auto-discovered) |
 | `vinifera.http.method` | string | `"POST"` |
@@ -70,6 +72,56 @@ if ever moved to a span event):
 | `vinifera.redaction.patterns` | string | JSON array of fired pattern ids, e.g. `["PAN"]` |
 | `vinifera.redaction.spec_aware` | bool | v0 = `false` |
 | `vinifera.redaction.fields` *(optional)* | string | JSON array of whole-value body redactions with the ORIGINAL value's captured properties; omitted when empty. Entries `{part: "request"\|"response", path, pattern, props}` — `path` an RFC 6901 JSON Pointer into that body; `props` = `{type: "string"\|"number", length (Unicode code points of the original scalar text), integer? (numbers), containsLowerCase (a-z), containsUpperCase (A-Z), containsDigits (0-9), containsASCIIControlChars (≤0x1F or 0x7F), containsASCIIPrintableChars (0x20–0x7E), containsASCIIExtendedChars (>0x7F)}`. Sorted by part (request first) then path. Non-reversible by design (never anything that narrows the value). Emitted only for whole-value redactions (the scalar became exactly one token); span-in-text redactions, redacted keys, form pairs and non-JSON text carry no fields. Purpose: the collector's drift detector validates the DECIDABLE constraints (type, min/maxLength) of redacted fields instead of skipping them (§6 Drift interplay). |
+
+**MCP tool-call records — v0.5 (Step B)** (additive; emitted by the SDK's MCP client wrapper,
+`instrumentMcpClient`, one record per completed `tools/call`): the SAME `"call"` record shape as HTTP,
+with the tool riding the method/route slots — `vinifera.http.method` = `"tools/call"`,
+`vinifera.http.route` = `vinifera.http.target` = `"/<tool.name>"`, `vinifera.http.url.full` =
+`"mcp://<peer.host>/<tool.name>"` (synthetic, display only). The request body is the `tools/call`
+**arguments** (JSON); the response body is **`structuredContent`** when present (content-type
+`application/json`), else the `content[]` text items joined with newlines (`text/plain` — the floor's
+text path parses-then-traverses JSON text, so a PAN inside stringified JSON is caught structurally,
+not by a regex). Headers are `"{}"`; `vinifera.http.status_code` is **omitted** (MCP has none —
+`vinifera.mcp.is_error` carries the outcome); every body is floor-redacted at source with
+`redaction.fields` captured exactly as on HTTP. `vinifera.peer.host` = the streamable-HTTP endpoint
+host[:port], or `serverInfo.name` for a stdio server (edge class `"local-process"`); a streamable-HTTP
+peer classified `internal` stays metadata-only as ever. Additive attributes:
+
+| Attribute | Type | Notes |
+|---|---|---|
+| `vinifera.transport` | string | `"mcp"`. Absent on HTTP records (absent = HTTP). |
+| `vinifera.mcp.tool.name` | string | the called tool — the operation id downstream detection matches against the contract (`Operation.id` / `Match.toolName`). |
+| `vinifera.mcp.is_error` | bool | the CallToolResult's `isError` (also `true` when the call itself rejected). Feeds the error-rate metric; never a finding on its own. |
+| `vinifera.mcp.server.name` *(optional)* | string | `serverInfo.name` from initialize, when the client surfaces it. |
+| `vinifera.mcp.server.version` *(optional)* | string | `serverInfo.version`. |
+| `vinifera.mcp.protocol.version` *(optional)* | string | the negotiated MCP protocol version. |
+| `vinifera.mcp.session.id` *(optional)* | string | `Mcp-Session-Id` when the transport exposes one (2025-11-25 line; absent on 2026-07-28 stateless). |
+| `vinifera.corr.client_request_id` *(optional)* | string | the JSON-RPC id observed on the client's OWN outgoing message — **client-generated**: it appears in the provider's logs only if they log it. Rendered as "JSON-RPC id (client-generated)", and never merged into `vinifera.corr.request_id`, which stays **provider-issued only** (the v0.5 client wrapper sees no HTTP response headers and therefore emits none). |
+
+Canonical example: [`v1/golden-otlp-mcp-call.json`](./v1/golden-otlp-mcp-call.json) — one
+`create_refund` call whose `structuredContent` returns `refund.amount` as the string `"1200"` where the
+tool's `outputSchema` declares integer (Step C's `output_mismatch` evidence), card number redacted at
+source with captured props.
+
+**`contract_snapshot` records — v0.5 (Step B)** (additive; emitted by the SDK's MCP client wrapper):
+one record per **complete** observed `tools/list` (pagination followed; re-fetched and re-emitted after
+`notifications/tools/list_changed`). This is the self-delivering local spec — Step C loads it as
+`Contract{source:"mcp"}`, versioned by content hash, provenance "observed tools/list at <ts>" where
+<ts> is the log record's own timestamp. Attribute set:
+
+| Attribute | Type | Notes |
+|---|---|---|
+| `vinifera.capture.version` | string | `"1"` |
+| `vinifera.record.type` | string | `"contract_snapshot"` |
+| `vinifera.transport` | string | `"mcp"` |
+| `vinifera.direction` | string | `"client"` |
+| `vinifera.peer.host` / `vinifera.edge.class` / `vinifera.integration` | | as on MCP call records (same edge key). |
+| `vinifera.mcp.contract_snapshot` | string | **floor-redacted** JSON `{"tools":[…], "serverInfo"?, "protocolVersion"?, "capabilities"?}`. Each tool carries exactly the ToolDef wire keys `name` / `description` / `inputSchema` / `outputSchema` / `annotations` (decodable by the collector's `contract.ParseToolsList`); schemas are the server's own words, passed verbatim — a tool without `outputSchema` keeps none (the honest "no output contract declared" state, never synthesized). `capabilities` carries `{tools:{listChanged}}` when the client surfaces it. |
+| `vinifera.mcp.tool.count` | int | tools in the snapshot. |
+| `vinifera.mcp.server.name` / `vinifera.mcp.server.version` / `vinifera.mcp.protocol.version` *(optional)* | string | server identity, when surfaced. |
+| `vinifera.redaction.applied` / `vinifera.redaction.patterns` | bool / string | the floor pass over the snapshot JSON (usually nothing fires; the floor still runs — every captured payload is floor-scanned first, §6). |
+
+Canonical example: [`v1/golden-otlp-mcp-snapshot.json`](./v1/golden-otlp-mcp-snapshot.json).
 
 **Collector-internal record types** (never emitted by the SDK; produced by the collector's drift
 processor and consumed by its store exporter — in the tiered topology they travel from a front

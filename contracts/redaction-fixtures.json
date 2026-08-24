@@ -2585,6 +2585,168 @@
           "IBAN"
         ]
       }
+    },
+    {
+      "id": "mcp-json-pan-in-tool-call-args",
+      "description": "MCP tools/call ARGUMENTS carrying a PAN (v0.5 Step B: the request body of an MCP tool call goes through the same floor)",
+      "kind": "json",
+      "direction": "outbound",
+      "input": {
+        "account_id": "acct_812",
+        "amount": 1200,
+        "card_number": "4242424242424242",
+        "currency": "usd"
+      },
+      "expected": {
+        "account_id": "acct_812",
+        "amount": 1200,
+        "card_number": "⟦REDACTED:PAN⟧",
+        "currency": "usd"
+      },
+      "patterns": [
+        "PAN"
+      ],
+      "fields": [
+        {
+          "path": "/card_number",
+          "pattern": "PAN",
+          "props": {
+            "type": "string",
+            "length": 16,
+            "containsLowerCase": false,
+            "containsUpperCase": false,
+            "containsDigits": true,
+            "containsASCIIControlChars": false,
+            "containsASCIIPrintableChars": true,
+            "containsASCIIExtendedChars": false
+          }
+        }
+      ]
+    },
+    {
+      "id": "mcp-json-pan-nested-in-structured-content",
+      "description": "MCP CallToolResult with a PAN nested inside structuredContent (the response body of an MCP tool call): deep traversal reaches it; captured props emitted",
+      "kind": "json",
+      "direction": "outbound",
+      "input": {
+        "content": [
+          {
+            "type": "text",
+            "text": "refund created"
+          }
+        ],
+        "structuredContent": {
+          "refund": {
+            "id": "re_71",
+            "amount": 1200,
+            "card": {
+              "number": "4111111111111111",
+              "last4": "1111"
+            }
+          },
+          "status": "succeeded"
+        },
+        "isError": false
+      },
+      "expected": {
+        "content": [
+          {
+            "type": "text",
+            "text": "refund created"
+          }
+        ],
+        "structuredContent": {
+          "refund": {
+            "id": "re_71",
+            "amount": 1200,
+            "card": {
+              "number": "⟦REDACTED:PAN⟧",
+              "last4": "1111"
+            }
+          },
+          "status": "succeeded"
+        },
+        "isError": false
+      },
+      "patterns": [
+        "PAN"
+      ],
+      "fields": [
+        {
+          "path": "/structuredContent/refund/card/number",
+          "pattern": "PAN",
+          "props": {
+            "type": "string",
+            "length": 16,
+            "containsLowerCase": false,
+            "containsUpperCase": false,
+            "containsDigits": true,
+            "containsASCIIControlChars": false,
+            "containsASCIIPrintableChars": true,
+            "containsASCIIExtendedChars": false
+          }
+        }
+      ]
+    },
+    {
+      "id": "mcp-json-pan-inside-json-string-text-content",
+      "description": "MCP CallToolResult whose content[] text carries STRINGIFIED JSON with a PAN: the per-scalar engine finds the PAN inside the JSON string; span-in-text, so no field record",
+      "kind": "json",
+      "direction": "outbound",
+      "input": {
+        "content": [
+          {
+            "type": "text",
+            "text": "{\"customer\":\"cus_44\",\"card_number\":\"5555555555554444\",\"balance\":710}"
+          }
+        ],
+        "isError": false
+      },
+      "expected": {
+        "content": [
+          {
+            "type": "text",
+            "text": "{\"customer\":\"cus_44\",\"card_number\":\"⟦REDACTED:PAN⟧\",\"balance\":710}"
+          }
+        ],
+        "isError": false
+      },
+      "patterns": [
+        "PAN"
+      ]
+    },
+    {
+      "id": "mcp-json-base64-encoded-body-in-args",
+      "description": "MCP tools/call ARGUMENTS carrying a base64-encoded JSON body with a PAN: decode-then-scan turns the whole encoded run into one token",
+      "kind": "json",
+      "direction": "outbound",
+      "input": {
+        "encoding": "base64",
+        "payload": "eyJjYXJkX251bWJlciI6IjQyNDI0MjQyNDI0MjQyNDIiLCJhbW91bnQiOjEyMDB9"
+      },
+      "expected": {
+        "encoding": "base64",
+        "payload": "⟦REDACTED:PAN⟧"
+      },
+      "patterns": [
+        "PAN"
+      ],
+      "fields": [
+        {
+          "path": "/payload",
+          "pattern": "PAN",
+          "props": {
+            "type": "string",
+            "length": 64,
+            "containsLowerCase": true,
+            "containsUpperCase": true,
+            "containsDigits": true,
+            "containsASCIIControlChars": false,
+            "containsASCIIPrintableChars": true,
+            "containsASCIIExtendedChars": false
+          }
+        }
+      ]
     }
   ]
 }

@@ -23,7 +23,9 @@ non-negotiable lives — **redact at source, drop the raw buffer, never attach r
 Every captured edge is classified from the **peer** host — egress: the destination; ingress: the
 caller (`X-Forwarded-For` first hop, else `socket.remoteAddress`). **External ⇒ bodies captured +
 redacted; internal ⇒ metadata-only, bodies are NEVER teed.** The redaction floor cannot be bypassed on
-internal edges because there is nothing to bypass — the raw bytes are never read. Emitted on every
+internal edges because there is nothing to bypass — the raw bytes are never read. v0.5 (Step B) adds
+the additive edge class `local-process` (stdio MCP servers, `src/mcp/` — bodies captured + redacted);
+`classifyHost` itself is unchanged and stays byte-identical to the collector's. Emitted on every
 record: `vinifera.peer.host`, `vinifera.edge.class`, `vinifera.capture.bodies`; plus the
 OPTIONAL `vinifera.peer.addr` (the peer's socket address — egress: the resolved remote
 address; ingress: `socket.remoteAddress`) — transport detail for display, never an

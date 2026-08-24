@@ -26,8 +26,12 @@ export interface CapturedCall {
    * debugging; NEVER an identity or edge key (IPs churn, NAT/LBs collapse them).
    */
   peerAddr?: string;
-  /** SDK classification of {@link peerHost}. */
-  edgeClass: 'external' | 'internal';
+  /**
+   * SDK classification of {@link peerHost}. HTTP peers classify `external` |
+   * `internal` (classify-host heuristic); a stdio MCP server is the additive
+   * v0.5 class `local-process` (CONTRACTS §2 `vinifera.edge.class`).
+   */
+  edgeClass: 'external' | 'internal' | 'local-process';
   /** `true` when bodies are present (external edge); `false` when metadata-only (internal). */
   captureBodies: boolean;
   method: string;
