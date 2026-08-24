@@ -10,7 +10,12 @@ before anything is stored or leaves your process.
 
 - **Redaction-at-source**, before capture is stored or transmitted (PAN via Luhn, PII, secrets).
 - **Body capture** on the `http`/`https` client (egress) and server (ingress) paths, size-capped and content-type gated.
+- **MCP client instrumentation** (`instrumentMcpClient`) — wraps the MCP `Client` (both `@modelcontextprotocol` package lines, optional peers, byte-identical pass-through): `tools/list` snapshots become the server's self-delivering contract and `tools/call` bodies are captured and redacted like any other call.
 - Emits a stable `vinifera.*` OTLP convention consumed by the [collector](https://github.com/vinifera-io/collector).
+
+**Supported:** REST/HTTP integrations — live request/response validated against the provider's OpenAPI.
+**Supported:** MCP tools — tool-definition drift and result-vs-`outputSchema` mismatch, flagged to the server operator with evidence.
+**Roadmap:** webhooks (received-webhook contract drift; missing-webhook detection under design).
 
 Also publishes **`@vinifera/redaction-patterns`**, the standalone redaction floor.
 
