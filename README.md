@@ -19,6 +19,7 @@ before anything is stored or leaves your process.
 
 Also publishes **`@vinifera/redaction-patterns`**, the standalone redaction floor.
 
+**We turn a detection into something you can act on with your vendor.**
 Open-source SDK (Apache-2.0) and source-available collector (ELv2); hosted network layer.
 
 ## Status
