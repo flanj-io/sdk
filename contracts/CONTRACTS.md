@@ -230,14 +230,48 @@ the §2 MCP call / `contract_snapshot` records — same `Finding` shape, same pe
 | `kind` | Evidence | Cross-org flaggable? |
 |---|---|---|
 | `output_mismatch` | a `tools/call` `structuredContent` violates the tool's declared `outputSchema` (same JSON Schema validator + token-aware redaction rules as `live-vs-spec`; captured props of whole-value redactions decide type/length constraints). A tool with **no** `outputSchema` never produces one. `source_call_id` = a representative call carrying the MCP correlation keys. | **Yes** (severity `breaking`) |
-| `definition_change` | two consecutive observed `tools/list` snapshots differ; one finding per (edge, tool, `rule`, `field_path`) from the definition-diff classifier. `expected`/`actual` = before/after schema **fragments**; `spec_version_from`/`to` = abbreviated snapshot content hashes; both snapshot timestamps in `detail`; `source_call_id` = null. | **Yes** for BREAKING (severity `breaking`) and NON_BREAKING (`info`). A DESCRIPTION-only change (`rule` = `description-changed`, severity `warning`) is a **local warning — never flaggable**. |
+| `definition_change` | two consecutive observed `tools/list` snapshots differ; one finding per (edge, tool, `rule`, `field_path`) from the definition-diff classifier. `expected`/`actual` = before/after schema **fragments**; `spec_version_from`/`to` = abbreviated snapshot content hashes; both snapshot timestamps in `detail`; `source_call_id` = null. | **Yes — every class**: BREAKING (severity `breaking`), NON_BREAKING (`info`) and, since **qfix2-2026-08-26**, DESCRIPTION (`rule` = `description-changed`, severity `warning`). Never automatic: a human presses the flag control on the row. |
 | `stale_client` | the consumer's agent called a tool absent from the **current** `tools/list` (`rule` = `tool-not-listed`) or with arguments violating the **current** `inputSchema`. Consumer-side; severity `warning`. | **No — local only, ever.** No flag control anywhere. |
 
 The two flaggable MCP kinds also carry the additive **optional** `snapshot_observed_at` (ISO date-time): the `tools/list` observation backing the finding — the **current** snapshot's `ObservedAt` for `output_mismatch`, the **after** snapshot's for `definition_change`; absent on other kinds and on findings from older collectors (readers must tolerate its absence).
 
-The evidence rule (v0.5 spec §6) is enforced **server-side in the collector relay**, not only by UI
-absence: `POST /api/flag` for a `stale_client` or description-only `definition_change` finding returns
-`403 {"error":"not_flaggable"}`, and such findings never reach the CP.
+`definition_change` findings also carry the additive **optional** `snapshot_observed_from` (ISO date-time): the **previous** snapshot's observation time — the structured sibling of `snapshot_observed_at` (which stays the **after** snapshot), so readers never parse the `detail` prose for the before-time; absent on other kinds and on findings from older collectors (readers must tolerate its absence).
+
+The evidence rule (v0.5 spec §6, **amended qfix2-2026-08-26**) is enforced **server-side in the collector
+relay**, not only by UI absence: `POST /api/flag` for a `stale_client` finding returns
+`403 {"error":"not_flaggable"}`, and such findings never reach the CP. `stale_client` is consumer-side —
+it has no flag control on any surface and never gains one.
+
+**The amendment: a DESCRIPTION-only `definition_change` is flaggable.** Its evidence passes the
+"verifiable in the provider's own systems" bar — it is the provider's own published `tools/list` text:
+two content-hashed snapshots with observation timestamps, which they verify by reading their own two
+versions. What failed the bar was the *claim*, not the evidence, so the flag carries the claim honestly
+("you're asking whether the change was intended", not "this is a bug"). Nothing auto-flags: the flag is a
+human act on the row.
+
+**Call-less flags (qfix2-2026-08-26).** A `definition_change` has `source_call_id: null` by nature, so the
+flag that carries it has **no `call`**: `call` is optional in
+[`v1/cp-flag-request.schema.json`](./v1/cp-flag-request.schema.json) when `finding.kind` is
+`definition_change`, and required for every other kind — a call-less `output_mismatch` (or any
+call-evidenced kind) is still refused with `400 {"error":"finding_has_no_call"}`. The thread renders the
+two published snapshots as its evidence and no failing-call section. This supersedes the v0.5 §7 deferral.
+
+**`spec_version_to` is the evidence version of a `definition_change`** (existing field; its consumer-facing
+semantics are stated here for the first time — no wire change). It is the AFTER snapshot's content hash, and
+it changes whenever the provider publishes a *further* change to the same field, while `signature`
+(`integration|endpoint|kind|rule|field_path`) stays identical across successive changes. Any reader that
+persists per-finding local state — in v0.1a that is the collector's local acknowledgement — MUST key it on
+`signature` **plus** `spec_version_to`, so a new change can never inherit the state of the old one. For
+occurrence-counted kinds (`live-vs-spec` `type-mismatch`, `output_mismatch`) recurrence is expected and the
+key stays `signature` alone.
+
+**Matching is EQUALITY, and absence is never a wildcard** (the migration rule — normative). A persisted
+record that carries **no** evidence version does **not** match a `definition_change`, which always carries an
+after-hash: records written before this key existed therefore re-surface **un-acknowledged** rather than
+matching every future change forever. A reader MUST NOT treat a missing evidence version as "matches any",
+and MUST NOT fall back to the `signature`-only key for a `definition_change` when the stored version is
+absent. Fail safe is re-surfacing, never staying silently acknowledged — the whole point of the key is that
+the state a person set can only ever cover the evidence that was on screen when they set it.
 
 ---
 
@@ -255,7 +289,8 @@ thread records the key that created it; thread-scoped mutations need that key (`
 Thread state is `open | closed` (reopenable); `turn` labels are derived. Errors are JSON `{ "error", "message" }`.
 
 OpenAPI-style summary; JSON Schema for the flag request body:
-[`v1/cp-flag-request.schema.json`](./v1/cp-flag-request.schema.json) (`invitee_email` optional, ignored).
+[`v1/cp-flag-request.schema.json`](./v1/cp-flag-request.schema.json) (`invitee_email` optional, ignored;
+`call` optional for `definition_change` only — §4).
 
 ### `POST /api/v1/collectors/register`  (Bearer `cp_deploy_token`)
 `{ "consumer_display_name", "contact_email", "contact_display_name"?, "local_ui_url"? }` → `201` (or `200` on the
@@ -275,11 +310,13 @@ Headers: `X-Vinifera-Collector-Version`, `X-Vinifera-Schema-Version`.
   "consumer_display_name": "Acme Consumer Ltd",
   "provider_display_name": "Acme Payments",  // OPTIONAL — else the CP humanizes call.integration
   "message": "Your /v1/charges response returns amount as a string; spec says integer.",
-  "call": { /* RedactedCall */ }, "finding": { /* Finding */ } }
+  "call": { /* RedactedCall — OMITTED for a call-less definition_change (qfix2-2026-08-26) */ },
+  "finding": { /* Finding */ } }
 // response 201 (200 on replay → "status":"existing", same thread_public_id, fresh token)
 { "thread_id": "0191…", "thread_public_id": "<opaque>",
   "thread_url": "https://<peek-origin>/t/<thread_public_id>#k=<token>",   // the Thread link the consumer copies
   "peek_url": "<deprecated alias of thread_url>", "magic_token": "<deprecated alias>", "state": "open", "status": "created" }
+// 400 finding_has_no_call  — `call` missing on any kind except definition_change
 // 412 not_connected | contact_unconfirmed
 ```
 `thread_public_id` is random/opaque/≥128-bit/URL-safe; the bearer `<token>` (≥128-bit CSPRNG, stored hashed)
