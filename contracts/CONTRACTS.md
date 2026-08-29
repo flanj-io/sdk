@@ -310,6 +310,11 @@ Headers: `X-Vinifera-Collector-Version`, `X-Vinifera-Schema-Version`.
   "consumer_display_name": "Acme Consumer Ltd",
   "provider_display_name": "Acme Payments",  // OPTIONAL — else the CP humanizes call.integration
   "message": "Your /v1/charges response returns amount as a string; spec says integer.",
+  "evidence_origin": "finding",              // OPTIONAL, additive (slice2-2026-08-28): "finding" (default when
+                                             //   absent — the promoted call's bodies start withheld from the
+                                             //   provider on the thread page) | "call_pick" (the operator chose
+                                             //   the call while looking at it — starts revealed). Unknown values
+                                             //   read as "finding" (tolerant). Collectors need not send it.
   "call": { /* RedactedCall — OMITTED for a call-less definition_change (qfix2-2026-08-26) */ },
   "finding": { /* Finding */ } }
 // response 201 (200 on replay → "status":"existing", same thread_public_id, fresh token)
@@ -331,6 +336,42 @@ email on flag — the consumer pastes the link where the two teams already talk.
 | `POST /api/v1/threads/{threadId}/close` · `/reopen` | — | `200 { "state", "closed_at", "reopened_at" }` |
 | `POST /api/v1/threads/{threadId}/handoff` | — | `201 { "owner_url": "https://<peek-origin>/o/<public_id>#o=<handoff>", "expires_at" }` — 10-min single-use, opened in the browser; never stored, never logged |
 | `GET /api/v1/threads/{threadId}/summary` | — | `{ "id", "thread_public_id", "state", "closed_at", "reopened_at", "turn": "waiting_on_provider"\|"provider_replied"\|"fix_reported"\|"replied_while_closed", "provider_display_name", "endpoint", "evidence_count", "opened_count", "knock_count", "message_count", "last_reply_at", "fixed_claim": {"display_name","at"}\|null, "link": {"status": "active"\|"replaced"\|"expired", "expires_at"}, "archived" }` — the local UI's Threads list polls this (state only; the conversation is read on the CP) |
+
+### `POST /api/v1/findings`  (Bearer collector key) — *(slice2-2026-08-28)*
+
+Shape-only finding sync from the collector's background ticker (`finding_sync`, §8 — on by default).
+Headers: `X-Vinifera-Collector-Version`, `X-Vinifera-Schema-Version`.
+
+```jsonc
+// request — SHAPE ONLY. `expected` / `actual` / `detail` are NEVER sent (they carry observed
+// values, which stay in the collector); a payload carrying them anyway has them stripped
+// server-side, defense in depth.
+{ "findings": [ {
+    "finding_id": "f_0191…",            // the local finding id (the CP's deep-link key back into this UI)
+    "signature": "acme-payments|POST /v1/charges|live-vs-spec|type-mismatch|amount",
+    "kind": "live-vs-spec", "severity": "breaking",    // kind/rule: the §4 finding vocabulary; severity breaking | warning | info
+    "integration": "acme-payments", "endpoint": "POST /v1/charges",
+    "field_path": "amount",             // optional
+    "rule": "type-mismatch",
+    "occurrence_count": 12,
+    "first_seen": "…", "last_seen": "…", "detected_at": "…",
+    "snapshot_observed_at": "…", "snapshot_observed_from": "…"   // optional
+} ] }
+// response 200 { "received": n, "stored": n }
+```
+
+- Max **200** items per request; more → `400` (validation). An EMPTY array is a valid no-op. A batch
+  with ANY invalid row is refused whole (`400`) — nothing from it is stored.
+- Per-field length caps (characters): `finding_id` ≤128 · `signature` ≤1024 · `kind` ≤64 ·
+  `severity` ≤32 · `integration` ≤256 · `endpoint` ≤256 · `field_path` ≤256 · `rule` ≤128 · the
+  timestamp fields ≤64. Required strings are non-empty; `occurrence_count` is an integer ≥0.
+- Local client notices (kind `stale_client`) are not synced — they are consumer-side only, like the
+  flag relay (§4).
+- Auth: collector key required — **no confirmed-contact requirement** (this is telemetry about the
+  collector's own data, the same install-time anchor as edge registration); the deploy token names
+  no single collector and is refused with `403 collector_key_required`; missing/invalid bearer `401`.
+- The CP upserts by `(collector, signature)` — re-syncing the same finding updates its counters and
+  timestamps, never duplicates. Send the current `ListFindings` page each tick; the CP is idempotent.
 
 ---
 
@@ -454,6 +495,7 @@ covers older SDKs in the compatibility window that emit no fields).
 | `db_path` | sqlite file path, required iff `backend=sqlite`; MUST be on a persistent volume. With `backend=postgres` it is the OPTIONAL one-shot migration source: if the file exists at start, pinned calls + findings + edges are imported and the file is renamed `<db_path>.migrated`; import failure aborts start |
 | `dsn` | postgres connection string, required iff `backend=postgres`; use `${env:…}` interpolation for credentials — the collector only ever logs it redacted |
 | `window_max_rows` / `window_max_bytes` | rolling-window ceilings (with `backend=postgres`, set identically on every pod sharing the database) |
+| `finding_sync` | *(viniferaui, bool, default `true` — slice2-2026-08-28)* the background finding-shape sync to the CP (`POST /api/v1/findings`, §5): every 15s, when a collector key exists, the UI extension sends the current findings **shape-only** (`expected`/`actual`/`detail` stripped at source). `false` disables the loop entirely. |
 | `ui_endpoint` | localhost bind for the UI extension, default `127.0.0.1:5335` |
 | `otlp_endpoint` | OTLP receiver bind, default `0.0.0.0:4318` |
 
