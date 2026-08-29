@@ -8,13 +8,13 @@ import { emitCall } from './instrumentation/otlp-record';
 import { SDK_NAME, SDK_VERSION } from './version';
 
 export interface StartOptions {
-  /** Integration id emitted as `vinifera.integration`. Env: VINIFERA_INTEGRATION_ID. */
+  /** Integration id emitted as `flanj.integration`. Env: FLANJ_INTEGRATION_ID. */
   integration?: string;
   /** service.name resource attribute. Env: OTEL_SERVICE_NAME. */
   serviceName?: string;
-  /** OTLP/HTTP logs endpoint. Env: VINIFERA_OTLP_ENDPOINT. Default http://localhost:4318/v1/logs. */
+  /** OTLP/HTTP logs endpoint. Env: FLANJ_OTLP_ENDPOINT. Default http://localhost:4318/v1/logs. */
   otlpEndpoint?: string;
-  /** Body capture cap in bytes. Env: VINIFERA_BODY_CAP_BYTES. Default 16384. */
+  /** Body capture cap in bytes. Env: FLANJ_BODY_CAP_BYTES. Default 16384. */
   bodyCapBytes?: number;
   /** Use a SimpleLogRecordProcessor (flush per record) instead of batch — handy for tests. */
   simpleProcessor?: boolean;
@@ -27,7 +27,7 @@ export interface StartOptions {
   ignoreUrls?: readonly (string | RegExp)[];
 }
 
-export interface ViniferaHandle {
+export interface FlanjHandle {
   loggerProvider: LoggerProvider;
   /** Egress (client-path) body-capture instrumentation. */
   instrumentation: HttpBodyCaptureInstrumentation;
@@ -37,16 +37,16 @@ export interface ViniferaHandle {
 }
 
 /**
- * Start the Vinifera SDK: register the http/https body-capture instrumentation
+ * Start the Flanj SDK: register the http/https body-capture instrumentation
  * and wire each captured (already-redacted) call to a logs OTLP/HTTP exporter
  * on :4318. Returns a handle for shutdown.
  */
-export function start(options: StartOptions = {}): ViniferaHandle {
-  const integration = options.integration ?? process.env.VINIFERA_INTEGRATION_ID ?? 'unknown-integration';
-  const serviceName = options.serviceName ?? process.env.OTEL_SERVICE_NAME ?? 'vinifera-consumer';
+export function start(options: StartOptions = {}): FlanjHandle {
+  const integration = options.integration ?? process.env.FLANJ_INTEGRATION_ID ?? 'unknown-integration';
+  const serviceName = options.serviceName ?? process.env.OTEL_SERVICE_NAME ?? 'flanj-consumer';
   const endpoint =
-    options.otlpEndpoint ?? process.env.VINIFERA_OTLP_ENDPOINT ?? 'http://localhost:4318/v1/logs';
-  const bodyCapBytes = options.bodyCapBytes ?? envInt('VINIFERA_BODY_CAP_BYTES');
+    options.otlpEndpoint ?? process.env.FLANJ_OTLP_ENDPOINT ?? 'http://localhost:4318/v1/logs';
+  const bodyCapBytes = options.bodyCapBytes ?? envInt('FLANJ_BODY_CAP_BYTES');
 
   const processor: LogRecordProcessor =
     options.processor ??
@@ -65,9 +65,9 @@ export function start(options: StartOptions = {}): ViniferaHandle {
   const logger = loggerProvider.getLogger(SDK_NAME, SDK_VERSION);
 
   // Never capture our own export POSTs: ignore the OTLP endpoint's host[:port].
-  // Additional ignores may come from VINIFERA_IGNORE_URLS (comma-separated substrings/paths).
+  // Additional ignores may come from FLANJ_IGNORE_URLS (comma-separated substrings/paths).
   const exporterHost = safeUrlHost(endpoint);
-  const envIgnore = (process.env.VINIFERA_IGNORE_URLS ?? '')
+  const envIgnore = (process.env.FLANJ_IGNORE_URLS ?? '')
     .split(',')
     .map((s) => s.trim())
     .filter(Boolean);

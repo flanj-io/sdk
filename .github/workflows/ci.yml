@@ -52,12 +52,12 @@ jobs:
     steps:
       - name: Dispatch integration gate
         env:
-          TOKEN: ${{ secrets.E2E_DISPATCH_TOKEN }}   # PAT with repo scope on vinifera-io/e2e
+          TOKEN: ${{ secrets.E2E_DISPATCH_TOKEN }}   # PAT with repo scope on flanj-io/e2e
           HEAD_SHA: ${{ github.sha }}
         run: |
           if [ -z "$TOKEN" ]; then echo "E2E_DISPATCH_TOKEN not set; skipping dispatch"; exit 0; fi
           curl -fsS -X POST \
             -H "Authorization: Bearer $TOKEN" \
             -H "Accept: application/vnd.github+json" \
-            https://api.github.com/repos/vinifera-io/e2e/dispatches \
+            https://api.github.com/repos/flanj-io/e2e/dispatches \
             -d "$(jq -n --arg sha "$HEAD_SHA" '{event_type:"component-updated",client_payload:{repo:"sdk",sha:$sha}}')"

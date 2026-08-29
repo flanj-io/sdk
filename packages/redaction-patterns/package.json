@@ -1,7 +1,7 @@
 {
-  "name": "@vinifera/redaction-patterns",
+  "name": "@flanj/redaction-patterns",
   "version": "0.0.1",
-  "description": "The Vinifera redaction floor: composed, hardened validators (Luhn PAN, email, IBAN, phone) behind a swappable Recognizer/Redactor interface; deep-traversal, base64 decode-then-scan, PAN/PII/secret redaction at source. Governed by the cross-repo redaction contracts.",
+  "description": "The Flanj redaction floor: composed, hardened validators (Luhn PAN, email, IBAN, phone) behind a swappable Recognizer/Redactor interface; deep-traversal, base64 decode-then-scan, PAN/PII/secret redaction at source. Governed by the cross-repo redaction contracts.",
   "license": "Apache-2.0",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
@@ -27,7 +27,7 @@
     "pan",
     "luhn",
     "opentelemetry",
-    "vinifera"
+    "flanj"
   ],
   "publishConfig": {
     "access": "public"

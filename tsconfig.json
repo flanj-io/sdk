@@ -5,7 +5,7 @@
     "outDir": "./dist",
     "composite": true,
     "paths": {
-      "@vinifera/redaction-patterns": ["./packages/redaction-patterns/src/index.ts"]
+      "@flanj/redaction-patterns": ["./packages/redaction-patterns/src/index.ts"]
     }
   },
   "include": ["src/**/*.ts"],

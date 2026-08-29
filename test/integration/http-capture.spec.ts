@@ -7,12 +7,12 @@ import { resolve } from 'node:path';
 import { context, trace } from '@opentelemetry/api';
 import { AsyncLocalStorageContextManager } from '@opentelemetry/context-async-hooks';
 import { SimpleLogRecordProcessor } from '@opentelemetry/sdk-logs';
-import { start, type ViniferaHandle } from '../../src/index';
+import { start, type FlanjHandle } from '../../src/index';
 import { InMemoryLogExporter } from '../support/in-memory-log-exporter';
 
 /**
  * Drives a REAL http request through an in-process server and asserts the emitted
- * OTLP log record: all required vinifera.* attributes present, bodies redacted,
+ * OTLP log record: all required flanj.* attributes present, bodies redacted,
  * shape matching contracts/golden-otlp-call.json — and no raw body reachable.
  */
 
@@ -38,7 +38,7 @@ function goldenAttributeKeys(): Set<string> {
 }
 
 let server: Server;
-let handle: ViniferaHandle;
+let handle: FlanjHandle;
 const exporter = new InMemoryLogExporter();
 
 beforeAll(async () => {
@@ -122,7 +122,7 @@ describe('http body capture → OTLP log record', () => {
     // allow the response 'end' / finalize microtask to run
     await new Promise((r) => setTimeout(r, 20));
     // The in-process server also yields an ingress record now — select the egress one.
-    const clientRecords = exporter.records.filter((r) => r.attributes['vinifera.direction'] === 'client');
+    const clientRecords = exporter.records.filter((r) => r.attributes['flanj.direction'] === 'client');
     expect(clientRecords.length).toBe(1);
     const record = clientRecords[0];
     attrs = record.attributes as Record<string, unknown>;
@@ -132,7 +132,7 @@ describe('http body capture → OTLP log record', () => {
     expect(JSON.parse(appResponseBody).amount).toBe('1200');
   });
 
-  it('emits every required vinifera.* attribute key from the golden record', () => {
+  it('emits every required flanj.* attribute key from the golden record', () => {
     const required = goldenAttributeKeys();
     for (const key of required) {
       expect(attrs, `missing attribute ${key}`).toHaveProperty(key);
@@ -140,38 +140,38 @@ describe('http body capture → OTLP log record', () => {
   });
 
   it('sets the fixed convention values', () => {
-    expect(attrs['vinifera.capture.version']).toBe('1');
-    expect(attrs['vinifera.record.type']).toBe('call');
-    expect(attrs['vinifera.direction']).toBe('client');
-    expect(attrs['vinifera.integration']).toBe('acme-payments');
-    expect(attrs['vinifera.http.method']).toBe('POST');
-    expect(attrs['vinifera.http.route']).toBe('/v1/charges');
-    expect(attrs['vinifera.http.status_code']).toBe(200);
-    expect(attrs['vinifera.redaction.spec_aware']).toBe(false);
+    expect(attrs['flanj.capture.version']).toBe('1');
+    expect(attrs['flanj.record.type']).toBe('call');
+    expect(attrs['flanj.direction']).toBe('client');
+    expect(attrs['flanj.integration']).toBe('acme-payments');
+    expect(attrs['flanj.http.method']).toBe('POST');
+    expect(attrs['flanj.http.route']).toBe('/v1/charges');
+    expect(attrs['flanj.http.status_code']).toBe(200);
+    expect(attrs['flanj.redaction.spec_aware']).toBe(false);
   });
 
   it('carries the correlation keys front-and-center', () => {
-    expect(attrs['vinifera.corr.request_id']).toBe('req_0Vy9aX2bK');
-    expect(attrs['vinifera.corr.idempotency_key']).toBe('idem_9f2c1a');
-    expect(attrs['vinifera.corr.trace_id']).toBe('5b8efff798038103d269b633813fc60c');
-    expect(attrs['vinifera.corr.span_id']).toBe('eee19b7ec3c1b174');
+    expect(attrs['flanj.corr.request_id']).toBe('req_0Vy9aX2bK');
+    expect(attrs['flanj.corr.idempotency_key']).toBe('idem_9f2c1a');
+    expect(attrs['flanj.corr.trace_id']).toBe('5b8efff798038103d269b633813fc60c');
+    expect(attrs['flanj.corr.span_id']).toBe('eee19b7ec3c1b174');
   });
 
   it('REDACTS the request body at source — the raw PAN is unreachable', () => {
-    const reqBody = attrs['vinifera.http.request.body'] as string;
+    const reqBody = attrs['flanj.http.request.body'] as string;
     expect(reqBody).toContain('⟦REDACTED:PAN⟧');
     expect(reqBody).not.toContain(PAN_IN_REQUEST);
-    expect(attrs['vinifera.redaction.applied']).toBe(true);
-    expect(JSON.parse(attrs['vinifera.redaction.patterns'] as string)).toContain('PAN');
+    expect(attrs['flanj.redaction.applied']).toBe(true);
+    expect(JSON.parse(attrs['flanj.redaction.patterns'] as string)).toContain('PAN');
   });
 
   it('captures the drifting response body verbatim (amount as string "1200")', () => {
-    const resBody = attrs['vinifera.http.response.body'] as string;
+    const resBody = attrs['flanj.http.response.body'] as string;
     expect(JSON.parse(resBody).amount).toBe('1200');
   });
 
   it('allowlists headers (no raw authorization/cookie ever emitted)', () => {
-    const reqHeaders = JSON.parse(attrs['vinifera.http.request.headers'] as string);
+    const reqHeaders = JSON.parse(attrs['flanj.http.request.headers'] as string);
     expect(reqHeaders['content-type']).toBe('application/json');
     expect(reqHeaders['idempotency-key']).toBe('idem_9f2c1a');
     const serialized = JSON.stringify(attrs);

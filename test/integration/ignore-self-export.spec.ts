@@ -2,7 +2,7 @@ import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { createServer, type Server, type IncomingMessage, type RequestOptions, type ClientRequest } from 'node:http';
 import { AddressInfo } from 'node:net';
 import { SimpleLogRecordProcessor } from '@opentelemetry/sdk-logs';
-import { start, type ViniferaHandle } from '../../src/index';
+import { start, type FlanjHandle } from '../../src/index';
 import { InMemoryLogExporter } from '../support/in-memory-log-exporter';
 
 /**
@@ -16,7 +16,7 @@ let provider: Server;
 let collector: Server;
 let providerBase: string;
 let collectorBase: string;
-let handle: ViniferaHandle;
+let handle: FlanjHandle;
 const exporter = new InMemoryLogExporter();
 
 function ok(_req: IncomingMessage, res: import('node:http').ServerResponse): void {
@@ -70,16 +70,16 @@ describe('ignoreUrls — no self-capture of the OTLP exporter host', () => {
     // Exactly one CLIENT (egress) record: the provider call. The self-export POST
     // was ignored (otherwise a co-located collector would loop forever). The
     // provider server also yields one ingress record — hence filter by direction.
-    const clientRecords = exporter.records.filter((r) => r.attributes['vinifera.direction'] === 'client');
+    const clientRecords = exporter.records.filter((r) => r.attributes['flanj.direction'] === 'client');
     expect(clientRecords.length).toBe(1);
-    const url = clientRecords[0].attributes['vinifera.http.url.full'] as string;
+    const url = clientRecords[0].attributes['flanj.http.url.full'] as string;
     // The IP host is redacted (optional IP tier), but the port survives — match on it.
     expect(url).toContain(`:${(provider.address() as AddressInfo).port}/v1/charges`);
     // No record of ANY direction references the exporter host — self-export is
     // ignored on egress AND ingress (the collector server's inbound POST too).
     const collectorPort = (collector.address() as AddressInfo).port;
     for (const rec of exporter.records) {
-      expect(rec.attributes['vinifera.http.url.full']).not.toContain(`:${collectorPort}/`);
+      expect(rec.attributes['flanj.http.url.full']).not.toContain(`:${collectorPort}/`);
     }
   });
 });

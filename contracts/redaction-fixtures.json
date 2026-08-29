@@ -3,7 +3,7 @@
   "token_format": "⟦REDACTED:<TYPE>⟧",
   "notes": [
     "Cross-language PARITY suite for the redaction floor. One set of payload -> expected-redaction fixtures, run by",
-    "BOTH the TypeScript suite (@vinifera/redaction-patterns: SDK + control-plane DLP) and the Go suite (collector",
+    "BOTH the TypeScript suite (@flanj/redaction-patterns: SDK + control-plane DLP) and the Go suite (collector",
     "internal/redact). Both must produce these exact results; this file, not either implementation, is the contract.",
     "It complements redaction-vectors.json (scalar/recognizer-level vectors) with structured bodies: nested and",
     "undocumented fields, arrays, PAN-as-number, base64 decode-then-scan, inbound (request) bodies, form-encoded and",

@@ -1,6 +1,6 @@
 # Redaction — the floor, how it is built, and how it stays identical across languages
 
-This document is the engineering reference for the Vinifera **redaction floor**: the mandatory PAN/PII/secret
+This document is the engineering reference for the Flanj **redaction floor**: the mandatory PAN/PII/secret
 redaction applied to **every captured body** — inbound and outbound, any edge classification — **at source,
 before anything is stored or transmitted**. It is the highest-consequence code in the product.
 
@@ -8,8 +8,8 @@ The floor exists twice, in two languages, and must behave identically:
 
 | Where | Language | Package | Role |
 |---|---|---|---|
-| SDK (this repo) | TypeScript | `@vinifera/redaction-patterns` | redacts at the call site, before export |
-| Control plane | TypeScript | `@vinifera/redaction-patterns` | DLP on human free-text (reply box) |
+| SDK (this repo) | TypeScript | `@flanj/redaction-patterns` | redacts at the call site, before export |
+| Control plane | TypeScript | `@flanj/redaction-patterns` | DLP on human free-text (reply box) |
 | Collector | Go | `internal/redact` | defense-in-depth re-scan of every ingested body |
 
 ---
@@ -179,7 +179,7 @@ Above the skip sits **captured value properties**: for every WHOLE-VALUE redacti
 one token) both floors emit a field record — the RFC 6901 path, the pattern, and non-reversible `props` of the
 ORIGINAL value (`type`, `length` in Unicode code points, `integer` for numbers, and six character-class flags;
 exact definitions in `packages/redaction-patterns/src/props.ts` and the fixture notes). The SDK ships them as the optional
-`vinifera.redaction.fields` attribute (CONTRACTS §2); the collector's defense-in-depth pass merges in records
+`flanj.redaction.fields` attribute (CONTRACTS §2); the collector's defense-in-depth pass merges in records
 for anything *it* catches. Drift then validates the **decidable** constraints of a redacted field against the
 props — `type` and `minLength`/`maxLength` violations are real findings again, phrased in property terms —
 while undecidable constraints (`pattern`/`format`/`enum`) and token values without a record keep skipping

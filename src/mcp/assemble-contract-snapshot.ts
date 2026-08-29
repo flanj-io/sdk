@@ -1,4 +1,4 @@
-import { redactDetailed } from '@vinifera/redaction-patterns';
+import { redactDetailed } from '@flanj/redaction-patterns';
 import type { McpContractSnapshot, McpServerIdentity, McpServerKind } from './mcp-types';
 
 /** Inputs for one COMPLETE observed `tools/list` (all pages). */

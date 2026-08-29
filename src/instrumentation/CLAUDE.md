@@ -1,7 +1,7 @@
 # CLAUDE.md — `src/instrumentation/`
 
 The capture core: turn one completed http/https **client or server** call into one fully-redacted
-`CapturedCall`, then into the frozen `vinifera.*` OTLP log record. This is where the day-one
+`CapturedCall`, then into the frozen `flanj.*` OTLP log record. This is where the day-one
 non-negotiable lives — **redact at source, drop the raw buffer, never attach raw**.
 
 ## Files (one export each)
@@ -12,7 +12,7 @@ non-negotiable lives — **redact at source, drop the raw buffer, never attach r
 | `http-server-capture.ts` | `HttpServerCaptureInstrumentation` — INGRESS: patches `Server.prototype.emit`, intercepts `'request'`, tees the incoming request body (via the IncomingMessage `push`) + the response body (via `res.write`/`end`), emits a `direction="server"` record. |
 | `classify-host.ts` | `classifyHost(host)` — the cross-component edge heuristic → `external`\|`internal` (RFC1918 / loopback / link-local / ULA / `.svc.cluster.local`·`.internal`·`.local` / single-label ⇒ internal). Identical byte-for-byte in the collector. |
 | `assemble-call.ts` | `assembleCapturedCall` — the shared, direction-agnostic redact-at-source assembler. Bodies are redacted-and-kept ONLY for external edges with a captureable content-type; internal edges keep NO body. Both client and server paths funnel through here. |
-| `otlp-record.ts` | `buildLogAttributes` / `emitCall` — map a `CapturedCall` to the `vinifera.*` attribute convention (CONTRACTS §2) and emit one log record. Body is empty; all data is in attributes. |
+| `otlp-record.ts` | `buildLogAttributes` / `emitCall` — map a `CapturedCall` to the `flanj.*` attribute convention (CONTRACTS §2) and emit one log record. Body is empty; all data is in attributes. |
 | `captured-call.ts` | `CapturedCall` — the internal, **already-redacted** hand-off type (now carries `peerHost` / `edgeClass` / `captureBodies`). By construction it has no field that can hold a raw body. |
 | `capped-buffer.ts` | `CappedBuffer` — accumulates stream chunks up to `body_cap_bytes`, discards the rest, flags `truncated`. The retained bytes are the only copy; there is no separate uncapped buffer. |
 | `http-args.ts` | `parseRequestArgs` — normalize the overloaded `request(url, opts, cb)` / `request(opts, cb)` shapes into `{ method, protocol, host, path }`. |
@@ -26,8 +26,8 @@ redacted; internal ⇒ metadata-only, bodies are NEVER teed.** The redaction flo
 internal edges because there is nothing to bypass — the raw bytes are never read. v0.5 (Step B) adds
 the additive edge class `local-process` (stdio MCP servers, `src/mcp/` — bodies captured + redacted);
 `classifyHost` itself is unchanged and stays byte-identical to the collector's. Emitted on every
-record: `vinifera.peer.host`, `vinifera.edge.class`, `vinifera.capture.bodies`; plus the
-OPTIONAL `vinifera.peer.addr` (the peer's socket address — egress: the resolved remote
+record: `flanj.peer.host`, `flanj.edge.class`, `flanj.capture.bodies`; plus the
+OPTIONAL `flanj.peer.addr` (the peer's socket address — egress: the resolved remote
 address; ingress: `socket.remoteAddress`) — transport detail for display, never an
 identity or edge key, omitted when the socket layer exposed none.
 
@@ -45,7 +45,7 @@ identity or edge key, omitted when the socket layer exposed none.
    cap are dropped and `truncated` flips true — a hostile/huge body can never blow memory or the OTLP
    attribute budget.
 4. **Redact at source, then drop.** On response `end`/null-push we `finalize()` exactly once:
-   decode the capped buffer, run it through `@vinifera/redaction-patterns` (`redactDetailed`), keep
+   decode the capped buffer, run it through `@flanj/redaction-patterns` (`redactDetailed`), keep
    **only** the redacted string, and let the raw `CappedBuffer`s go out of scope. No raw body is ever
    set on `CapturedCall`, an attribute, or anything exported — not even transiently. This is asserted
    by the integration test's "no raw body survived anywhere" case.
@@ -67,13 +67,13 @@ identity or edge key, omitted when the socket layer exposed none.
 - **`redaction.patterns` is reported in canonical order** (`PAN, EMAIL, IBAN, SSN, PHONE, CVV, TOKEN,
   IP`) and covers bodies **and** the redacted target/URL, so the emitted set reflects everything that
   fired.
-- **`vinifera.redaction.fields`** (optional; omitted when empty) carries the whole-value body redactions
+- **`flanj.redaction.fields`** (optional; omitted when empty) carries the whole-value body redactions
   with the ORIGINAL values' captured, non-reversible properties (`{part, path, pattern, props}` — CONTRACTS
   §2). Emitted by `assembleCapturedCall` from `redactDetailed(...).fields`; bodies only, never target/URL.
 
 ## Config keys (map to CONTRACTS §8)
 
-`integration` → `vinifera.integration`; `bodyCapBytes` → `body_cap_bytes` (default 16384);
+`integration` → `flanj.integration`; `bodyCapBytes` → `body_cap_bytes` (default 16384);
 `captureContentTypes` → the content-type gate; `headerAllowlist` → the header allowlist;
 `ignoreUrls` → URL patterns never captured (`start()` seeds it with its own OTLP export endpoint, so the SDK
 never captures its own export — `test/integration/ignore-self-export.spec.ts`); `onCapture` → the sink
@@ -81,9 +81,9 @@ never captures its own export — `test/integration/ignore-self-export.spec.ts`)
 
 ## Tests
 
-- `otlp-record.spec.ts` — `CapturedCall → vinifera.*` locked to the golden fixture (key set + scalars).
+- `otlp-record.spec.ts` — `CapturedCall → flanj.*` locked to the golden fixture (key set + scalars).
 - `../../test/integration/http-capture.spec.ts` — drives a real in-process http call end-to-end and
-  asserts: every required `vinifera.*` key present, bodies redacted, correlation keys carried, app
+  asserts: every required `flanj.*` key present, bodies redacted, correlation keys carried, app
   undisturbed, and **no raw PAN reachable** anywhere in the emitted attributes.
 - `../../test/integration/http-server-capture.spec.ts` — the INGRESS path end-to-end (`direction="server"`).
 - `../../test/integration/ignore-self-export.spec.ts` — the SDK's own OTLP export is never captured.

@@ -5,7 +5,7 @@ export default defineConfig({
   resolve: {
     alias: {
       // Resolve the workspace package to its source so tests run without a build step.
-      '@vinifera/redaction-patterns': resolve(__dirname, 'packages/redaction-patterns/src/index.ts')
+      '@flanj/redaction-patterns': resolve(__dirname, 'packages/redaction-patterns/src/index.ts')
     }
   },
   test: {

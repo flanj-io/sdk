@@ -1,4 +1,4 @@
-import type { PatternId } from '@vinifera/redaction-patterns';
+import type { PatternId } from '@flanj/redaction-patterns';
 import type { CapturedCall } from '../instrumentation/captured-call';
 
 /**
@@ -32,7 +32,7 @@ export interface McpCallMeta {
    * The JSON-RPC request id observed on the client's own outgoing message —
    * CLIENT-GENERATED. It appears in the provider's logs only if they log it;
    * it is never presented as a provider-issued id (CONTRACTS §2,
-   * `vinifera.corr.client_request_id`).
+   * `flanj.corr.client_request_id`).
    */
   clientRequestId?: string;
 }

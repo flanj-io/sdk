@@ -2,7 +2,7 @@ import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { createServer, type Server, type IncomingMessage, type RequestOptions } from 'node:http';
 import { AddressInfo } from 'node:net';
 import { SimpleLogRecordProcessor } from '@opentelemetry/sdk-logs';
-import { start, type ViniferaHandle } from '../../src/index';
+import { start, type FlanjHandle } from '../../src/index';
 import { InMemoryLogExporter } from '../support/in-memory-log-exporter';
 
 /**
@@ -21,7 +21,7 @@ const RESPONSE_EMAIL = 'agent@acme.test';
 
 let server: Server;
 let baseUrl: string;
-let handle: ViniferaHandle;
+let handle: FlanjHandle;
 const exporter = new InMemoryLogExporter();
 /** What the app's own request handler read off the wire, keyed by request path. */
 const handlerBodies: Record<string, string> = {};
@@ -75,8 +75,8 @@ function driveCall(path: string, headers: Record<string, string>, body: string):
 function serverRecordFor(path: string): Record<string, unknown> {
   const rec = exporter.records.find(
     (r) =>
-      (r.attributes as Record<string, unknown>)['vinifera.direction'] === 'server' &&
-      (r.attributes as Record<string, unknown>)['vinifera.http.target'] === path
+      (r.attributes as Record<string, unknown>)['flanj.direction'] === 'server' &&
+      (r.attributes as Record<string, unknown>)['flanj.http.target'] === path
   );
   if (!rec) throw new Error(`no server record for ${path}`);
   return rec.attributes as Record<string, unknown>;
@@ -102,26 +102,26 @@ describe('ingress (server) capture — EXTERNAL caller (X-Forwarded-For)', () =>
   });
 
   it('emits a direction=server record classified from the caller', () => {
-    expect(attrs['vinifera.direction']).toBe('server');
-    expect(attrs['vinifera.record.type']).toBe('call');
-    expect(attrs['vinifera.peer.host']).toBe('203.0.113.7'); // first XFF hop
-    expect(attrs['vinifera.edge.class']).toBe('external');
-    expect(attrs['vinifera.capture.bodies']).toBe(true);
-    expect(attrs['vinifera.http.method']).toBe('POST');
-    expect(attrs['vinifera.http.route']).toBe('/v1/charges');
-    expect(attrs['vinifera.http.status_code']).toBe(200);
+    expect(attrs['flanj.direction']).toBe('server');
+    expect(attrs['flanj.record.type']).toBe('call');
+    expect(attrs['flanj.peer.host']).toBe('203.0.113.7'); // first XFF hop
+    expect(attrs['flanj.edge.class']).toBe('external');
+    expect(attrs['flanj.capture.bodies']).toBe(true);
+    expect(attrs['flanj.http.method']).toBe('POST');
+    expect(attrs['flanj.http.route']).toBe('/v1/charges');
+    expect(attrs['flanj.http.status_code']).toBe(200);
   });
 
   it('REDACTS the incoming request body at source — raw PAN unreachable', () => {
-    const reqBody = attrs['vinifera.http.request.body'] as string;
+    const reqBody = attrs['flanj.http.request.body'] as string;
     expect(reqBody).toContain('⟦REDACTED:PAN⟧');
     expect(reqBody).not.toContain(PAN);
-    expect(attrs['vinifera.redaction.applied']).toBe(true);
-    expect(JSON.parse(attrs['vinifera.redaction.patterns'] as string)).toContain('PAN');
+    expect(attrs['flanj.redaction.applied']).toBe(true);
+    expect(JSON.parse(attrs['flanj.redaction.patterns'] as string)).toContain('PAN');
   });
 
   it('REDACTS the response body at source (email tokenized)', () => {
-    const resBody = attrs['vinifera.http.response.body'] as string;
+    const resBody = attrs['flanj.http.response.body'] as string;
     expect(resBody).toContain('⟦REDACTED:EMAIL⟧');
     expect(resBody).not.toContain(RESPONSE_EMAIL);
   });
@@ -129,8 +129,8 @@ describe('ingress (server) capture — EXTERNAL caller (X-Forwarded-For)', () =>
   it('carries header-derived correlation (request id + idempotency key)', () => {
     // trace/span populate from an active SERVER span when the host runs OTel
     // tracing; this in-process harness has none, so only header correlation is present.
-    expect(attrs['vinifera.corr.request_id']).toBe('req_client_in');
-    expect(attrs['vinifera.corr.idempotency_key']).toBe('idem_in_1');
+    expect(attrs['flanj.corr.request_id']).toBe('req_client_in');
+    expect(attrs['flanj.corr.idempotency_key']).toBe('idem_in_1');
   });
 
   it('does NOT disturb the app: its handler read the full raw body (PAN intact)', () => {
@@ -154,14 +154,14 @@ describe('ingress (server) capture — INTERNAL caller (metadata-only)', () => {
   });
 
   it('classifies the loopback caller as internal, metadata-only', () => {
-    expect(attrs['vinifera.direction']).toBe('server');
-    expect(attrs['vinifera.edge.class']).toBe('internal');
-    expect(attrs['vinifera.capture.bodies']).toBe(false);
+    expect(attrs['flanj.direction']).toBe('server');
+    expect(attrs['flanj.edge.class']).toBe('internal');
+    expect(attrs['flanj.capture.bodies']).toBe(false);
   });
 
   it('captures NO body for an internal edge (no raw internal body ever emitted)', () => {
-    expect(attrs['vinifera.http.request.body']).toBe('');
-    expect(attrs['vinifera.http.response.body']).toBe('');
+    expect(attrs['flanj.http.request.body']).toBe('');
+    expect(attrs['flanj.http.response.body']).toBe('');
     expect(JSON.stringify(attrs)).not.toContain(PAN);
   });
 

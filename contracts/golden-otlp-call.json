@@ -5,12 +5,12 @@
       "resource": {
         "attributes": [
           { "key": "service.name", "value": { "stringValue": "acme-consumer" } },
-          { "key": "telemetry.sdk.name", "value": { "stringValue": "@vinifera/sdk" } }
+          { "key": "telemetry.sdk.name", "value": { "stringValue": "@flanj/sdk" } }
         ]
       },
       "scopeLogs": [
         {
-          "scope": { "name": "@vinifera/sdk", "version": "0.0.1" },
+          "scope": { "name": "@flanj/sdk", "version": "0.0.1" },
           "logRecords": [
             {
               "timeUnixNano": "1755504000000000000",
@@ -21,34 +21,34 @@
               "traceId": "5b8efff798038103d269b633813fc60c",
               "spanId": "eee19b7ec3c1b174",
               "attributes": [
-                { "key": "vinifera.capture.version", "value": { "stringValue": "1" } },
-                { "key": "vinifera.record.type", "value": { "stringValue": "call" } },
-                { "key": "vinifera.direction", "value": { "stringValue": "client" } },
-                { "key": "vinifera.peer.host", "value": { "stringValue": "api.acme.test" } },
-                { "key": "vinifera.edge.class", "value": { "stringValue": "external" } },
-                { "key": "vinifera.capture.bodies", "value": { "boolValue": true } },
-                { "key": "vinifera.integration", "value": { "stringValue": "acme-payments" } },
-                { "key": "vinifera.http.method", "value": { "stringValue": "POST" } },
-                { "key": "vinifera.http.route", "value": { "stringValue": "/v1/charges" } },
-                { "key": "vinifera.http.target", "value": { "stringValue": "/v1/charges" } },
-                { "key": "vinifera.http.url.full", "value": { "stringValue": "https://api.acme.test/v1/charges" } },
-                { "key": "vinifera.http.status_code", "value": { "intValue": "200" } },
-                { "key": "vinifera.http.request.content_type", "value": { "stringValue": "application/json" } },
-                { "key": "vinifera.http.request.body", "value": { "stringValue": "{\"amount\":1200,\"currency\":\"usd\",\"source\":\"⟦REDACTED:PAN⟧\"}" } },
-                { "key": "vinifera.http.request.body.truncated", "value": { "boolValue": false } },
-                { "key": "vinifera.http.request.headers", "value": { "stringValue": "{\"content-type\":\"application/json\",\"idempotency-key\":\"idem_9f2c1a\"}" } },
-                { "key": "vinifera.http.response.content_type", "value": { "stringValue": "application/json" } },
-                { "key": "vinifera.http.response.body", "value": { "stringValue": "{\"id\":\"ch_1Mox\",\"object\":\"charge\",\"amount\":\"1200\",\"currency\":\"usd\",\"status\":\"succeeded\",\"created\":1755504000,\"card\":{\"last4\":\"1111\",\"brand\":\"visa\"}}" } },
-                { "key": "vinifera.http.response.body.truncated", "value": { "boolValue": false } },
-                { "key": "vinifera.http.response.headers", "value": { "stringValue": "{\"content-type\":\"application/json\",\"x-request-id\":\"req_0Vy9aX2bK\"}" } },
-                { "key": "vinifera.corr.request_id", "value": { "stringValue": "req_0Vy9aX2bK" } },
-                { "key": "vinifera.corr.idempotency_key", "value": { "stringValue": "idem_9f2c1a" } },
-                { "key": "vinifera.corr.trace_id", "value": { "stringValue": "5b8efff798038103d269b633813fc60c" } },
-                { "key": "vinifera.corr.span_id", "value": { "stringValue": "eee19b7ec3c1b174" } },
-                { "key": "vinifera.http.duration_ms", "value": { "intValue": "42" } },
-                { "key": "vinifera.redaction.applied", "value": { "boolValue": true } },
-                { "key": "vinifera.redaction.patterns", "value": { "stringValue": "[\"PAN\"]" } },
-                { "key": "vinifera.redaction.spec_aware", "value": { "boolValue": false } }
+                { "key": "flanj.capture.version", "value": { "stringValue": "1" } },
+                { "key": "flanj.record.type", "value": { "stringValue": "call" } },
+                { "key": "flanj.direction", "value": { "stringValue": "client" } },
+                { "key": "flanj.peer.host", "value": { "stringValue": "api.acme.test" } },
+                { "key": "flanj.edge.class", "value": { "stringValue": "external" } },
+                { "key": "flanj.capture.bodies", "value": { "boolValue": true } },
+                { "key": "flanj.integration", "value": { "stringValue": "acme-payments" } },
+                { "key": "flanj.http.method", "value": { "stringValue": "POST" } },
+                { "key": "flanj.http.route", "value": { "stringValue": "/v1/charges" } },
+                { "key": "flanj.http.target", "value": { "stringValue": "/v1/charges" } },
+                { "key": "flanj.http.url.full", "value": { "stringValue": "https://api.acme.test/v1/charges" } },
+                { "key": "flanj.http.status_code", "value": { "intValue": "200" } },
+                { "key": "flanj.http.request.content_type", "value": { "stringValue": "application/json" } },
+                { "key": "flanj.http.request.body", "value": { "stringValue": "{\"amount\":1200,\"currency\":\"usd\",\"source\":\"⟦REDACTED:PAN⟧\"}" } },
+                { "key": "flanj.http.request.body.truncated", "value": { "boolValue": false } },
+                { "key": "flanj.http.request.headers", "value": { "stringValue": "{\"content-type\":\"application/json\",\"idempotency-key\":\"idem_9f2c1a\"}" } },
+                { "key": "flanj.http.response.content_type", "value": { "stringValue": "application/json" } },
+                { "key": "flanj.http.response.body", "value": { "stringValue": "{\"id\":\"ch_1Mox\",\"object\":\"charge\",\"amount\":\"1200\",\"currency\":\"usd\",\"status\":\"succeeded\",\"created\":1755504000,\"card\":{\"last4\":\"1111\",\"brand\":\"visa\"}}" } },
+                { "key": "flanj.http.response.body.truncated", "value": { "boolValue": false } },
+                { "key": "flanj.http.response.headers", "value": { "stringValue": "{\"content-type\":\"application/json\",\"x-request-id\":\"req_0Vy9aX2bK\"}" } },
+                { "key": "flanj.corr.request_id", "value": { "stringValue": "req_0Vy9aX2bK" } },
+                { "key": "flanj.corr.idempotency_key", "value": { "stringValue": "idem_9f2c1a" } },
+                { "key": "flanj.corr.trace_id", "value": { "stringValue": "5b8efff798038103d269b633813fc60c" } },
+                { "key": "flanj.corr.span_id", "value": { "stringValue": "eee19b7ec3c1b174" } },
+                { "key": "flanj.http.duration_ms", "value": { "intValue": "42" } },
+                { "key": "flanj.redaction.applied", "value": { "boolValue": true } },
+                { "key": "flanj.redaction.patterns", "value": { "stringValue": "[\"PAN\"]" } },
+                { "key": "flanj.redaction.spec_aware", "value": { "boolValue": false } }
               ]
             }
           ]

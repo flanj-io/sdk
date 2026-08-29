@@ -1,4 +1,4 @@
-import type { PatternId, RedactedField } from '@vinifera/redaction-patterns';
+import type { PatternId, RedactedField } from '@flanj/redaction-patterns';
 
 /**
  * One whole-value body redaction, scoped to which body it happened in. Carries the
@@ -29,7 +29,7 @@ export interface CapturedCall {
   /**
    * SDK classification of {@link peerHost}. HTTP peers classify `external` |
    * `internal` (classify-host heuristic); a stdio MCP server is the additive
-   * v0.5 class `local-process` (CONTRACTS §2 `vinifera.edge.class`).
+   * v0.5 class `local-process` (CONTRACTS §2 `flanj.edge.class`).
    */
   edgeClass: 'external' | 'internal' | 'local-process';
   /** `true` when bodies are present (external edge); `false` when metadata-only (internal). */

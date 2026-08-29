@@ -1,6 +1,6 @@
-# Vinifera — Cross-repo Contracts (v1)
+# Flanj — Cross-repo Contracts (v1)
 
-**This directory is the single source of truth for every cross-component contract in Vinifera.**
+**This directory is the single source of truth for every cross-component contract in Flanj.**
 All four repos (`sdk`, `collector`, `control-plane`, `e2e`) key off the fixtures and schemas here.
 Nothing on the coupling surface changes except by editing this directory and re-broadcasting a new
 `schema_version`. See [README.md](./README.md) for governance, versioning, and vendoring rules.
@@ -42,61 +42,61 @@ if ever moved to a span event):
 
 | Attribute | Type | Notes |
 |---|---|---|
-| `vinifera.capture.version` | string | `"1"` — the redaction/capture manifest version |
-| `vinifera.record.type` | string | `"call"` — one completed call. Since v0.5 (Step B) the SDK also emits `"contract_snapshot"` (an observed MCP `tools/list` — see the MCP block below); older collectors drop the unknown type silently, so the addition is forward-compatible with no `schema_version` bump. The collector reuses the same pipeline for its own internal record types `"finding"` and `"spec_info"` (below), which also cross the front→store hop of the tiered topology. |
-| `vinifera.direction` | string | `"client"` = egress (org is **consumer**) \| `"server"` = ingress (org is **provider**) |
-| `vinifera.peer.host` | string | the OTHER end's host[:port] — egress: the destination; ingress: the caller/source. The edge key. |
-| `vinifera.peer.addr` *(optional)* | string | the peer's socket address (IP) when the socket layer exposed one — egress: the resolved remote address; ingress: `socket.remoteAddress` (behind a proxy: the last hop's). Transport detail for display/debugging; NEVER an identity or edge key. Omitted when unknown. |
-| `vinifera.edge.class` | string | `"external"` \| `"internal"` — classification of `peer.host`, byte-identical in SDK + collector. **Internal** = RFC1918 (10/8, 172.16-31/12, 192.168/16) / loopback (127/8, `::1`) / unspecified (`::`) / link-local (169.254/16, `fe80::/10`) / ULA (`fc00::/7`) / a name ending `.svc.cluster.local`·`.internal`·`.local` / single-label host. `::ffff:` IPv4-mapped addresses are unmapped first. Else **external**. v0.5 (Step B) adds the additive value `"local-process"`: a stdio MCP server (see the MCP block below) — bodies ARE captured + redacted (a local MCP process usually fronts an external API; the contract is the server's), unlike `internal` which stays metadata-only. |
-| `vinifera.capture.bodies` | bool | `true` on external edges (bodies present) · `false` on internal (bodies OMITTED — internal is metadata-only, classified out of surfacing). |
-| `vinifera.integration` | string | the integration id, e.g. `"acme-payments"` (may be derived from `peer.host` when auto-discovered) |
-| `vinifera.http.method` | string | `"POST"` |
-| `vinifera.http.route` | string | templated if known (`"/v1/charges"`) else path |
-| `vinifera.http.target` | string | redacted path+query |
-| `vinifera.http.url.full` | string | redacted absolute URL |
-| `vinifera.http.status_code` | int | `200` |
-| `vinifera.http.request.content_type` | string | |
-| `vinifera.http.request.body` | string | **redacted**, capped at `body_cap_bytes` |
-| `vinifera.http.request.body.truncated` | bool | |
-| `vinifera.http.request.headers` | string | **redacted** JSON, allowlisted keys only |
-| `vinifera.http.response.content_type` | string | |
-| `vinifera.http.response.body` | string | **redacted**, capped |
-| `vinifera.http.response.body.truncated` | bool | |
-| `vinifera.http.response.headers` | string | **redacted** JSON, allowlisted |
-| `vinifera.corr.request_id` | string | from `x-request-id`/`x-correlation-id` |
-| `vinifera.corr.idempotency_key` | string | from `idempotency-key` |
-| `vinifera.corr.trace_id` | string | hex |
-| `vinifera.corr.span_id` | string | hex |
-| `vinifera.http.duration_ms` | int | |
-| `vinifera.redaction.applied` | bool | |
-| `vinifera.redaction.patterns` | string | JSON array of fired pattern ids, e.g. `["PAN"]` |
-| `vinifera.redaction.spec_aware` | bool | v0 = `false` |
-| `vinifera.redaction.fields` *(optional)* | string | JSON array of whole-value body redactions with the ORIGINAL value's captured properties; omitted when empty. Entries `{part: "request"\|"response", path, pattern, props}` — `path` an RFC 6901 JSON Pointer into that body; `props` = `{type: "string"\|"number", length (Unicode code points of the original scalar text), integer? (numbers), containsLowerCase (a-z), containsUpperCase (A-Z), containsDigits (0-9), containsASCIIControlChars (≤0x1F or 0x7F), containsASCIIPrintableChars (0x20–0x7E), containsASCIIExtendedChars (>0x7F)}`. Sorted by part (request first) then path. Non-reversible by design (never anything that narrows the value). Emitted only for whole-value redactions (the scalar became exactly one token); span-in-text redactions, redacted keys, form pairs and non-JSON text carry no fields. Purpose: the collector's drift detector validates the DECIDABLE constraints (type, min/maxLength) of redacted fields instead of skipping them (§6 Drift interplay). |
+| `flanj.capture.version` | string | `"1"` — the redaction/capture manifest version |
+| `flanj.record.type` | string | `"call"` — one completed call. Since v0.5 (Step B) the SDK also emits `"contract_snapshot"` (an observed MCP `tools/list` — see the MCP block below); older collectors drop the unknown type silently, so the addition is forward-compatible with no `schema_version` bump. The collector reuses the same pipeline for its own internal record types `"finding"` and `"spec_info"` (below), which also cross the front→store hop of the tiered topology. |
+| `flanj.direction` | string | `"client"` = egress (org is **consumer**) \| `"server"` = ingress (org is **provider**) |
+| `flanj.peer.host` | string | the OTHER end's host[:port] — egress: the destination; ingress: the caller/source. The edge key. |
+| `flanj.peer.addr` *(optional)* | string | the peer's socket address (IP) when the socket layer exposed one — egress: the resolved remote address; ingress: `socket.remoteAddress` (behind a proxy: the last hop's). Transport detail for display/debugging; NEVER an identity or edge key. Omitted when unknown. |
+| `flanj.edge.class` | string | `"external"` \| `"internal"` — classification of `peer.host`, byte-identical in SDK + collector. **Internal** = RFC1918 (10/8, 172.16-31/12, 192.168/16) / loopback (127/8, `::1`) / unspecified (`::`) / link-local (169.254/16, `fe80::/10`) / ULA (`fc00::/7`) / a name ending `.svc.cluster.local`·`.internal`·`.local` / single-label host. `::ffff:` IPv4-mapped addresses are unmapped first. Else **external**. v0.5 (Step B) adds the additive value `"local-process"`: a stdio MCP server (see the MCP block below) — bodies ARE captured + redacted (a local MCP process usually fronts an external API; the contract is the server's), unlike `internal` which stays metadata-only. |
+| `flanj.capture.bodies` | bool | `true` on external edges (bodies present) · `false` on internal (bodies OMITTED — internal is metadata-only, classified out of surfacing). |
+| `flanj.integration` | string | the integration id, e.g. `"acme-payments"` (may be derived from `peer.host` when auto-discovered) |
+| `flanj.http.method` | string | `"POST"` |
+| `flanj.http.route` | string | templated if known (`"/v1/charges"`) else path |
+| `flanj.http.target` | string | redacted path+query |
+| `flanj.http.url.full` | string | redacted absolute URL |
+| `flanj.http.status_code` | int | `200` |
+| `flanj.http.request.content_type` | string | |
+| `flanj.http.request.body` | string | **redacted**, capped at `body_cap_bytes` |
+| `flanj.http.request.body.truncated` | bool | |
+| `flanj.http.request.headers` | string | **redacted** JSON, allowlisted keys only |
+| `flanj.http.response.content_type` | string | |
+| `flanj.http.response.body` | string | **redacted**, capped |
+| `flanj.http.response.body.truncated` | bool | |
+| `flanj.http.response.headers` | string | **redacted** JSON, allowlisted |
+| `flanj.corr.request_id` | string | from `x-request-id`/`x-correlation-id` |
+| `flanj.corr.idempotency_key` | string | from `idempotency-key` |
+| `flanj.corr.trace_id` | string | hex |
+| `flanj.corr.span_id` | string | hex |
+| `flanj.http.duration_ms` | int | |
+| `flanj.redaction.applied` | bool | |
+| `flanj.redaction.patterns` | string | JSON array of fired pattern ids, e.g. `["PAN"]` |
+| `flanj.redaction.spec_aware` | bool | v0 = `false` |
+| `flanj.redaction.fields` *(optional)* | string | JSON array of whole-value body redactions with the ORIGINAL value's captured properties; omitted when empty. Entries `{part: "request"\|"response", path, pattern, props}` — `path` an RFC 6901 JSON Pointer into that body; `props` = `{type: "string"\|"number", length (Unicode code points of the original scalar text), integer? (numbers), containsLowerCase (a-z), containsUpperCase (A-Z), containsDigits (0-9), containsASCIIControlChars (≤0x1F or 0x7F), containsASCIIPrintableChars (0x20–0x7E), containsASCIIExtendedChars (>0x7F)}`. Sorted by part (request first) then path. Non-reversible by design (never anything that narrows the value). Emitted only for whole-value redactions (the scalar became exactly one token); span-in-text redactions, redacted keys, form pairs and non-JSON text carry no fields. Purpose: the collector's drift detector validates the DECIDABLE constraints (type, min/maxLength) of redacted fields instead of skipping them (§6 Drift interplay). |
 
 **MCP tool-call records — v0.5 (Step B)** (additive; emitted by the SDK's MCP client wrapper,
 `instrumentMcpClient`, one record per completed `tools/call`): the SAME `"call"` record shape as HTTP,
-with the tool riding the method/route slots — `vinifera.http.method` = `"tools/call"`,
-`vinifera.http.route` = `vinifera.http.target` = `"/<tool.name>"`, `vinifera.http.url.full` =
+with the tool riding the method/route slots — `flanj.http.method` = `"tools/call"`,
+`flanj.http.route` = `flanj.http.target` = `"/<tool.name>"`, `flanj.http.url.full` =
 `"mcp://<peer.host>/<tool.name>"` (synthetic, display only). The request body is the `tools/call`
 **arguments** (JSON); the response body is **`structuredContent`** when present (content-type
 `application/json`), else the `content[]` text items joined with newlines (`text/plain` — the floor's
 text path parses-then-traverses JSON text, so a PAN inside stringified JSON is caught structurally,
-not by a regex). Headers are `"{}"`; `vinifera.http.status_code` is **omitted** (MCP has none —
-`vinifera.mcp.is_error` carries the outcome); every body is floor-redacted at source with
-`redaction.fields` captured exactly as on HTTP. `vinifera.peer.host` = the streamable-HTTP endpoint
+not by a regex). Headers are `"{}"`; `flanj.http.status_code` is **omitted** (MCP has none —
+`flanj.mcp.is_error` carries the outcome); every body is floor-redacted at source with
+`redaction.fields` captured exactly as on HTTP. `flanj.peer.host` = the streamable-HTTP endpoint
 host[:port], or `serverInfo.name` for a stdio server (edge class `"local-process"`); a streamable-HTTP
 peer classified `internal` stays metadata-only as ever. Additive attributes:
 
 | Attribute | Type | Notes |
 |---|---|---|
-| `vinifera.transport` | string | `"mcp"`. Absent on HTTP records (absent = HTTP). |
-| `vinifera.mcp.tool.name` | string | the called tool — the operation id downstream detection matches against the contract (`Operation.id` / `Match.toolName`). |
-| `vinifera.mcp.is_error` | bool | the CallToolResult's `isError` (also `true` when the call itself rejected). Feeds the error-rate metric; never a finding on its own. |
-| `vinifera.mcp.server.name` *(optional)* | string | `serverInfo.name` from initialize, when the client surfaces it. |
-| `vinifera.mcp.server.version` *(optional)* | string | `serverInfo.version`. |
-| `vinifera.mcp.protocol.version` *(optional)* | string | the negotiated MCP protocol version. |
-| `vinifera.mcp.session.id` *(optional)* | string | `Mcp-Session-Id` when the transport exposes one (2025-11-25 line; absent on 2026-07-28 stateless). |
-| `vinifera.corr.client_request_id` *(optional)* | string | the JSON-RPC id observed on the client's OWN outgoing message — **client-generated**: it appears in the provider's logs only if they log it. Rendered as "JSON-RPC id (client-generated)", and never merged into `vinifera.corr.request_id`, which stays **provider-issued only** (the v0.5 client wrapper sees no HTTP response headers and therefore emits none). |
+| `flanj.transport` | string | `"mcp"`. Absent on HTTP records (absent = HTTP). |
+| `flanj.mcp.tool.name` | string | the called tool — the operation id downstream detection matches against the contract (`Operation.id` / `Match.toolName`). |
+| `flanj.mcp.is_error` | bool | the CallToolResult's `isError` (also `true` when the call itself rejected). Feeds the error-rate metric; never a finding on its own. |
+| `flanj.mcp.server.name` *(optional)* | string | `serverInfo.name` from initialize, when the client surfaces it. |
+| `flanj.mcp.server.version` *(optional)* | string | `serverInfo.version`. |
+| `flanj.mcp.protocol.version` *(optional)* | string | the negotiated MCP protocol version. |
+| `flanj.mcp.session.id` *(optional)* | string | `Mcp-Session-Id` when the transport exposes one (2025-11-25 line; absent on 2026-07-28 stateless). |
+| `flanj.corr.client_request_id` *(optional)* | string | the JSON-RPC id observed on the client's OWN outgoing message — **client-generated**: it appears in the provider's logs only if they log it. Rendered as "JSON-RPC id (client-generated)", and never merged into `flanj.corr.request_id`, which stays **provider-issued only** (the v0.5 client wrapper sees no HTTP response headers and therefore emits none). |
 
 Canonical example: [`v1/golden-otlp-mcp-call.json`](./v1/golden-otlp-mcp-call.json) — one
 `create_refund` call whose `structuredContent` returns `refund.amount` as the string `"1200"` where the
@@ -111,15 +111,15 @@ one record per **complete** observed `tools/list` (pagination followed; re-fetch
 
 | Attribute | Type | Notes |
 |---|---|---|
-| `vinifera.capture.version` | string | `"1"` |
-| `vinifera.record.type` | string | `"contract_snapshot"` |
-| `vinifera.transport` | string | `"mcp"` |
-| `vinifera.direction` | string | `"client"` |
-| `vinifera.peer.host` / `vinifera.edge.class` / `vinifera.integration` | | as on MCP call records (same edge key). |
-| `vinifera.mcp.contract_snapshot` | string | **floor-redacted** JSON `{"tools":[…], "serverInfo"?, "protocolVersion"?, "capabilities"?}`. Each tool carries exactly the ToolDef wire keys `name` / `description` / `inputSchema` / `outputSchema` / `annotations` (decodable by the collector's `contract.ParseToolsList`); schemas are the server's own words, passed verbatim — a tool without `outputSchema` keeps none (the honest "no output contract declared" state, never synthesized). `capabilities` carries `{tools:{listChanged}}` when the client surfaces it. |
-| `vinifera.mcp.tool.count` | int | tools in the snapshot. |
-| `vinifera.mcp.server.name` / `vinifera.mcp.server.version` / `vinifera.mcp.protocol.version` *(optional)* | string | server identity, when surfaced. |
-| `vinifera.redaction.applied` / `vinifera.redaction.patterns` | bool / string | the floor pass over the snapshot JSON (usually nothing fires; the floor still runs — every captured payload is floor-scanned first, §6). |
+| `flanj.capture.version` | string | `"1"` |
+| `flanj.record.type` | string | `"contract_snapshot"` |
+| `flanj.transport` | string | `"mcp"` |
+| `flanj.direction` | string | `"client"` |
+| `flanj.peer.host` / `flanj.edge.class` / `flanj.integration` | | as on MCP call records (same edge key). |
+| `flanj.mcp.contract_snapshot` | string | **floor-redacted** JSON `{"tools":[…], "serverInfo"?, "protocolVersion"?, "capabilities"?}`. Each tool carries exactly the ToolDef wire keys `name` / `description` / `inputSchema` / `outputSchema` / `annotations` (decodable by the collector's `contract.ParseToolsList`); schemas are the server's own words, passed verbatim — a tool without `outputSchema` keeps none (the honest "no output contract declared" state, never synthesized). `capabilities` carries `{tools:{listChanged}}` when the client surfaces it. |
+| `flanj.mcp.tool.count` | int | tools in the snapshot. |
+| `flanj.mcp.server.name` / `flanj.mcp.server.version` / `flanj.mcp.protocol.version` *(optional)* | string | server identity, when surfaced. |
+| `flanj.redaction.applied` / `flanj.redaction.patterns` | bool / string | the floor pass over the snapshot JSON (usually nothing fires; the floor still runs — every captured payload is floor-scanned first, §6). |
 
 Canonical example: [`v1/golden-otlp-mcp-snapshot.json`](./v1/golden-otlp-mcp-snapshot.json).
 
@@ -127,10 +127,10 @@ Canonical example: [`v1/golden-otlp-mcp-snapshot.json`](./v1/golden-otlp-mcp-sna
 processor and consumed by its store exporter — in the tiered topology they travel from a front
 collector to the store pod over the core `otlphttp` exporter as ordinary OTLP log records):
 
-| `vinifera.record.type` | Carries | Notes |
+| `flanj.record.type` | Carries | Notes |
 |---|---|---|
-| `"finding"` | `vinifera.finding.json` = the whole §4 Finding as JSON | Appended after the calls of the batch that produced it. Order is NOT load-bearing: the store pins a finding's source call whichever arrives first (late pin). |
-| `"spec_info"` | `vinifera.spec_info.json` = the loaded contract's metadata `{integration, role ("provider"\|"self"), peer_host?, format, title?, version?, docs_url?, endpoints?, loaded_at}`; the raw spec document in the log record **body as bytes** (may be empty) | Emitted by a collector that loaded a spec: on the first batch after start, then at most every 10 minutes, so a store pod (or a freshly wiped store) converges. Idempotent upsert keyed by `integration`. |
+| `"finding"` | `flanj.finding.json` = the whole §4 Finding as JSON | Appended after the calls of the batch that produced it. Order is NOT load-bearing: the store pins a finding's source call whichever arrives first (late pin). |
+| `"spec_info"` | `flanj.spec_info.json` = the loaded contract's metadata `{integration, role ("provider"\|"self"), peer_host?, format, title?, version?, docs_url?, endpoints?, loaded_at}`; the raw spec document in the log record **body as bytes** (may be empty) | Emitted by a collector that loaded a spec: on the first batch after start, then at most every 10 minutes, so a store pod (or a freshly wiped store) converges. Idempotent upsert keyed by `integration`. |
 
 A store that does not recognise a record type drops it silently (it never becomes a call: the
 store exporter requires method + route). Unknown types are therefore forward-compatible; upgrade
@@ -303,7 +303,7 @@ idempotent replay with the same deploy token + contact) `{ "collector_id", "coll
 "contact_status", "registered_at", "confirmed_at" }` — the local UI polls this for the Connect panel.
 
 ### `POST /api/v1/flags`  (Bearer collector key)
-Headers: `X-Vinifera-Collector-Version`, `X-Vinifera-Schema-Version`.
+Headers: `X-Flanj-Collector-Version`, `X-Flanj-Schema-Version`.
 ```jsonc
 // request
 { "idempotency_key": "flag_0191…",           // re-flag returns the existing thread
@@ -340,7 +340,7 @@ email on flag — the consumer pastes the link where the two teams already talk.
 ### `POST /api/v1/findings`  (Bearer collector key) — *(slice2-2026-08-28)*
 
 Shape-only finding sync from the collector's background ticker (`finding_sync`, §8 — on by default).
-Headers: `X-Vinifera-Collector-Version`, `X-Vinifera-Schema-Version`.
+Headers: `X-Flanj-Collector-Version`, `X-Flanj-Schema-Version`.
 
 ```jsonc
 // request — SHAPE ONLY. `expected` / `actual` / `detail` are NEVER sent (they carry observed
@@ -388,7 +388,7 @@ Governed by TWO golden files — **the files, not shared code, are the contract*
   id, last4, amounts, timestamps, UUIDs/hashes, national-format phones, bare 9-digit ids, bad-checksum IBAN,
   base64 without PII / of binary), idempotency, report order, and the poisoned-spec enhancer cases.
 
-Two implementations conform: `@vinifera/redaction-patterns` (TypeScript, published from `sdk`; the CP consumes
+Two implementations conform: `@flanj/redaction-patterns` (TypeScript, published from `sdk`; the CP consumes
 the same package for reply DLP) and the collector's Go `internal/redact`. **Both test suites run both files.**
 For `json` fixtures both entry points are asserted — structural `redact(value)` and the text path over the
 serialized body, parsed back — by **deep equality** (the parity oracle; serializer differences cannot mask or
@@ -463,7 +463,7 @@ covers older SDKs in the compatibility window that emit no fields).
 
 ## 7. Versioning & backward compatibility
 
-- Every payload carries `schema_version` (and OTLP carries `vinifera.capture.version`). Readers are
+- Every payload carries `schema_version` (and OTLP carries `flanj.capture.version`). Readers are
   **tolerant**: unknown fields are ignored.
 - **Additive-first (expand/contract):** new fields are optional; producers/consumers adopt independently;
   the old shape is removed only after all sides migrate. No flag-day.
@@ -495,11 +495,11 @@ covers older SDKs in the compatibility window that emit no fields).
 | `db_path` | sqlite file path, required iff `backend=sqlite`; MUST be on a persistent volume. With `backend=postgres` it is the OPTIONAL one-shot migration source: if the file exists at start, pinned calls + findings + edges are imported and the file is renamed `<db_path>.migrated`; import failure aborts start |
 | `dsn` | postgres connection string, required iff `backend=postgres`; use `${env:…}` interpolation for credentials — the collector only ever logs it redacted |
 | `window_max_rows` / `window_max_bytes` | rolling-window ceilings (with `backend=postgres`, set identically on every pod sharing the database) |
-| `finding_sync` | *(viniferaui, bool, default `true` — slice2-2026-08-28)* the background finding-shape sync to the CP (`POST /api/v1/findings`, §5): every 15s, when a collector key exists, the UI extension sends the current findings **shape-only** (`expected`/`actual`/`detail` stripped at source). `false` disables the loop entirely. |
+| `finding_sync` | *(flanjui, bool, default `true` — slice2-2026-08-28)* the background finding-shape sync to the CP (`POST /api/v1/findings`, §5): every 15s, when a collector key exists, the UI extension sends the current findings **shape-only** (`expected`/`actual`/`detail` stripped at source). `false` disables the loop entirely. |
 | `ui_endpoint` | localhost bind for the UI extension, default `127.0.0.1:5335` |
 | `otlp_endpoint` | OTLP receiver bind, default `0.0.0.0:4318` |
 
 *Tiered topology (N front collectors → one store pod, collector `docs/STORE.md` "Topologies") adds NO
-vinifera keys: a front's forwarding is the core OpenTelemetry `otlphttp` exporter (upstream's keys —
-`endpoint` = the store pod's base URL, e.g. `http://vinifera-store:4318`), and the store pod runs the
-same `viniferastore` / `viniferaui` keys above. Role is chosen by which config file runs.*
+flanj keys: a front's forwarding is the core OpenTelemetry `otlphttp` exporter (upstream's keys —
+`endpoint` = the store pod's base URL, e.g. `http://flanj-store:4318`), and the store pod runs the
+same `flanjstore` / `flanjui` keys above. Role is chosen by which config file runs.*

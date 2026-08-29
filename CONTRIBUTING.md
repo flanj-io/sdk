@@ -1,4 +1,4 @@
-# Contributing to `@vinifera/sdk`
+# Contributing to `@flanj/sdk`
 
 Thanks for your interest in contributing. This repository is licensed under **Apache-2.0**.
 

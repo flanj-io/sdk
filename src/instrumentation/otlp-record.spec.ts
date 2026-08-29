@@ -5,7 +5,7 @@ import { buildLogAttributes } from './otlp-record';
 import { CapturedCall } from './captured-call';
 
 /**
- * Locks the CapturedCall → vinifera.* mapping to the golden fixture: the exact
+ * Locks the CapturedCall → flanj.* mapping to the golden fixture: the exact
  * attribute key set and the scalar values that the collector's contract test
  * expects to ingest.
  */
@@ -69,22 +69,22 @@ describe('buildLogAttributes vs golden-otlp-call.json', () => {
   });
 
   it('serializes headers and patterns as JSON strings', () => {
-    expect(attrs['vinifera.http.request.headers']).toBe(
+    expect(attrs['flanj.http.request.headers']).toBe(
       '{"content-type":"application/json","idempotency-key":"idem_9f2c1a"}'
     );
-    expect(attrs['vinifera.redaction.patterns']).toBe('["PAN"]');
+    expect(attrs['flanj.redaction.patterns']).toBe('["PAN"]');
   });
 
   it('never emits a raw PAN', () => {
     expect(JSON.stringify(attrs)).not.toContain('4111111111111111');
   });
 
-  it('emits vinifera.peer.addr only when the socket exposed one', () => {
+  it('emits flanj.peer.addr only when the socket exposed one', () => {
     // Absent on the golden call: the key must not appear at all.
-    expect('vinifera.peer.addr' in attrs).toBe(false);
+    expect('flanj.peer.addr' in attrs).toBe(false);
     const withAddr = buildLogAttributes({ ...call, peerAddr: '203.0.113.7' });
-    expect(withAddr['vinifera.peer.addr']).toBe('203.0.113.7');
+    expect(withAddr['flanj.peer.addr']).toBe('203.0.113.7');
     // The optional attr must be the ONLY difference vs the golden key set.
-    expect(new Set(Object.keys(withAddr))).toEqual(new Set([...Object.keys(goldenAttrs), 'vinifera.peer.addr']));
+    expect(new Set(Object.keys(withAddr))).toEqual(new Set([...Object.keys(goldenAttrs), 'flanj.peer.addr']));
   });
 });

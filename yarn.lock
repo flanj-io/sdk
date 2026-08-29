@@ -69,6 +69,47 @@ __metadata:
   languageName: node
   linkType: hard
 
+"@flanj/redaction-patterns@workspace:*, @flanj/redaction-patterns@workspace:packages/redaction-patterns":
+  version: 0.0.0-use.local
+  resolution: "@flanj/redaction-patterns@workspace:packages/redaction-patterns"
+  dependencies:
+    "@types/validator": "npm:^13.15.2"
+    libphonenumber-js: "npm:^1.13.11"
+    validator: "npm:^13.15.35"
+  languageName: unknown
+  linkType: soft
+
+"@flanj/sdk@workspace:.":
+  version: 0.0.0-use.local
+  resolution: "@flanj/sdk@workspace:."
+  dependencies:
+    "@flanj/redaction-patterns": "workspace:*"
+    "@opentelemetry/api": "npm:^1.9.0"
+    "@opentelemetry/api-logs": "npm:^0.221.0"
+    "@opentelemetry/context-async-hooks": "npm:^2.0.0"
+    "@opentelemetry/exporter-logs-otlp-http": "npm:^0.221.0"
+    "@opentelemetry/instrumentation": "npm:^0.221.0"
+    "@opentelemetry/instrumentation-http": "npm:^0.221.0"
+    "@opentelemetry/resources": "npm:^2.0.0"
+    "@opentelemetry/sdk-logs": "npm:^0.221.0"
+    "@opentelemetry/sdk-node": "npm:^0.221.0"
+    "@types/node": "npm:^26.2.0"
+    "@typescript-eslint/eslint-plugin": "npm:^8.20.0"
+    "@typescript-eslint/parser": "npm:^8.20.0"
+    eslint: "npm:^10.9.0"
+    typescript: "npm:^5.7.0"
+    vitest: "npm:^4.1.11"
+  peerDependencies:
+    "@modelcontextprotocol/client": ^2.0.0
+    "@modelcontextprotocol/sdk": ^1.0.0
+  peerDependenciesMeta:
+    "@modelcontextprotocol/client":
+      optional: true
+    "@modelcontextprotocol/sdk":
+      optional: true
+  languageName: unknown
+  linkType: soft
+
 "@grpc/grpc-js@npm:^1.14.3":
   version: 1.14.4
   resolution: "@grpc/grpc-js@npm:1.14.4"
@@ -946,47 +987,6 @@ __metadata:
   checksum: 10c0/d43e6151cd1cdbcfb2f9fa54946198baaebaf0b7a9057ccb2f1aeba1aa3eb46708a97cd7773dcfd0eba3bd45642a5520f4607001cd27d8958e41aa56b2fe7a35
   languageName: node
   linkType: hard
-
-"@vinifera/redaction-patterns@workspace:*, @vinifera/redaction-patterns@workspace:packages/redaction-patterns":
-  version: 0.0.0-use.local
-  resolution: "@vinifera/redaction-patterns@workspace:packages/redaction-patterns"
-  dependencies:
-    "@types/validator": "npm:^13.15.2"
-    libphonenumber-js: "npm:^1.13.11"
-    validator: "npm:^13.15.35"
-  languageName: unknown
-  linkType: soft
-
-"@vinifera/sdk@workspace:.":
-  version: 0.0.0-use.local
-  resolution: "@vinifera/sdk@workspace:."
-  dependencies:
-    "@opentelemetry/api": "npm:^1.9.0"
-    "@opentelemetry/api-logs": "npm:^0.221.0"
-    "@opentelemetry/context-async-hooks": "npm:^2.0.0"
-    "@opentelemetry/exporter-logs-otlp-http": "npm:^0.221.0"
-    "@opentelemetry/instrumentation": "npm:^0.221.0"
-    "@opentelemetry/instrumentation-http": "npm:^0.221.0"
-    "@opentelemetry/resources": "npm:^2.0.0"
-    "@opentelemetry/sdk-logs": "npm:^0.221.0"
-    "@opentelemetry/sdk-node": "npm:^0.221.0"
-    "@types/node": "npm:^26.2.0"
-    "@typescript-eslint/eslint-plugin": "npm:^8.20.0"
-    "@typescript-eslint/parser": "npm:^8.20.0"
-    "@vinifera/redaction-patterns": "workspace:*"
-    eslint: "npm:^10.9.0"
-    typescript: "npm:^5.7.0"
-    vitest: "npm:^4.1.11"
-  peerDependencies:
-    "@modelcontextprotocol/client": ^2.0.0
-    "@modelcontextprotocol/sdk": ^1.0.0
-  peerDependenciesMeta:
-    "@modelcontextprotocol/client":
-      optional: true
-    "@modelcontextprotocol/sdk":
-      optional: true
-  languageName: unknown
-  linkType: soft
 
 "@vitest/expect@npm:4.1.11":
   version: 4.1.11

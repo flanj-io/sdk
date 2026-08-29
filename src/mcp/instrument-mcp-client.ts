@@ -25,7 +25,7 @@ export interface McpClientLike {
 }
 
 export interface InstrumentMcpClientOptions {
-  /** Integration id emitted as `vinifera.integration`, e.g. `acme-payments`. */
+  /** Integration id emitted as `flanj.integration`, e.g. `acme-payments`. */
   integration: string;
   /** Streamable-HTTP endpoint URL — the edge key host. Detected from the transport when omitted. */
   endpoint?: string;
@@ -47,8 +47,8 @@ export interface InstrumentMcpClientOptions {
   refetchOnListChanged?: boolean;
 }
 
-const INSTRUMENTED = Symbol.for('vinifera.mcp.instrumented');
-const SEND_OBSERVERS = Symbol.for('vinifera.mcp.sendObservers');
+const INSTRUMENTED = Symbol.for('flanj.mcp.instrumented');
+const SEND_OBSERVERS = Symbol.for('flanj.mcp.sendObservers');
 /** Bound on remembered-but-unclaimed JSON-RPC ids (hostile/odd clients cannot grow it unbounded). */
 const MAX_PENDING_IDS = 1024;
 
@@ -95,7 +95,7 @@ function deliverToSendObserver(registry: SendObserverRegistry, message: unknown)
  *  - `callTool` → one captured call record on the RedactedCall shape
  *    (arguments/result floor-redacted at source).
  *  - JSON-RPC ids are observed on the client's own outgoing messages and
- *    labeled CLIENT-generated (`vinifera.corr.client_request_id`).
+ *    labeled CLIENT-generated (`flanj.corr.client_request_id`).
  *
  * Returns the same client instance. Idempotent.
  */

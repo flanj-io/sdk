@@ -1,6 +1,6 @@
-# @vinifera/redaction-patterns
+# @flanj/redaction-patterns
 
-The **Vinifera redaction floor** — PAN/PII/secret redaction applied **at source** before any HTTP body is
+The **Flanj redaction floor** — PAN/PII/secret redaction applied **at source** before any HTTP body is
 stored or transmitted. Apache-2.0. Zero external calls, by construction and by test.
 
 It is built as **composed, hardened validators behind our own swappable interface**: our code locates
@@ -18,19 +18,19 @@ This package is one of **two conforming implementations** of the same contract �
   cross-language **parity** battery (nested/undocumented fields, arrays, PAN-as-number, base64, inbound bodies,
   truncated/malformed/form bodies, negatives, poisoned-spec enhancer cases).
 
-**The fixture files, not this code, are the source of truth.** The `@vinifera/sdk` redacts with this package at
+**The fixture files, not this code, are the source of truth.** The `@flanj/sdk` redacts with this package at
 the call site; the control plane reuses it for reply-box DLP.
 
 ## Install
 
 ```bash
-yarn add @vinifera/redaction-patterns
+yarn add @flanj/redaction-patterns
 ```
 
 ## Usage
 
 ```ts
-import { redact, redactDetailed, createRedactor, enhance, redactHeaders } from '@vinifera/redaction-patterns';
+import { redact, redactDetailed, createRedactor, enhance, redactHeaders } from '@flanj/redaction-patterns';
 
 // Text entry point — what captured bodies go through. Only fired scalars are rewritten;
 // JSON formatting, key order and untouched literals are preserved byte-for-byte.
@@ -109,7 +109,7 @@ to re-scanning.
 ## Testing
 
 ```bash
-yarn workspace @vinifera/redaction-patterns test
+yarn workspace @flanj/redaction-patterns test
 ```
 
 `test/vectors.spec.ts` and `test/fixtures.spec.ts` iterate **every** case in the vendored golden files (both

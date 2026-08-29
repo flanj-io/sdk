@@ -1,4 +1,4 @@
-<!-- Thanks for contributing to Vinifera! Please fill this out so we can review quickly. -->
+<!-- Thanks for contributing to Flanj! Please fill this out so we can review quickly. -->
 
 ## What & why
 
