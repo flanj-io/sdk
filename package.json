@@ -1,7 +1,7 @@
 {
-  "name": "@vinifera/sdk",
+  "name": "@flanj/sdk",
   "version": "0.0.1",
-  "description": "Thin OpenTelemetry-JS distribution: HTTP request/response body capture with redaction-at-source, exporting the vinifera.* OTLP convention to a Vinifera collector.",
+  "description": "Thin OpenTelemetry-JS distribution: HTTP request/response body capture with redaction-at-source, exporting the flanj.* OTLP convention to a Flanj collector.",
   "license": "Apache-2.0",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
@@ -39,6 +39,7 @@
     }
   },
   "dependencies": {
+    "@flanj/redaction-patterns": "workspace:*",
     "@opentelemetry/api": "^1.9.0",
     "@opentelemetry/api-logs": "^0.221.0",
     "@opentelemetry/exporter-logs-otlp-http": "^0.221.0",
@@ -46,8 +47,7 @@
     "@opentelemetry/instrumentation-http": "^0.221.0",
     "@opentelemetry/resources": "^2.0.0",
     "@opentelemetry/sdk-logs": "^0.221.0",
-    "@opentelemetry/sdk-node": "^0.221.0",
-    "@vinifera/redaction-patterns": "workspace:*"
+    "@opentelemetry/sdk-node": "^0.221.0"
   },
   "devDependencies": {
     "@opentelemetry/context-async-hooks": "^2.0.0",

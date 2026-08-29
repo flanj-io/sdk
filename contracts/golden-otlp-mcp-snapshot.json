@@ -1,5 +1,5 @@
 {
-  "_comment": "v0.5 (Step B). Canonical OTLP/HTTP-JSON logs payload the SDK emits for one COMPLETE observed tools/list (record type contract_snapshot). vinifera.mcp.contract_snapshot carries the floor-redacted ToolDef-shaped tools array (wire keys name/description/inputSchema/outputSchema/annotations, decodable by the collector contract.ParseToolsList) + serverInfo + protocolVersion + capabilities.tools.listChanged. list_transactions declares NO outputSchema - the honest \"no output contract declared\" state, never synthesized.",
+  "_comment": "v0.5 (Step B). Canonical OTLP/HTTP-JSON logs payload the SDK emits for one COMPLETE observed tools/list (record type contract_snapshot). flanj.mcp.contract_snapshot carries the floor-redacted ToolDef-shaped tools array (wire keys name/description/inputSchema/outputSchema/annotations, decodable by the collector contract.ParseToolsList) + serverInfo + protocolVersion + capabilities.tools.listChanged. list_transactions declares NO outputSchema - the honest \"no output contract declared\" state, never synthesized.",
   "resourceLogs": [
     {
       "resource": {
@@ -13,7 +13,7 @@
           {
             "key": "telemetry.sdk.name",
             "value": {
-              "stringValue": "@vinifera/sdk"
+              "stringValue": "@flanj/sdk"
             }
           }
         ]
@@ -21,7 +21,7 @@
       "scopeLogs": [
         {
           "scope": {
-            "name": "@vinifera/sdk",
+            "name": "@flanj/sdk",
             "version": "0.0.1"
           },
           "logRecords": [
@@ -35,85 +35,85 @@
               },
               "attributes": [
                 {
-                  "key": "vinifera.capture.version",
+                  "key": "flanj.capture.version",
                   "value": {
                     "stringValue": "1"
                   }
                 },
                 {
-                  "key": "vinifera.record.type",
+                  "key": "flanj.record.type",
                   "value": {
                     "stringValue": "contract_snapshot"
                   }
                 },
                 {
-                  "key": "vinifera.transport",
+                  "key": "flanj.transport",
                   "value": {
                     "stringValue": "mcp"
                   }
                 },
                 {
-                  "key": "vinifera.direction",
+                  "key": "flanj.direction",
                   "value": {
                     "stringValue": "client"
                   }
                 },
                 {
-                  "key": "vinifera.peer.host",
+                  "key": "flanj.peer.host",
                   "value": {
                     "stringValue": "mcp.acme.test"
                   }
                 },
                 {
-                  "key": "vinifera.edge.class",
+                  "key": "flanj.edge.class",
                   "value": {
                     "stringValue": "external"
                   }
                 },
                 {
-                  "key": "vinifera.integration",
+                  "key": "flanj.integration",
                   "value": {
                     "stringValue": "acme-payments"
                   }
                 },
                 {
-                  "key": "vinifera.mcp.contract_snapshot",
+                  "key": "flanj.mcp.contract_snapshot",
                   "value": {
                     "stringValue": "{\"tools\":[{\"name\":\"get_balance\",\"description\":\"Current balance for an account.\",\"inputSchema\":{\"type\":\"object\",\"properties\":{\"account_id\":{\"type\":\"string\"}},\"required\":[\"account_id\"]},\"outputSchema\":{\"type\":\"object\",\"properties\":{\"amount\":{\"type\":\"integer\"},\"currency\":{\"type\":\"string\"}},\"required\":[\"amount\",\"currency\"]}},{\"name\":\"create_refund\",\"description\":\"Refund a charge.\",\"inputSchema\":{\"type\":\"object\",\"properties\":{\"amount\":{\"type\":\"integer\"},\"card_number\":{\"type\":\"string\"},\"currency\":{\"type\":\"string\"}},\"required\":[\"amount\",\"currency\"]},\"outputSchema\":{\"type\":\"object\",\"properties\":{\"refund\":{\"type\":\"object\",\"properties\":{\"id\":{\"type\":\"string\"},\"amount\":{\"type\":\"integer\"},\"status\":{\"type\":\"string\"}},\"required\":[\"id\",\"amount\",\"status\"]}},\"required\":[\"refund\"]},\"annotations\":{\"readOnlyHint\":false}},{\"name\":\"list_transactions\",\"description\":\"Recent transactions for an account.\",\"inputSchema\":{\"type\":\"object\",\"properties\":{\"account_id\":{\"type\":\"string\"}},\"required\":[\"account_id\"]}}],\"serverInfo\":{\"name\":\"acme-payments-mcp\",\"version\":\"3.2.0\"},\"protocolVersion\":\"2025-06-18\",\"capabilities\":{\"tools\":{\"listChanged\":true}}}"
                   }
                 },
                 {
-                  "key": "vinifera.mcp.tool.count",
+                  "key": "flanj.mcp.tool.count",
                   "value": {
                     "intValue": "3"
                   }
                 },
                 {
-                  "key": "vinifera.redaction.applied",
+                  "key": "flanj.redaction.applied",
                   "value": {
                     "boolValue": false
                   }
                 },
                 {
-                  "key": "vinifera.redaction.patterns",
+                  "key": "flanj.redaction.patterns",
                   "value": {
                     "stringValue": "[]"
                   }
                 },
                 {
-                  "key": "vinifera.mcp.server.name",
+                  "key": "flanj.mcp.server.name",
                   "value": {
                     "stringValue": "acme-payments-mcp"
                   }
                 },
                 {
-                  "key": "vinifera.mcp.server.version",
+                  "key": "flanj.mcp.server.version",
                   "value": {
                     "stringValue": "3.2.0"
                   }
                 },
                 {
-                  "key": "vinifera.mcp.protocol.version",
+                  "key": "flanj.mcp.protocol.version",
                   "value": {
                     "stringValue": "2025-06-18"
                   }

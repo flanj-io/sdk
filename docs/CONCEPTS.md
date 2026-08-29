@@ -1,11 +1,11 @@
-# Vinifera — Concepts (engineering overview)
+# Flanj — Concepts (engineering overview)
 
 *This is a technical overview for contributors to the public `sdk` / `collector` repos. It intentionally
 contains only the engineering model — not product strategy.*
 
-## What Vinifera does
+## What Flanj does
 
-Vinifera is an integration-reliability tool. It captures the real request/response traffic between a
+Flanj is an integration-reliability tool. It captures the real request/response traffic between a
 service and a third-party API it depends on, and validates that live traffic against the provider's
 published OpenAPI spec. When the live traffic diverges from the spec (a field changes type, an
 enum gains an undocumented value, a webhook stops arriving), that **drift** is surfaced with the exact

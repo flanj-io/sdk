@@ -5,7 +5,7 @@ import {
   REPORT_ORDER,
   type PatternId,
   type RedactedField
-} from '@vinifera/redaction-patterns';
+} from '@flanj/redaction-patterns';
 import { CapturedCall, WireRedactedField } from './captured-call';
 import { DEFAULT_CAPTURE_CONTENT_TYPES, isCaptureableContentType } from './config';
 import type { EdgeClass } from './classify-host';

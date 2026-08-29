@@ -3,7 +3,7 @@
   "token_format": "⟦REDACTED:<TYPE>⟧",
   "notes": [
     "The single source of truth for the redaction floor. Three impls conform to this file:",
-    "@vinifera/redaction-patterns (TS, used by SDK + CP-DLP) and the Go collector redaction processor.",
+    "@flanj/redaction-patterns (TS, used by SDK + CP-DLP) and the Go collector redaction processor.",
     "PAN matches 13-19 digit runs (separators stripped) that PASS Luhn, anywhere in the string.",
     "CVV is contextual: only redacted when it is the value of a cvv/cvc/cvv2 key.",
     "Every impl must satisfy: idempotency (redact(redact(x))==redact(x)) and add-only (never un-redact)."

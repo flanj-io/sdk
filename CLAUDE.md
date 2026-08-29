@@ -1,10 +1,10 @@
-# CLAUDE.md — `@vinifera/sdk`
+# CLAUDE.md — `@flanj/sdk`
 
 Guidance for Claude Code (and engineers) working in this repo.
 
 ## What this repo is
 
-The **Vinifera SDK**: a thin OpenTelemetry-JS distribution that adds HTTP **request/response body capture**
+The **Flanj SDK**: a thin OpenTelemetry-JS distribution that adds HTTP **request/response body capture**
 and **redaction-at-source**, then exports one OTLP log record per call to the collector. Since v0.5 (Step B)
 it also instruments the **MCP client** (`instrumentMcpClient` — transport-independent, out-of-band, both
 `@modelcontextprotocol` package lines as optional peers; see `src/mcp/CLAUDE.md`). It is the first
@@ -12,12 +12,12 @@ step of the pipeline (**capture** → detect → surface → flag → peek). Pub
 pristine (legal and compliance teams at regulated organizations inspect it; no copyleft/source-available deps,
 prefer Apache/MIT/BSD/ISC).
 
-It also publishes **`@vinifera/redaction-patterns`** (Apache), the shared redaction floor the control plane
+It also publishes **`@flanj/redaction-patterns`** (Apache), the shared redaction floor the control plane
 reuses for reply-box DLP.
 
 ## Role in the system
 
-`app → (vinifera SDK captures + redacts) → OTLP/HTTP :4318 → collector`. OTel auto-instrumentation gives
+`app → (flanj SDK captures + redacts) → OTLP/HTTP :4318 → collector`. OTel auto-instrumentation gives
 spans/metadata but **not** bodies; bodies are the non-redundant evidence that make drift detection possible.
 Redaction happens here, at the call site, **before** anything is attached or exported.
 
@@ -38,7 +38,7 @@ src/
     http-server-capture.ts         # INGRESS: incoming request + response body capture (direction="server")
     assemble-call.ts               # direction-agnostic redact-at-source assembler (both paths funnel through here)
     classify-host.ts               # external | internal edge heuristic (byte-identical in the collector)
-    otlp-record.ts                 # build the vinifera.* OTLP log record from a CapturedCall
+    otlp-record.ts                 # build the flanj.* OTLP log record from a CapturedCall
     captured-call.ts, capped-buffer.ts, http-args.ts, config.ts
   mcp/                             # v0.5 Step B: MCP CLIENT instrumentation — see mcp/CLAUDE.md
     instrument-mcp-client.ts       # instrumentMcpClient(client): wrap listTools/callTool, pass-through, both package lines
@@ -75,7 +75,7 @@ REDACTION.md                       # the floor's design: composed validators, ow
    client path (egress) and server path (ingress); `fetch`/undici body capture is deferred.
 3. **Caps & gating.** Content-type gate (JSON/text/form only); 16 KiB body cap (`body_cap_bytes`); header
    allowlist (never emit `authorization`/`cookie` raw).
-4. **Emit the exact `vinifera.*` convention** in `contracts/CONTRACTS.md` §2. The emitted record must match
+4. **Emit the exact `flanj.*` convention** in `contracts/CONTRACTS.md` §2. The emitted record must match
    `contracts/golden-otlp-call.json`.
 
 ## Contract

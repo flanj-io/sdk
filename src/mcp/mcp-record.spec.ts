@@ -7,7 +7,7 @@ import { buildMcpCallAttributes, buildContractSnapshotAttributes } from './mcp-r
 
 /**
  * Locks the whole MCP capture path — raw args/result → floor redaction →
- * vinifera.* attributes — to the two golden fixtures (CONTRACTS §2, the
+ * flanj.* attributes — to the two golden fixtures (CONTRACTS §2, the
  * "v0.5 (Step B)" rows): golden-otlp-mcp-call.json and
  * golden-otlp-mcp-snapshot.json. Exact key set + exact scalar values, same
  * convention as otlp-record.spec.ts for the HTTP path.
@@ -108,24 +108,24 @@ describe('buildMcpCallAttributes vs golden-otlp-mcp-call.json', () => {
     }
   });
 
-  it('never emits vinifera.http.status_code (MCP has none; is_error carries the outcome)', () => {
-    expect('vinifera.http.status_code' in attrs).toBe(false);
-    expect(attrs['vinifera.mcp.is_error']).toBe(false);
+  it('never emits flanj.http.status_code (MCP has none; is_error carries the outcome)', () => {
+    expect('flanj.http.status_code' in attrs).toBe(false);
+    expect(attrs['flanj.mcp.is_error']).toBe(false);
   });
 
   it('never emits the raw PAN anywhere', () => {
     expect(JSON.stringify(attrs)).not.toContain('4242424242424242');
   });
 
-  it('carries the tool in the method/route slots and as vinifera.mcp.tool.name', () => {
-    expect(attrs['vinifera.http.method']).toBe('tools/call');
-    expect(attrs['vinifera.http.route']).toBe('/create_refund');
-    expect(attrs['vinifera.mcp.tool.name']).toBe('create_refund');
+  it('carries the tool in the method/route slots and as flanj.mcp.tool.name', () => {
+    expect(attrs['flanj.http.method']).toBe('tools/call');
+    expect(attrs['flanj.http.route']).toBe('/create_refund');
+    expect(attrs['flanj.mcp.tool.name']).toBe('create_refund');
   });
 
   it('labels the JSON-RPC id as client-generated, never as the provider request id', () => {
-    expect(attrs['vinifera.corr.client_request_id']).toBe('4');
-    expect('vinifera.corr.request_id' in attrs).toBe(false);
+    expect(attrs['flanj.corr.client_request_id']).toBe('4');
+    expect('flanj.corr.request_id' in attrs).toBe(false);
   });
 });
 

@@ -15,13 +15,13 @@ export const DEFAULT_CAPTURE_CONTENT_TYPES: readonly string[] = [
 ];
 
 export interface HttpBodyCaptureConfig extends InstrumentationConfig {
-  /** Integration id emitted as `vinifera.integration`, e.g. `acme-payments`. */
+  /** Integration id emitted as `flanj.integration`, e.g. `acme-payments`. */
   integration: string;
   /** Body capture cap in bytes. Default {@link DEFAULT_BODY_CAP_BYTES}. */
   bodyCapBytes?: number;
   /** Content-type prefixes to capture. Default {@link DEFAULT_CAPTURE_CONTENT_TYPES}. */
   captureContentTypes?: readonly string[];
-  /** Header allowlist. Default from `@vinifera/redaction-patterns`. */
+  /** Header allowlist. Default from `@flanj/redaction-patterns`. */
   headerAllowlist?: readonly string[];
   /**
    * Full-URL ignore matchers. A request whose `${protocol}//${host}${path}`

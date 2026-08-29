@@ -2,7 +2,7 @@
 
 ## Reporting a Vulnerability
 
-We take the security of Vinifera seriously — this project sits in the path of real API traffic,
+We take the security of Flanj seriously — this project sits in the path of real API traffic,
 which routinely carries sensitive and regulated data, and its whole reason for being is to keep
 that data from leaking.
 
@@ -12,7 +12,7 @@ Instead, report them privately via one of:
 
 - GitHub's [private vulnerability reporting](https://docs.github.com/en/code-security/security-advisories/guidance-on-reporting-and-writing-information-about-vulnerabilities/privately-reporting-a-security-vulnerability)
   ("Report a vulnerability" under the **Security** tab), or
-- email **security@vinifera.io**.
+- email **security@flanj.io**.
 
 Please include:
 
@@ -32,7 +32,7 @@ The SDK captures request/response bodies, so redaction is the security property 
 rests on. How it is designed is documented in [REDACTION.md](./REDACTION.md); the guarantees are:
 
 - **Redaction at source.** Every captured body — inbound and outbound, regardless of edge
-  classification — is run through the redaction floor (`@vinifera/redaction-patterns`) in your
+  classification — is run through the redaction floor (`@flanj/redaction-patterns`) in your
   process, and the raw buffer is dropped the moment the redacted string exists. No raw body is
   ever set as an attribute, stored, or transmitted — not even transiently. Internal edges are
   metadata-only: their bodies are never read at all.

@@ -28,7 +28,7 @@ export interface RedactResult {
 }
 
 /**
- * The Vinifera redaction floor behind one swappable interface (mirrored by the Go
+ * The Flanj redaction floor behind one swappable interface (mirrored by the Go
  * collector's `redact.Redactor`):
  *  - `redact(value)` recurses ARBITRARY nested structures (objects, arrays, scalars) and
  *    returns a redacted clone plus the patterns that fired. Every string — keys included,

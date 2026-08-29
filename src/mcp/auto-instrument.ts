@@ -1,6 +1,6 @@
 import { instrumentMcpClient, type InstrumentMcpClientOptions, type McpClientLike } from './instrument-mcp-client';
 
-const CTOR_PATCHED = Symbol.for('vinifera.mcp.ctorPatched');
+const CTOR_PATCHED = Symbol.for('flanj.mcp.ctorPatched');
 
 /**
  * Patch a Client CONSTRUCTOR so every instance self-instruments on first use

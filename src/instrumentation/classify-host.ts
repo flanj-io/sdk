@@ -1,11 +1,11 @@
-/** SDK edge classification of a peer host (CONTRACTS §2 `vinifera.edge.class`). */
+/** SDK edge classification of a peer host (CONTRACTS §2 `flanj.edge.class`). */
 export type EdgeClass = 'external' | 'internal';
 
 const INTERNAL_NAME_SUFFIXES: readonly string[] = ['.svc.cluster.local', '.internal', '.local'];
 
 /**
  * Classify a peer host as `internal` or `external` per the heuristic shared,
- * BYTE-FOR-BYTE, by every Vinifera component (SDK egress/ingress + collector).
+ * BYTE-FOR-BYTE, by every Flanj component (SDK egress/ingress + collector).
  *
  * A host is **internal** if it is:
  *   - RFC1918: `10/8`, `172.16-31/12`, `192.168/16`
