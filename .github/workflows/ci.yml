@@ -42,6 +42,8 @@ jobs:
       - run: corepack enable
       - run: yarn install --immutable
       - run: yarn lint
+      - run: yarn build   # tsc -b — lint+test never type-build the emitted output, so a @types/node
+                          # or typescript major can break `yarn build` with CI fully green.
       - run: yarn test    # unit + redaction vectors + cross-language parity fixtures + zero-network sentinel + OTLP contract test
 
   notify-e2e:
