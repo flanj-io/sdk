@@ -478,14 +478,21 @@ covers older SDKs in the compatibility window that emit no fields).
 
 ## 8. Collector runtime config (frozen keys)
 
+**Removed 2026-08-31 — `spec_path`, `spec_v2_path`, `peer_host`.** Provider
+OpenAPI contracts are no longer configured: they are **uploaded in the collector
+UI**, bound to exactly one provider host, stored locally, and read by the drift
+processor from the store at runtime. A config file could not carry fifty
+providers' documents, a mounted file went stale the moment the vendor published,
+and the singular `spec_path`/`peer_host` pair gave 50 discovered edges detection
+on exactly one — with `peer_host` unset, one document silently validated *every*
+outbound call. An uploaded contract never leaves the collector. `self_spec_path`
+is deliberately unaffected: one document per deployment, not one per vendor.
+
 | Key | Meaning |
 |---|---|
 | `integration_id` | the integration being observed, e.g. `acme-payments` |
-| `provider_display_name` *(optional)* | human name of the provider whose API is observed, e.g. `Acme Payments`; sent on the flag so the peek/thread names the provider. Defaults to a humanized `integration_id`. |
+| `provider_display_name` *(optional)* | fallback provider name sent ON A FLAG, so the thread names the provider. Defaults to a humanized `integration_id`. **No longer names an edge** (2026-08-31): that tier needed a config→edge linkage supplied by the config spec's `peer_host`, and contracts are uploaded now — the `contract` tier names edges from the uploaded document's `info.title`, keyed by the bound host's registrable domain. |
 | `consumer_display_name` *(optional)* | human name of this consumer org, e.g. `Acme Consumer Ltd`; sent on the flag. |
-| `spec_path` | path to the provider OpenAPI spec (v1) mounted into the collector; validates OUTBOUND (client-direction) calls |
-| `spec_v2_path` *(optional)* | a newer spec, enables the version-diff finding |
-| `peer_host` *(optional)* | scopes `spec_path` validation to the one discovered edge with this peer host; unset, every outbound (client-direction) call is validated against the loaded spec |
 | `self_spec_path` *(optional)* | the OpenAPI spec THIS org publishes as a provider; validates INBOUND (server-direction) responses against the org's own contract |
 | `self_integration_id` *(optional)* | labels self-spec findings (default `self`); must differ from `integration_id` |
 | `cp_base_url` | control-plane base URL for the flag POST |
@@ -497,6 +504,10 @@ covers older SDKs in the compatibility window that emit no fields).
 | `window_max_rows` / `window_max_bytes` | rolling-window ceilings (with `backend=postgres`, set identically on every pod sharing the database) |
 | `finding_sync` | *(flanjui, bool, default `true` — slice2-2026-08-28)* the background finding-shape sync to the CP (`POST /api/v1/findings`, §5): every 15s, when a collector key exists, the UI extension sends the current findings **shape-only** (`expected`/`actual`/`detail` stripped at source). `false` disables that POST entirely. It governs the findings egress ONLY — the directory-name refresh that rides the same ticker has its own switch, `directory_sync` (v1p1-2026-08-31). |
 | `directory_sync` | *(flanjui, bool, default `true` — v1p1-2026-08-31)* the background **directory refresh** — the vendor-directory down-channel, which carries display names today: on the SAME 15s ticker as `finding_sync`, when a collector key exists, the UI extension does one conditional full-table **GET** of the directory display-name table (`GET /api/v1/directory`, ETag / `If-None-Match`; `304` = no-op) and stores the response for local name resolution. It is a pure FETCH — this collector's own edges, peer hosts and domains are **never sent** in this request, there is no per-edge or per-miss lookup, and nothing about the deployment's dependency graph leaves on this path. `false` disables the refresh only (the findings sync is unaffected); names still resolve offline from the **baked directory seed** shipped in the collector image, **plus whatever table was already pulled** — turning the switch off stops future fetches, it does not clear a table fetched earlier, so a previously-connected collector keeps serving those names (frozen, and going stale) until the store is reset. |
+| `store_pod_endpoint` *(optional, flanjdrift)* | base URL of the store pod's `spec_endpoint`. Set on a FRONT of the tiered topology only: a front runs drift but owns no store, so this is how uploaded contracts reach it. Empty everywhere else, where the co-located store is read in-process |
+| `store_pod_token` *(optional, flanjdrift)* | bearer token presented to `store_pod_endpoint`; must match the store pod's `spec_token`. Use `${env:…}`; never logged |
+| `spec_endpoint` *(optional, flanjstore)* | intra-cluster bind for the read-only CONTRACT endpoint (`GET /internal/contracts`, `GET /internal/contracts/doc`). Set on the tiered topology's STORE POD so fronts can read uploaded contracts. Contracts only — no calls, no findings, no settings — and never the loopback UI |
+| `spec_token` *(optional, flanjstore)* | bearer token `spec_endpoint` requires. Use `${env:…}`; never logged |
 | `ui_endpoint` | localhost bind for the UI extension, default `127.0.0.1:5335` |
 | `otlp_endpoint` | OTLP receiver bind, default `0.0.0.0:4318` |
 
