@@ -5,6 +5,16 @@
   "license": "Apache-2.0",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
+  "files": [
+    "./dist",
+    "!./dist/**/*.spec.*",
+    "./README.md",
+    "./REDACTION.md",
+    "./LICENSE"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
   "exports": {
     ".": {
       "types": "./dist/index.d.ts",
@@ -15,11 +25,15 @@
       "default": "./dist/register.js"
     }
   },
+  "engines": {
+    "node": "^18.19.0 || >=20.6.0"
+  },
   "packageManager": "yarn@4.11.0",
   "workspaces": [
     "packages/*"
   ],
   "scripts": {
+    "prepack": "yarn build",
     "build": "tsc -b",
     "test": "vitest run",
     "test:watch": "vitest",
