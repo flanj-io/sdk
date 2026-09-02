@@ -9,11 +9,12 @@ non-negotiable lives — **redact at source, drop the raw buffer, never attach r
 | File | Role |
 |---|---|
 | `http-body-capture.ts` | `HttpBodyCaptureInstrumentation` — EGRESS: patches core `http`/`https` `request`/`get`, tees request + response bodies, redacts at source, hands a `CapturedCall` to `onCapture`. |
-| `http-server-capture.ts` | `HttpServerCaptureInstrumentation` — INGRESS: patches `Server.prototype.emit`, intercepts `'request'`, tees the incoming request body (via the IncomingMessage `push`) + the response body (via `res.write`/`end`), emits a `direction="server"` record. |
+| `http-server-capture.ts` | `HttpServerCaptureInstrumentation` — INGRESS: patches `Server.prototype.emit`, intercepts `'request'`, tees the incoming request body (via the IncomingMessage `push`) + the response body (via `res.write`/`end`), records `res.writeHead`'s headers, emits a `direction="server"` record. |
 | `classify-host.ts` | `classifyHost(host)` — the cross-component edge heuristic → `external`\|`internal` (RFC1918 / loopback / link-local / ULA / `.svc.cluster.local`·`.internal`·`.local` / single-label ⇒ internal). Identical byte-for-byte in the collector. |
 | `assemble-call.ts` | `assembleCapturedCall` — the shared, direction-agnostic redact-at-source assembler. Bodies are redacted-and-kept ONLY for external edges with a captureable content-type; internal edges keep NO body. Both client and server paths funnel through here. |
 | `otlp-record.ts` | `buildLogAttributes` / `emitCall` — map a `CapturedCall` to the `flanj.*` attribute convention (CONTRACTS §2) and emit one log record. Body is empty; all data is in attributes. |
 | `captured-call.ts` | `CapturedCall` — the internal, **already-redacted** hand-off type (now carries `peerHost` / `edgeClass` / `captureBodies`). By construction it has no field that can hold a raw body. |
+| `decode-body.ts` | `decodeBody` — undo a body's `content-encoding` (gzip · deflate · br, node core `zlib`) before the redactor sees it, output hard-bounded by the cap. A coding it cannot undo returns NO text (`decoded: false`). |
 | `capped-buffer.ts` | `CappedBuffer` — accumulates stream chunks up to `body_cap_bytes`, discards the rest, flags `truncated`. The retained bytes are the only copy; there is no separate uncapped buffer. |
 | `http-args.ts` | `parseRequestArgs` — normalize the overloaded `request(url, opts, cb)` / `request(opts, cb)` shapes into `{ method, protocol, host, path }`. `host` is the EDGE KEY, so the scheme's own default port is dropped (`:80` on http, `:443` on https) and any other port is kept — see below. |
 | `config.ts` | `HttpBodyCaptureConfig`, content-type gate, defaults (`DEFAULT_BODY_CAP_BYTES = 16384`). |
@@ -61,14 +62,26 @@ another's traffic. The rule is idempotent, and the collector applies the identic
 3. **Cap while accumulating.** Each direction feeds a `CappedBuffer(body_cap_bytes)`. Bytes past the
    cap are dropped and `truncated` flips true — a hostile/huge body can never blow memory or the OTLP
    attribute budget.
-4. **Redact at source, then drop.** On response `end`/null-push we `finalize()` exactly once:
+4. **Undo `content-encoding` before redacting.** Node hands us the RAW wire bytes — `IncomingMessage`
+   never decompresses, and compression middleware sits above the `res.write` tee — so a provider
+   honouring the default `Accept-Encoding` yields gzip/brotli frames. `decodeBody` inflates them
+   (`{ maxOutputLength: body_cap_bytes }`, so a compression bomb cannot expand past the cap, and a
+   FLUSH `finishFlush` so a stream cut at the cap still yields its decoded prefix). A coding we cannot
+   undo — an unknown one, or a stacked chain — keeps **no body**: storing the frame would put an
+   unscanned payload in the record under a text content-type and report it clean. `content-encoding`
+   is allowlisted so the row says which happened.
+5. **Redact at source, then drop.** On response `end`/null-push we `finalize()` exactly once:
    decode the capped buffer, run it through `@flanj/redaction-patterns` (`redactDetailed`), keep
    **only** the redacted string, and let the raw `CappedBuffer`s go out of scope. No raw body is ever
    set on `CapturedCall`, an attribute, or anything exported — not even transiently. This is asserted
    by the integration test's "no raw body survived anywhere" case.
-5. **Content-type gate.** If the direction's content-type is not JSON/text/form, the body is dropped
-   entirely (empty string), not redacted-and-kept. Binary/multipart never lands.
-6. **Header allowlist.** Headers go through `redactHeaders(_, allowlist)` — non-allowlisted keys are
+6. **Content-type gate.** If the direction's content-type is not JSON/text/form, the body is dropped
+   entirely (empty string), not redacted-and-kept. Binary/multipart never lands. On the INGRESS path the
+   type is derived from the recorded `writeHead` headers merged UNDER `res.getHeaders()`: Node's
+   `writeHead(status, headers)` fast path never populates the outgoing-header map when `setHeader` was
+   not called first, so `res.getHeader('content-type')` alone reads empty for every Fastify-shaped app
+   and silently discards a response body that was already teed.
+7. **Header allowlist.** Headers go through `redactHeaders(_, allowlist)` — non-allowlisted keys are
    **dropped** (not redacted); `authorization`/`cookie`/`set-cookie` become a `⟦REDACTED:TOKEN⟧` token
    if ever present in an allowlisted context. Raw credential headers are never emitted.
 
@@ -102,6 +115,11 @@ never captures its own export — `test/integration/ignore-self-export.spec.ts`)
 - `../../test/integration/http-capture.spec.ts` — drives a real in-process http call end-to-end and
   asserts: every required `flanj.*` key present, bodies redacted, correlation keys carried, app
   undisturbed, and **no raw PAN reachable** anywhere in the emitted attributes.
-- `../../test/integration/http-server-capture.spec.ts` — the INGRESS path end-to-end (`direction="server"`).
+- `../../test/integration/http-server-capture.spec.ts` — the INGRESS path end-to-end (`direction="server"`),
+  including the `writeHead` reply idioms (object · `(code, reason, obj)` · flat array) A/B'd against `setHeader`,
+  and a gzip'd response (the compression-middleware shape).
+- `../../test/integration/http-capture-encoding.spec.ts` — EGRESS gzip/brotli responses are stored decoded and
+  tokenised, with an identity control on the same server and an unknown-coding honest-empty case.
+- `decode-body.spec.ts` — the codings, the cut-at-the-cap prefix, the over-cap bound, and the honest-empty paths.
 - `../../test/integration/ignore-self-export.spec.ts` — the SDK's own OTLP export is never captured.
 - `classify-host.spec.ts` — the external/internal edge heuristic.

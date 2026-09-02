@@ -5,6 +5,7 @@ import { SDK_NAME, SDK_VERSION } from '../version';
 import { CappedBuffer } from './capped-buffer';
 import { CapturedCall } from './captured-call';
 import { assembleCapturedCall } from './assemble-call';
+import { decodeBody } from './decode-body';
 import { classifyHost, type EdgeClass } from './classify-host';
 import { DEFAULT_BODY_CAP_BYTES, HttpBodyCaptureConfig, isIgnoredUrl } from './config';
 
@@ -17,6 +18,8 @@ function builtin(id: 'node:http' | 'node:https'): Record<string, unknown> {
 interface ServerCtor {
   prototype: Record<string, unknown> & { emit?: unknown };
 }
+
+type HeaderValue = string | string[] | number | undefined;
 
 /**
  * Custom OTel instrumentation for the INGRESS (server) path: incoming http/https
@@ -122,12 +125,33 @@ export class HttpServerCaptureInstrumentation extends InstrumentationBase<HttpBo
       this.wrapWriter(res, 'end', resBuf);
     }
 
+    // Response headers are recorded for EVERY edge (internal rows carry headers
+    // too, just no body), so writeHead is wrapped unconditionally. It records
+    // headers only — it never touches the body, so the internal-edge invariant
+    // "no bytes are ever teed" is untouched.
+    const writeHeadHeaders: Record<string, HeaderValue> = {};
+    this.wrapWriteHead(res, writeHeadHeaders);
+
     let finalized = false;
     const finalize = (): void => {
       if (finalized) return;
       finalized = true;
       try {
-        const call = this.buildCall({ req, res, protocol, host, path, peerHost, edgeClass, captureBodies, reqBuf, resBuf, startTime, spanCtx });
+        const call = this.buildCall({
+          req,
+          res,
+          protocol,
+          host,
+          path,
+          peerHost,
+          edgeClass,
+          captureBodies,
+          reqBuf,
+          resBuf,
+          writeHeadHeaders,
+          startTime,
+          spanCtx
+        });
         cfg.onCapture?.(call);
       } catch {
         // swallow — never surface capture errors to the app
@@ -147,6 +171,29 @@ export class HttpServerCaptureInstrumentation extends InstrumentationBase<HttpBo
     };
   }
 
+  /**
+   * Record the headers handed to `res.writeHead(...)`.
+   *
+   * Node's `writeHead` fast path passes its headers argument straight to the
+   * serializer and never populates the outgoing-header map when `setHeader` was
+   * not called first — so `res.getHeaders()` and `res.getHeader('content-type')`
+   * both come back EMPTY for an app that replies that way. Fastify does exactly
+   * `res.writeHead(statusCode, reply[kReplyHeaders])`, so without this every
+   * Fastify provider yields request-only ingress rows: the content-type gate
+   * sees nothing and discards response bytes that were already teed.
+   */
+  private wrapWriteHead(res: ServerResponse, sink: Record<string, HeaderValue>): void {
+    const original = res.writeHead.bind(res) as (...a: unknown[]) => ServerResponse;
+    (res as unknown as Record<string, unknown>).writeHead = (...callArgs: unknown[]): ServerResponse => {
+      try {
+        collectWriteHeadHeaders(callArgs, sink);
+      } catch {
+        // Instrumentation must never break the app's response path.
+      }
+      return original(...callArgs);
+    };
+  }
+
   private buildCall(input: {
     req: IncomingMessage;
     res: ServerResponse;
@@ -158,14 +205,31 @@ export class HttpServerCaptureInstrumentation extends InstrumentationBase<HttpBo
     captureBodies: boolean;
     reqBuf: CappedBuffer;
     resBuf: CappedBuffer;
+    writeHeadHeaders: Record<string, HeaderValue>;
     startTime: number;
     spanCtx: ReturnType<typeof trace.getSpanContext>;
   }): CapturedCall {
     const cfg = this.getConfig();
+    const cap = cfg.bodyCapBytes ?? DEFAULT_BODY_CAP_BYTES;
     const { req, res, reqBuf, resBuf, startTime } = input;
 
+    // `res.getHeaders()` is authoritative when the app used setHeader, and EMPTY
+    // when it replied via writeHead alone — so the recorded writeHead headers are
+    // the floor and getHeaders() wins wherever both carry a key.
+    const responseHeaders: Record<string, HeaderValue> = {
+      ...input.writeHeadHeaders,
+      ...(res.getHeaders() as Record<string, HeaderValue>)
+    };
+
     const reqContentType = headerValue(req.headers['content-type']);
-    const resContentType = headerValue(res.getHeader('content-type'));
+    const resContentType = headerValue(responseHeaders['content-type']);
+
+    // Undo any `content-encoding` before the redactor sees the payload: an app
+    // behind compression middleware writes plaintext, but the bytes reaching our
+    // `write`/`end` tee are already compressed. A coding we cannot undo yields NO
+    // body rather than an unscanned blob reported as clean.
+    const reqBody = decodeBody(reqBuf.toBuffer(), headerValue(req.headers['content-encoding']), cap, reqBuf.truncated);
+    const resBody = decodeBody(resBuf.toBuffer(), headerValue(responseHeaders['content-encoding']), cap, resBuf.truncated);
 
     // The caller's socket address — kept alongside peerHost even when a
     // forwarded header supplied the identity (behind a proxy this is the LB's
@@ -186,12 +250,12 @@ export class HttpServerCaptureInstrumentation extends InstrumentationBase<HttpBo
       statusCode: res.statusCode ?? 0,
       reqContentType,
       resContentType,
-      reqBodyRaw: reqBuf.toString(),
-      reqBodyTruncated: reqBuf.truncated,
-      resBodyRaw: resBuf.toString(),
-      resBodyTruncated: resBuf.truncated,
+      reqBodyRaw: reqBody.text,
+      reqBodyTruncated: reqBody.truncated,
+      resBodyRaw: resBody.text,
+      resBodyTruncated: resBody.truncated,
       requestHeaders: req.headers as Record<string, string | string[] | undefined>,
-      responseHeaders: res.getHeaders() as Record<string, string | string[] | number | undefined>,
+      responseHeaders,
       correlation: {
         requestId: pickHeader(req.headers, 'x-request-id') ?? pickHeader(req.headers, 'x-correlation-id'),
         idempotencyKey: pickHeader(req.headers, 'idempotency-key'),
@@ -203,6 +267,34 @@ export class HttpServerCaptureInstrumentation extends InstrumentationBase<HttpBo
       headerAllowlist: cfg.headerAllowlist
     });
   }
+}
+
+/**
+ * Fold the headers argument of `writeHead(code[, statusMessage][, headers])`
+ * into `sink`, lowercasing keys. Node accepts an object, a flat
+ * `[k, v, k, v, …]` array, and an array of `[k, v]` pairs.
+ */
+function collectWriteHeadHeaders(args: unknown[], sink: Record<string, HeaderValue>): void {
+  const headers = typeof args[1] === 'string' ? args[2] : args[1];
+  if (!headers || typeof headers !== 'object') return;
+  if (Array.isArray(headers)) {
+    if (headers.every((entry) => Array.isArray(entry))) {
+      for (const pair of headers as unknown[][]) {
+        if (pair.length >= 2) recordHeader(sink, pair[0], pair[1]);
+      }
+      return;
+    }
+    for (let i = 0; i + 1 < headers.length; i += 2) recordHeader(sink, headers[i], headers[i + 1]);
+    return;
+  }
+  for (const [key, value] of Object.entries(headers as Record<string, unknown>)) recordHeader(sink, key, value);
+}
+
+function recordHeader(sink: Record<string, HeaderValue>, key: unknown, value: unknown): void {
+  if (typeof key !== 'string' || value === undefined || value === null) return;
+  if (Array.isArray(value)) sink[key.toLowerCase()] = value.map((v) => String(v));
+  else if (typeof value === 'number') sink[key.toLowerCase()] = value;
+  else sink[key.toLowerCase()] = String(value);
 }
 
 /** First hop of an `X-Forwarded-For` chain — the original client. */

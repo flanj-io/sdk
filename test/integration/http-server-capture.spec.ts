@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { createServer, type Server, type IncomingMessage, type RequestOptions } from 'node:http';
 import { AddressInfo } from 'node:net';
+import { gzipSync } from 'node:zlib';
 import { SimpleLogRecordProcessor } from '@opentelemetry/sdk-logs';
 import { start, type FlanjHandle } from '../../src/index';
 import { InMemoryLogExporter } from '../support/in-memory-log-exporter';
@@ -39,10 +40,36 @@ beforeAll(async () => {
     req.on('data', (c) => chunks.push(c));
     req.on('end', () => {
       handlerBodies[req.url ?? ''] = Buffer.concat(chunks).toString('utf8');
+      const body = JSON.stringify({ ok: true, contact: RESPONSE_EMAIL });
+      // The Fastify shape: headers go straight to writeHead, setHeader is never
+      // called — so Node populates no outgoing-header map at all. Node accepts
+      // three header shapes there; each route below exercises one.
+      if (req.url === '/writehead/charges') {
+        res.writeHead(200, { 'Content-Type': 'application/json', 'X-Request-Id': 'req_srv_wh' });
+        res.end(body);
+        return;
+      }
+      if (req.url === '/writehead/reason') {
+        res.writeHead(200, 'OK', { 'Content-Type': 'application/json', 'X-Request-Id': 'req_srv_wh' });
+        res.end(body);
+        return;
+      }
+      if (req.url === '/writehead/flat-array') {
+        res.writeHead(200, ['Content-Type', 'application/json', 'X-Request-Id', 'req_srv_wh']);
+        res.end(body);
+        return;
+      }
+      if (req.url === '/writehead/gzip') {
+        // The compression-middleware shape: the app writes plaintext, but the
+        // bytes reaching our write/end tee are already compressed.
+        res.writeHead(200, { 'Content-Type': 'application/json', 'Content-Encoding': 'gzip' });
+        res.end(gzipSync(Buffer.from(body, 'utf8')));
+        return;
+      }
       res.setHeader('content-type', 'application/json');
       res.setHeader('x-request-id', 'req_srv_9');
       res.statusCode = 200;
-      res.end(JSON.stringify({ ok: true, contact: RESPONSE_EMAIL }));
+      res.end(body);
     });
   });
   await new Promise<void>((r) => server.listen(0, '127.0.0.1', r));
@@ -167,5 +194,92 @@ describe('ingress (server) capture — INTERNAL caller (metadata-only)', () => {
 
   it('still lets the app read the full raw body', () => {
     expect(handlerBodies['/internal/ping']).toContain(PAN);
+  });
+});
+
+/**
+ * The A/B against the `setHeader` case above: an app that replies via
+ * `writeHead(status, headers)` — Fastify's `reply.js` does exactly
+ * `res.writeHead(statusCode, reply[kReplyHeaders])`. Node's writeHead fast path
+ * never populates the outgoing-header map, so `res.getHeaders()` and
+ * `res.getHeader('content-type')` are both empty and the response bytes — already
+ * teed — used to be discarded by the content-type gate, leaving request-only rows.
+ */
+describe('ingress (server) capture — an app that replies via writeHead', () => {
+  let attrs: Record<string, unknown>;
+
+  beforeAll(async () => {
+    await driveCall(
+      '/writehead/charges',
+      {
+        'content-type': 'application/json',
+        'x-forwarded-for': '203.0.113.9',
+        'x-request-id': 'req_client_wh'
+      },
+      JSON.stringify({ amount: 1200, source: PAN })
+    );
+    await new Promise((r) => setTimeout(r, 30));
+    attrs = serverRecordFor('/writehead/charges');
+  });
+
+  it('captures the response body and redacts it at source', () => {
+    const resBody = attrs['flanj.http.response.body'] as string;
+    expect(resBody).toContain('⟦REDACTED:EMAIL⟧');
+    expect(resBody).toContain('"ok":true');
+    expect(resBody).not.toContain(RESPONSE_EMAIL);
+  });
+
+  it('derives the response content type from the writeHead headers', () => {
+    expect(attrs['flanj.http.response.content_type']).toBe('application/json');
+  });
+
+  it('emits the writeHead response headers (lowercased, allowlisted)', () => {
+    const headers = JSON.parse(attrs['flanj.http.response.headers'] as string) as Record<string, string>;
+    expect(headers['content-type']).toBe('application/json');
+    expect(headers['x-request-id']).toBe('req_srv_wh');
+  });
+
+  it('still redacts the request body and leaves no raw PAN on the row', () => {
+    expect(attrs['flanj.http.request.body']).toContain('⟦REDACTED:PAN⟧');
+    expect(attrs['flanj.redaction.applied']).toBe(true);
+    expect(JSON.stringify(attrs)).not.toContain(PAN);
+  });
+
+  it('does not disturb the app: its handler still read the full raw body', () => {
+    expect(handlerBodies['/writehead/charges']).toContain(PAN);
+  });
+});
+
+/**
+ * The other two header shapes `writeHead` accepts, plus the compression-middleware
+ * shape where the teed response bytes are gzip on the wire.
+ */
+describe.each([
+  ['writeHead(code, reason, headers)', '/writehead/reason'],
+  ['writeHead(code, flat header array)', '/writehead/flat-array'],
+  ['writeHead(code, headers) behind gzip compression', '/writehead/gzip']
+])('ingress (server) capture — %s', (_form, path) => {
+  let attrs: Record<string, unknown>;
+
+  beforeAll(async () => {
+    await driveCall(
+      path,
+      { 'content-type': 'application/json', 'x-forwarded-for': '203.0.113.9' },
+      JSON.stringify({ amount: 1200, source: PAN })
+    );
+    await new Promise((r) => setTimeout(r, 30));
+    attrs = serverRecordFor(path);
+  });
+
+  it('recovers the content type and captures a redacted response body', () => {
+    expect(attrs['flanj.http.response.content_type']).toBe('application/json');
+    const resBody = attrs['flanj.http.response.body'] as string;
+    expect(resBody).toContain('"ok":true');
+    expect(resBody).toContain('⟦REDACTED:EMAIL⟧');
+    expect(resBody).not.toContain(RESPONSE_EMAIL);
+  });
+
+  it('leaves no raw PAN on the row', () => {
+    expect(JSON.stringify(attrs)).not.toContain(PAN);
   });
 });

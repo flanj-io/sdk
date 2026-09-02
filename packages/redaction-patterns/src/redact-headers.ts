@@ -8,6 +8,7 @@ import { makeToken } from './tokens';
 export const DEFAULT_HEADER_ALLOWLIST: readonly string[] = [
   'content-type',
   'content-length',
+  'content-encoding',
   'x-request-id',
   'x-correlation-id',
   'idempotency-key',
