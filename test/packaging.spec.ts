@@ -20,17 +20,34 @@ const repoRoot = resolve(__dirname, '..');
 
 let packed: string[];
 
+/** Drop SGR colour codes and OSC 8 hyperlinks — Yarn emits both when it thinks it is on CI. */
+function stripAnsi(line: string): string {
+  // eslint-disable-next-line no-control-regex
+  return line.replace(/\u001b\][^\u0007]*\u0007/g, '').replace(/\u001b\[[0-9;]*[A-Za-z]/g, '');
+}
+
 beforeAll(() => {
   // `yarn pack --dry-run` runs `prepack` (the build) and lists what would ship.
+  // FORCE_COLOR=0 asks Yarn for plain output; it colorizes under CI otherwise,
+  // and `stripAnsi` is the belt to that braces.
   const output = execFileSync('yarn', ['pack', '--dry-run'], {
     cwd: repoRoot,
     encoding: 'utf8',
-    stdio: ['ignore', 'pipe', 'pipe']
+    stdio: ['ignore', 'pipe', 'pipe'],
+    env: { ...process.env, FORCE_COLOR: '0' }
   });
   packed = output
     .split('\n')
-    .map((line) => line.replace(/^➤\s*YN\d+:\s*/, '').trim())
+    .map((line) => stripAnsi(line).replace(/^\s*➤\s*YN\d+:\s*/, '').trim())
     .filter((line) => line !== '' && !line.startsWith('Done in') && !line.includes('lifecycle script'));
+
+  // Guard the PARSE, not just the contents. A listing that failed to clean up
+  // (Yarn colorized it, say) would leave every line prefixed — and then the
+  // "nothing under src/" assertions below would pass on garbage.
+  expect(packed, 'the pack listing did not parse').toContain('package.json');
+  for (const entry of packed) {
+    expect(entry, `unparsed pack line: ${JSON.stringify(entry)}`).toMatch(/^[\w./@+-]+$/);
+  }
 }, 300_000);
 
 describe('yarn pack — the published tarball', () => {
