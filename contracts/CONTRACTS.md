@@ -87,15 +87,27 @@ not by a regex). Headers are `"{}"`; `flanj.http.status_code` is **omitted** (MC
 host[:port], or `serverInfo.name` for a stdio server (edge class `"local-process"`); a streamable-HTTP
 peer classified `internal` stays metadata-only as ever. Additive attributes:
 
+> **Server identity, since protocol revision 2026-07-28.** That revision removed the `initialize` /
+> `notifications/initialized` handshake and protocol-level sessions, so the client accessors the v0.5
+> wrapper read identity from (`getServerVersion()`, `serverInfo`, `protocolVersion`) are empty against a
+> current server. Identity now arrives in the **`_meta` of every result**
+> (`io.modelcontextprotocol/serverInfo`) and is read from there first, with the handshake accessors kept
+> only as a fallback for older servers. This is load-bearing, not cosmetic: `flanj.peer.host` for a stdio
+> server IS `serverInfo.name`, so without a source for it every local server on a host collapses onto one
+> edge key and their alternating tool lists become phantom `definition_change` findings.
+
 | Attribute | Type | Notes |
 |---|---|---|
 | `flanj.transport` | string | `"mcp"`. Absent on HTTP records (absent = HTTP). |
 | `flanj.mcp.tool.name` | string | the called tool — the operation id downstream detection matches against the contract (`Operation.id` / `Match.toolName`). |
 | `flanj.mcp.is_error` | bool | the CallToolResult's `isError` (also `true` when the call itself rejected). Feeds the error-rate metric; never a finding on its own. |
-| `flanj.mcp.server.name` *(optional)* | string | `serverInfo.name` from initialize, when the client surfaces it. |
-| `flanj.mcp.server.version` *(optional)* | string | `serverInfo.version`. |
-| `flanj.mcp.protocol.version` *(optional)* | string | the negotiated MCP protocol version. |
+| `flanj.mcp.server.name` *(optional)* | string | `serverInfo.name`. Read from the `_meta` of the result (`io.modelcontextprotocol/serverInfo`, revision 2026-07-28), falling back to the client's `initialize`-derived accessors on an older server. |
+| `flanj.mcp.server.version` *(optional)* | string | `serverInfo.version`, same source and precedence. |
+| `flanj.mcp.protocol.version` *(optional)* | string | the MCP protocol version, when surfaced. |
 | `flanj.mcp.session.id` *(optional)* | string | `Mcp-Session-Id` when the transport exposes one (2025-11-25 line; absent on 2026-07-28 stateless). |
+| `flanj.mcp.result.type` *(optional)* | string | the result's `resultType` (revision 2026-07-28) verbatim: `"complete"`, `"input_required"`, or a later revision's value. **Absent means an older server said nothing — never `"complete"`.** `input_required` is normal traffic on an interactive tool: the payload is partial by design, so detection skips the record rather than judging it. |
+| `flanj.mcp.task.id` *(optional)* | string | set when the result was a Tasks **handle** rather than a payload (revision 2026-07-28 moved long-running work to the Tasks extension: the call returns `{task:{taskId,…}}` and the payload arrives via `tasks/get`). The record then carries the ENVELOPE — the response body is empty — and nothing may validate or model response shape from it. |
+| `flanj.corr.trace_id` / `flanj.corr.span_id` *(optional)* | string | W3C trace context lifted from the result's `_meta.traceparent` (revision 2026-07-28). Omitted when the header is absent or malformed — a wrong correlation key points a provider at somebody else's request, so a bad `traceparent` yields nothing rather than a bogus id. |
 | `flanj.corr.client_request_id` *(optional)* | string | the JSON-RPC id observed on the client's OWN outgoing message — **client-generated**: it appears in the provider's logs only if they log it. Rendered as "JSON-RPC id (client-generated)", and never merged into `flanj.corr.request_id`, which stays **provider-issued only** (the v0.5 client wrapper sees no HTTP response headers and therefore emits none). |
 
 Canonical example: [`v1/golden-otlp-mcp-call.json`](./v1/golden-otlp-mcp-call.json) — one
@@ -116,9 +128,11 @@ one record per **complete** observed `tools/list` (pagination followed; re-fetch
 | `flanj.transport` | string | `"mcp"` |
 | `flanj.direction` | string | `"client"` |
 | `flanj.peer.host` / `flanj.edge.class` / `flanj.integration` | | as on MCP call records (same edge key). |
-| `flanj.mcp.contract_snapshot` | string | **floor-redacted** JSON `{"tools":[…], "serverInfo"?, "protocolVersion"?, "capabilities"?}`. Each tool carries exactly the ToolDef wire keys `name` / `description` / `inputSchema` / `outputSchema` / `annotations` (decodable by the collector's `contract.ParseToolsList`); schemas are the server's own words, passed verbatim — a tool without `outputSchema` keeps none (the honest "no output contract declared" state, never synthesized). `capabilities` carries `{tools:{listChanged}}` when the client surfaces it. |
+| `flanj.mcp.contract_snapshot` | string | **floor-redacted** JSON `{"tools":[…], "serverInfo"?, "protocolVersion"?, "capabilities"?, "ttlMs"?, "cacheScope"?}`. Each tool carries exactly the ToolDef wire keys `name` / `description` / `inputSchema` / `outputSchema` / `annotations` (decodable by the collector's `contract.ParseToolsList`); schemas are the server's own words, passed verbatim — a tool without `outputSchema` keeps none (the honest "no output contract declared" state, never synthesized). `capabilities` carries `{tools:{listChanged}}` when the client surfaces it. |
 | `flanj.mcp.tool.count` | int | tools in the snapshot. |
-| `flanj.mcp.server.name` / `flanj.mcp.server.version` / `flanj.mcp.protocol.version` *(optional)* | string | server identity, when surfaced. |
+| `flanj.mcp.server.name` / `flanj.mcp.server.version` / `flanj.mcp.protocol.version` *(optional)* | string | server identity, same source and precedence as on call records. |
+| `flanj.mcp.catalog.ttl_ms` *(optional)* | int | the `ttlMs` the `tools/list` result published (revision 2026-07-28). Clients are now told to **cache** catalogs, so the list a snapshot records may legitimately be up to this far behind the server — a surface that presents a snapshot as live would be overstating it. Also carried inside the document, so the stored snapshot stays self-describing. |
+| `flanj.mcp.catalog.cache_scope` *(optional)* | string | the result's `cacheScope`, same source. |
 | `flanj.redaction.applied` / `flanj.redaction.patterns` | bool / string | the floor pass over the snapshot JSON (usually nothing fires; the floor still runs — every captured payload is floor-scanned first, §6). |
 
 Canonical example: [`v1/golden-otlp-mcp-snapshot.json`](./v1/golden-otlp-mcp-snapshot.json).

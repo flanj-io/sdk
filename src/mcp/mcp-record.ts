@@ -22,6 +22,10 @@ export function buildMcpCallAttributes(call: McpCapturedCall): LogAttributes {
   if (call.mcp.serverVersion !== undefined) attrs['flanj.mcp.server.version'] = call.mcp.serverVersion;
   if (call.mcp.protocolVersion !== undefined) attrs['flanj.mcp.protocol.version'] = call.mcp.protocolVersion;
   if (call.mcp.sessionId !== undefined) attrs['flanj.mcp.session.id'] = call.mcp.sessionId;
+  // Revision 2026-07-28. Omitted (never defaulted) when the server did not send
+  // them: absent `resultType` means "an older server", not `complete`.
+  if (call.mcp.resultType !== undefined) attrs['flanj.mcp.result.type'] = call.mcp.resultType;
+  if (call.mcp.taskId !== undefined) attrs['flanj.mcp.task.id'] = call.mcp.taskId;
   if (call.mcp.clientRequestId !== undefined) {
     attrs['flanj.corr.client_request_id'] = call.mcp.clientRequestId;
   }
@@ -51,6 +55,10 @@ export function buildContractSnapshotAttributes(snap: McpContractSnapshot): LogA
   if (snap.serverName !== undefined) attrs['flanj.mcp.server.name'] = snap.serverName;
   if (snap.serverVersion !== undefined) attrs['flanj.mcp.server.version'] = snap.serverVersion;
   if (snap.protocolVersion !== undefined) attrs['flanj.mcp.protocol.version'] = snap.protocolVersion;
+  // Revision 2026-07-28: clients are told to CACHE catalogs, so a snapshot may
+  // legitimately be up to `ttlMs` behind the server.
+  if (snap.catalogTtlMs !== undefined) attrs['flanj.mcp.catalog.ttl_ms'] = snap.catalogTtlMs;
+  if (snap.catalogCacheScope !== undefined) attrs['flanj.mcp.catalog.cache_scope'] = snap.catalogCacheScope;
   return attrs;
 }
 

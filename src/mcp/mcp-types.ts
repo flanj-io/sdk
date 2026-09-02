@@ -8,7 +8,16 @@ import type { CapturedCall } from '../instrumentation/captured-call';
  */
 export type McpServerKind = 'streamable-http' | 'stdio';
 
-/** Server identity as surfaced by the client after `initialize` (all optional — feature-detected). */
+/**
+ * Server identity (all optional — feature-detected).
+ *
+ * Protocol revision 2026-07-28 removed the `initialize` handshake, so the
+ * client-side accessors that used to carry this (`getServerVersion()`,
+ * `client.serverInfo`, `client.protocolVersion`) are empty against a current
+ * server. The authoritative source is now the `_meta` of every result
+ * (`io.modelcontextprotocol/serverInfo`); the handshake accessors survive only
+ * as a fallback for servers still on an older revision.
+ */
 export interface McpServerIdentity {
   name?: string;
   version?: string;
@@ -26,8 +35,31 @@ export interface McpCallMeta {
   serverName?: string;
   serverVersion?: string;
   protocolVersion?: string;
-  /** `Mcp-Session-Id` when the transport exposes one (2025-11-25 line; absent on stateless). */
+  /**
+   * `Mcp-Session-Id` when the transport exposes one.
+   *
+   * Protocol-level sessions were removed in revision 2026-07-28 along with the
+   * handshake, so this is permanently absent against a current server. The slot
+   * is kept — every reader treats it as optional — so a client still on the
+   * 2025-11-25 line keeps reporting what it has.
+   */
   sessionId?: string;
+  /**
+   * The result's `resultType` (revision 2026-07-28), verbatim: `complete`,
+   * `input_required`, or whatever a future revision adds. Absent on older
+   * servers, which must NOT be read as `complete`.
+   *
+   * `input_required` is normal traffic on an interactive tool — the payload is
+   * partial by design — so detection must skip it rather than judge it.
+   */
+  resultType?: string;
+  /**
+   * Set when the result was a Tasks HANDLE rather than a payload: the call
+   * returned `{task: {taskId, …}}` and the real result arrives later via
+   * `tasks/get`. Such a record describes the envelope, never the tool's output,
+   * so nothing may validate or model response shape from it.
+   */
+  taskId?: string;
   /**
    * The JSON-RPC request id observed on the client's own outgoing message —
    * CLIENT-GENERATED. It appears in the provider's logs only if they log it;
@@ -67,6 +99,15 @@ export interface McpContractSnapshot {
   protocolVersion?: string;
   /** Floor-redacted canonical snapshot JSON (see above). */
   snapshotJson: string;
+  /**
+   * `ttlMs` / `cacheScope` from the `tools/list` result (revision 2026-07-28),
+   * when the server published them. Clients are now told to CACHE catalogs, so
+   * the list a snapshot records may legitimately be up to `ttlMs` behind the
+   * server — a reader that presents a snapshot as live would be overstating it.
+   * Also carried inside `snapshotJson` so the stored document is self-describing.
+   */
+  catalogTtlMs?: number;
+  catalogCacheScope?: string;
   toolCount: number;
   redactionApplied: boolean;
   redactionPatterns: PatternId[];

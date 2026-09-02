@@ -1,4 +1,5 @@
 import { redactDetailed } from '@flanj/redaction-patterns';
+import type { CatalogCacheHints } from './result-meta';
 import type { McpContractSnapshot, McpServerIdentity, McpServerKind } from './mcp-types';
 
 /** Inputs for one COMPLETE observed `tools/list` (all pages). */
@@ -10,6 +11,11 @@ export interface AssembleContractSnapshotInput {
   server: McpServerIdentity;
   /** The complete tools array, verbatim from the server. */
   tools: readonly unknown[];
+  /**
+   * `ttlMs` / `cacheScope` off the `tools/list` result (revision 2026-07-28),
+   * when the server published them.
+   */
+  cache?: CatalogCacheHints;
 }
 
 /**
@@ -35,6 +41,11 @@ export function assembleContractSnapshot(input: AssembleContractSnapshotInput): 
   if (input.server.listChanged !== undefined) {
     payload.capabilities = { tools: { listChanged: input.server.listChanged } };
   }
+  // Cache directives ride INSIDE the document as well as on the record, so the
+  // stored snapshot stays self-describing: a reader holding only the doc can
+  // still tell how stale the catalog it is checking against may be.
+  if (input.cache?.ttlMs !== undefined) payload.ttlMs = input.cache.ttlMs;
+  if (input.cache?.cacheScope !== undefined) payload.cacheScope = input.cache.cacheScope;
 
   // Redact-at-source: the snapshot crosses the wire only as this redacted text.
   const redaction = redactDetailed(JSON.stringify(payload));
@@ -52,6 +63,8 @@ export function assembleContractSnapshot(input: AssembleContractSnapshotInput): 
   if (input.server.name !== undefined) snap.serverName = input.server.name;
   if (input.server.version !== undefined) snap.serverVersion = input.server.version;
   if (input.server.protocolVersion !== undefined) snap.protocolVersion = input.server.protocolVersion;
+  if (input.cache?.ttlMs !== undefined) snap.catalogTtlMs = input.cache.ttlMs;
+  if (input.cache?.cacheScope !== undefined) snap.catalogCacheScope = input.cache.cacheScope;
   return snap;
 }
 

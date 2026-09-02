@@ -376,3 +376,187 @@ describe('instrumentMcpClient — stdio edge identity', () => {
     expect(calls[0]!.requestBody).toBe('{"card_number":"⟦REDACTED:PAN⟧"}');
   });
 });
+
+/**
+ * Protocol revision **2026-07-28**: the `initialize` handshake and protocol
+ * sessions are gone. A client talking to a current server therefore surfaces
+ * NO `getServerVersion()`, no `serverInfo`, no `protocolVersion` and no
+ * `sessionId` — identity arrives in the `_meta` of every result instead.
+ *
+ * This mock has none of the handshake accessors on purpose: it is what the
+ * wrapper actually sees now, and every assertion below fails against the v0.5
+ * implementation.
+ */
+const SERVER_INFO_KEY = 'io.modelcontextprotocol/serverInfo';
+const TRACEPARENT = '00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01';
+
+class MockClientNoHandshake {
+  // stdio: no url, no sessionId, and no protocolVersion — nothing to derive identity from.
+  transport = {
+    sent: [] as JsonRpcMessage[],
+    send(msg: JsonRpcMessage): Promise<void> {
+      this.sent.push(msg);
+      return Promise.resolve();
+    }
+  };
+
+  listResult: unknown = {
+    tools: [{ name: 'get_balance', inputSchema: { type: 'object' } }],
+    ttlMs: 60000,
+    cacheScope: 'session',
+    _meta: { [SERVER_INFO_KEY]: { name: 'acme-tools-mcp', version: '1.2.0' } }
+  };
+
+  nextResult: unknown = {
+    content: [{ type: 'text', text: 'ok' }],
+    resultType: 'complete',
+    _meta: { [SERVER_INFO_KEY]: { name: 'acme-tools-mcp', version: '1.2.0' }, traceparent: TRACEPARENT }
+  };
+
+  async listTools(): Promise<unknown> {
+    return this.listResult;
+  }
+
+  async callTool(params: { name: string; arguments?: unknown }): Promise<unknown> {
+    await this.transport.send({ jsonrpc: '2.0', id: 1, method: 'tools/call', params });
+    return this.nextResult;
+  }
+}
+
+function harnessNoHandshake() {
+  const calls: McpCapturedCall[] = [];
+  const snapshots: McpContractSnapshot[] = [];
+  const client = new MockClientNoHandshake();
+  instrumentMcpClient(client, {
+    integration: 'acme-tools',
+    onCapture: (c) => calls.push(c),
+    onSnapshot: (s) => snapshots.push(s)
+  });
+  return { client, calls, snapshots };
+}
+
+describe('instrumentMcpClient — protocol revision 2026-07-28 (no handshake)', () => {
+  it('learns server identity from a tools/call result _meta', async () => {
+    const { client, calls } = harnessNoHandshake();
+    await client.callTool({ name: 'get_balance', arguments: {} });
+    expect(calls[0]!.mcp.serverName).toBe('acme-tools-mcp');
+    expect(calls[0]!.mcp.serverVersion).toBe('1.2.0');
+  });
+
+  /**
+   * The sharpest consequence of the handshake removal. `resolveMcpEdge` keys a
+   * stdio edge by `serverInfo.name`; with no source for it every local server
+   * on the host collapses onto `unknown-mcp-server`, two servers share one
+   * contract slot, and their alternating tool lists become phantom
+   * `definition_change` findings.
+   */
+  it('keys the stdio edge by the _meta server name, not unknown-mcp-server', async () => {
+    const { client, calls } = harnessNoHandshake();
+    await client.callTool({ name: 'get_balance', arguments: {} });
+    expect(calls[0]!.peerHost).toBe('acme-tools-mcp');
+    expect(calls[0]!.peerHost).not.toBe('unknown-mcp-server');
+    expect(calls[0]!.edgeClass).toBe('local-process');
+  });
+
+  it('a tools/list result _meta names the server on the snapshot', async () => {
+    const { client, snapshots } = harnessNoHandshake();
+    await client.listTools();
+    expect(snapshots).toHaveLength(1);
+    expect(snapshots[0]!.serverName).toBe('acme-tools-mcp');
+    expect(snapshots[0]!.serverVersion).toBe('1.2.0');
+    expect(snapshots[0]!.peerHost).toBe('acme-tools-mcp');
+    const payload = JSON.parse(snapshots[0]!.snapshotJson) as { serverInfo?: { name?: string } };
+    expect(payload.serverInfo?.name).toBe('acme-tools-mcp');
+  });
+
+  it('carries the catalog cache directives on the record and inside the document', async () => {
+    const { client, snapshots } = harnessNoHandshake();
+    await client.listTools();
+    expect(snapshots[0]!.catalogTtlMs).toBe(60000);
+    expect(snapshots[0]!.catalogCacheScope).toBe('session');
+    const payload = JSON.parse(snapshots[0]!.snapshotJson) as { ttlMs?: number; cacheScope?: string };
+    expect(payload).toMatchObject({ ttlMs: 60000, cacheScope: 'session' });
+  });
+
+  // The MCP path carried no trace id at all before this revision documented the
+  // `_meta` convention, while the HTTP path filled both slots.
+  it('lifts W3C trace context out of the result _meta', async () => {
+    const { client, calls } = harnessNoHandshake();
+    await client.callTool({ name: 'get_balance', arguments: {} });
+    expect(calls[0]!.correlation.traceId).toBe('4bf92f3577b34da6a3ce929d0e0e4736');
+    expect(calls[0]!.correlation.spanId).toBe('00f067aa0ba902b7');
+  });
+
+  it('records resultType verbatim, and leaves it absent when the server sends none', async () => {
+    const { client, calls } = harnessNoHandshake();
+    client.nextResult = { content: [], resultType: 'input_required' };
+    await client.callTool({ name: 'get_balance', arguments: {} });
+    expect(calls[0]!.mcp.resultType).toBe('input_required');
+
+    client.nextResult = { content: [{ type: 'text', text: 'ok' }] };
+    await client.callTool({ name: 'get_balance', arguments: {} });
+    expect(calls[1]!.mcp.resultType).toBeUndefined(); // absent is not `complete`
+  });
+
+  /**
+   * A Tasks handle describes the task, not the tool's output. Capturing its
+   * fields as the response body is how a shape detector ends up modelling
+   * `taskId`/`status`/`createdAt` as the tool's result.
+   */
+  it('records a Tasks handle as an envelope: task id kept, body dropped', async () => {
+    const { client, calls } = harnessNoHandshake();
+    client.nextResult = {
+      task: { taskId: 'task_9', status: 'working', ttl: null, createdAt: 'x', lastUpdatedAt: 'x' },
+      content: [{ type: 'text', text: 'accepted' }]
+    };
+    await client.callTool({ name: 'slow_report', arguments: {} });
+    expect(calls[0]!.mcp.taskId).toBe('task_9');
+    expect(calls[0]!.responseBody).toBe('');
+    expect(calls[0]!.responseContentType).toBeUndefined();
+  });
+
+  it('an older server with a handshake but no _meta still resolves identity', async () => {
+    const calls: McpCapturedCall[] = [];
+    const client = new MockClient1x();
+    instrumentMcpClient(client, { integration: 'acme-payments', onCapture: (c) => calls.push(c) });
+    await client.callTool({ name: 'get_balance', arguments: {} });
+    expect(calls[0]!.mcp.serverName).toBe('acme-payments-mcp'); // the fallback still works
+    expect(calls[0]!.mcp.serverVersion).toBe('3.2.0');
+  });
+
+  it('_meta identity WINS over a stale handshake value', async () => {
+    const calls: McpCapturedCall[] = [];
+    const client = new MockClient1x();
+    client.nextResult = {
+      content: [{ type: 'text', text: 'ok' }],
+      _meta: { [SERVER_INFO_KEY]: { name: 'acme-payments-mcp', version: '4.0.0' } }
+    };
+    instrumentMcpClient(client, { integration: 'acme-payments', onCapture: (c) => calls.push(c) });
+    await client.callTool({ name: 'get_balance', arguments: {} });
+    expect(calls[0]!.mcp.serverVersion).toBe('4.0.0'); // not the handshake's 3.2.0
+  });
+
+  // Sticky: a later result that says nothing must not erase what we know, or the
+  // edge key would flip between the real name and `unknown-mcp-server`.
+  it('keeps identity once learned, when a later result carries no _meta', async () => {
+    const { client, calls } = harnessNoHandshake();
+    await client.callTool({ name: 'get_balance', arguments: {} });
+    client.nextResult = { content: [{ type: 'text', text: 'ok' }] };
+    await client.callTool({ name: 'get_balance', arguments: {} });
+    expect(calls[1]!.mcp.serverName).toBe('acme-tools-mcp');
+    expect(calls[1]!.peerHost).toBe('acme-tools-mcp');
+  });
+
+  it('sessionId is simply absent — protocol sessions are gone', async () => {
+    const { client, calls } = harnessNoHandshake();
+    await client.callTool({ name: 'get_balance', arguments: {} });
+    expect(calls[0]!.mcp.sessionId).toBeUndefined();
+  });
+
+  it('still passes the result through by identity, _meta and all', async () => {
+    const { client } = harnessNoHandshake();
+    const result = client.nextResult;
+    const got = await client.callTool({ name: 'get_balance', arguments: {} });
+    expect(got).toBe(result);
+  });
+});
