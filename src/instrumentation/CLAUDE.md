@@ -15,7 +15,7 @@ non-negotiable lives — **redact at source, drop the raw buffer, never attach r
 | `otlp-record.ts` | `buildLogAttributes` / `emitCall` — map a `CapturedCall` to the `flanj.*` attribute convention (CONTRACTS §2) and emit one log record. Body is empty; all data is in attributes. |
 | `captured-call.ts` | `CapturedCall` — the internal, **already-redacted** hand-off type (now carries `peerHost` / `edgeClass` / `captureBodies`). By construction it has no field that can hold a raw body. |
 | `capped-buffer.ts` | `CappedBuffer` — accumulates stream chunks up to `body_cap_bytes`, discards the rest, flags `truncated`. The retained bytes are the only copy; there is no separate uncapped buffer. |
-| `http-args.ts` | `parseRequestArgs` — normalize the overloaded `request(url, opts, cb)` / `request(opts, cb)` shapes into `{ method, protocol, host, path }`. |
+| `http-args.ts` | `parseRequestArgs` — normalize the overloaded `request(url, opts, cb)` / `request(opts, cb)` shapes into `{ method, protocol, host, path }`. `host` is the EDGE KEY, so the scheme's own default port is dropped (`:80` on http, `:443` on https) and any other port is kept — see below. |
 | `config.ts` | `HttpBodyCaptureConfig`, content-type gate, defaults (`DEFAULT_BODY_CAP_BYTES = 16384`). |
 
 ## External vs internal (the surfacing floor)
@@ -30,6 +30,23 @@ record: `flanj.peer.host`, `flanj.edge.class`, `flanj.capture.bodies`; plus the
 OPTIONAL `flanj.peer.addr` (the peer's socket address — egress: the resolved remote
 address; ingress: `socket.remoteAddress`) — transport detail for display, never an
 identity or edge key, omitted when the socket layer exposed none.
+
+## One origin, one edge key
+
+`info.host` becomes `flanj.peer.host` — `host[:port]`, **the edge key** (CONTRACTS §2) — and the
+authority in `flanj.http.url.full`. The collector binds contracts to that key by exact string, so the
+same origin dialled two ways MUST produce one string. A URL-string dial goes through WHATWG
+`URL.host`, which already omits `:443` on https; an options-object dial carrying an explicit
+`{ port: 443 }` did not, so `api.acme.test` and `api.acme.test:443` keyed as two edges: a contract
+bound to the first never validated the second, its drifted responses produced no finding, and the
+Edges row still showed the contract's name because naming is domain-level while binding is
+host-level. Any codebase with a shared `{ hostname, port }` http helper hits this.
+
+So `parseRequestArgs` drops **only** the scheme's own default port. A non-default port stays — `:8080`
+is a genuinely different listener, and folding it into the bare host would bind one edge's contract to
+another's traffic. The rule is idempotent, and the collector applies the identical one at ingest
+(`internal/edge.StripDefaultPort`) so records from older SDKs converge; the two must stay in step.
+`src/mcp/resolve-mcp-edge.ts` already keys off `URL.host` and needs nothing.
 
 ## The capture path (why it is shaped this way)
 

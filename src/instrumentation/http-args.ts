@@ -8,7 +8,12 @@ import { URL } from 'node:url';
 export interface RequestInfo {
   method: string;
   protocol: string; // 'http:' | 'https:'
-  host: string; // host[:port]
+  /**
+   * `host[:port]` — the edge key (CONTRACTS §2 `flanj.peer.host`), with the
+   * scheme's DEFAULT port dropped (`:80` on http, `:443` on https). A
+   * non-default port is kept: it is a different listener.
+   */
+  host: string;
   path: string; // path + query
 }
 
@@ -46,6 +51,7 @@ export function parseRequestArgs(args: unknown[], defaultProtocol: string): Requ
   let host: string;
   let path: string;
   if (url) {
+    // WHATWG `URL.host` already omits the scheme's default port.
     host = url.host;
     path = `${url.pathname}${url.search}`;
   } else {
@@ -55,7 +61,37 @@ export function parseRequestArgs(args: unknown[], defaultProtocol: string): Requ
     path = options?.path ?? '/';
   }
 
-  return { method, protocol, host, path };
+  return { method, protocol, host: stripDefaultPort(host, protocol), path };
+}
+
+/**
+ * Drop the scheme's DEFAULT port from a `host[:port]`, and only that one.
+ *
+ * `flanj.peer.host` is the EDGE KEY (CONTRACTS §2), so the same origin must
+ * produce the same string however the app dialled it. A URL-string dial goes
+ * through WHATWG `URL.host`, which already omits `:443` on https; an
+ * options-object dial carrying an explicit `{ port: 443 }` does not — and the
+ * two would key as two different edges, so a contract bound to one never
+ * validates the other. Any codebase with a shared `{ hostname, port }` http
+ * helper hits this.
+ *
+ * A NON-default port stays: `:8080` is a genuinely different listener, and
+ * folding it into the bare host would bind one edge's contract to another's
+ * traffic. Idempotent — applied to an already-normalized host it is a no-op.
+ */
+function stripDefaultPort(host: string, protocol: string): string {
+  const defaultPort = { 'http:': '80', 'https:': '443' }[protocol.toLowerCase()];
+  if (defaultPort === undefined) return host; // e.g. the MCP path's `mcp:`
+
+  // In `[ipv6]` / `[ipv6]:port` the port can only follow the closing bracket.
+  const afterBracket = host.startsWith('[') ? host.indexOf(']') : 0;
+  if (afterBracket === -1) return host; // unterminated bracket: leave it alone
+  const colon = host.indexOf(':', afterBracket);
+  if (colon === -1) return host;
+  // Unbracketed and more than one colon => a bare IPv6 literal, not host:port.
+  if (afterBracket === 0 && host.includes(':', colon + 1)) return host;
+
+  return host.slice(colon + 1) === defaultPort ? host.slice(0, colon) : host;
 }
 
 function safeUrl(value: string): URL | undefined {
