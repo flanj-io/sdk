@@ -74,7 +74,7 @@ __metadata:
   resolution: "@flanj/redaction-patterns@workspace:packages/redaction-patterns"
   dependencies:
     "@types/validator": "npm:^13.15.2"
-    libphonenumber-js: "npm:^1.13.11"
+    libphonenumber-js: "npm:^1.13.12"
     validator: "npm:^13.15.35"
   languageName: unknown
   linkType: soft
@@ -1637,10 +1637,10 @@ __metadata:
   languageName: node
   linkType: hard
 
-"libphonenumber-js@npm:^1.13.11":
-  version: 1.13.11
-  resolution: "libphonenumber-js@npm:1.13.11"
-  checksum: 10c0/1de958a7b78d281aa357a1b89be173bb5e7034b302b3921174f190e88bec611e19c891cadbf935facda261254e250bc32de00560765e689fb68a39db286765ff
+"libphonenumber-js@npm:^1.13.12":
+  version: 1.13.12
+  resolution: "libphonenumber-js@npm:1.13.12"
+  checksum: 10c0/1cf4ab35ee1a926fe0da553dfa8d9f9af04c29c7d8f719f19ae3db9718c2b843a2a2ba3232926c89628bee6654e23e3f97b6228b1db9359a60e423be079e9d42
   languageName: node
   linkType: hard
 
