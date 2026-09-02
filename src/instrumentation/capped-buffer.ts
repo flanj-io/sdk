@@ -40,8 +40,16 @@ export class CappedBuffer {
     return this.truncatedFlag;
   }
 
+  /**
+   * The retained raw bytes. Callers decode (undoing any `content-encoding`) and
+   * redact immediately, then drop them; this is the only copy.
+   */
+  toBuffer(): Buffer {
+    return Buffer.concat(this.chunks);
+  }
+
   /** Decode the retained bytes as UTF-8. Callers redact this immediately. */
   toString(): string {
-    return Buffer.concat(this.chunks).toString('utf8');
+    return this.toBuffer().toString('utf8');
   }
 }

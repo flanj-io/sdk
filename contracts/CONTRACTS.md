@@ -141,8 +141,16 @@ Canonical example: [`v1/golden-otlp-call.json`](./v1/golden-otlp-call.json) — 
 redacted. The collector's contract test ingests this and must deterministically emit the expected Finding.
 
 **Header allowlist** (everything else dropped, not redacted): `content-type`, `content-length`,
-`x-request-id`, `x-correlation-id`, `idempotency-key`, `user-agent`, `date`. `authorization`, `cookie`,
-`set-cookie` are **redacted to a `⟦REDACTED:TOKEN⟧` token if present in an allowlisted context**, never emitted raw.
+`content-encoding`, `x-request-id`, `x-correlation-id`, `idempotency-key`, `user-agent`, `date`.
+`authorization`, `cookie`, `set-cookie` are **redacted to a `⟦REDACTED:TOKEN⟧` token if present in an
+allowlisted context**, never emitted raw.
+
+**Content-encoded bodies are stored DECODED.** A capturing SDK sits below the client library that
+inflates (`IncomingMessage` never decompresses), so it must undo any `content-encoding` — `gzip`/`x-gzip`,
+`deflate`/`x-deflate`, `br` — BEFORE redaction, and `body_cap_bytes` then applies to the decoded bytes.
+A coding it cannot undo (anything else, or a stacked chain) stores **no body**: raw compressed bytes must
+never be stored under a text content-type, and never counted as scanned (`redaction.applied` would be a
+falsehood). `content-encoding` is allowlisted so the row distinguishes the two cases.
 
 ---
 

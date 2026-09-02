@@ -85,7 +85,8 @@ REDACTION.md                       # the floor's design: composed validators, ow
    `on('data')` listener breaks apps that read the body via `for await`). v0 targets the core `http`/`https`
    client path (egress) and server path (ingress); `fetch`/undici body capture is deferred.
 3. **Caps & gating.** Content-type gate (JSON/text/form only); 16 KiB body cap (`body_cap_bytes`); header
-   allowlist (never emit `authorization`/`cookie` raw).
+   allowlist (never emit `authorization`/`cookie` raw). Bodies are stored DECODED — any `content-encoding`
+   is undone before redaction, and a coding we cannot undo stores no body rather than an unscanned frame.
 4. **Emit the exact `flanj.*` convention** in `contracts/CONTRACTS.md` §2. The emitted record must match
    `contracts/golden-otlp-call.json`.
 

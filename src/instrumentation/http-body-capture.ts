@@ -6,6 +6,7 @@ import { CappedBuffer } from './capped-buffer';
 import { parseRequestArgs } from './http-args';
 import { CapturedCall } from './captured-call';
 import { assembleCapturedCall } from './assemble-call';
+import { decodeBody } from './decode-body';
 import { classifyHost, type EdgeClass } from './classify-host';
 import { DEFAULT_BODY_CAP_BYTES, HttpBodyCaptureConfig, isIgnoredUrl } from './config';
 
@@ -158,10 +159,19 @@ export class HttpBodyCaptureInstrumentation extends InstrumentationBase<HttpBody
     captureBodies: boolean;
   }): CapturedCall {
     const cfg = this.getConfig();
+    const cap = cfg.bodyCapBytes ?? DEFAULT_BODY_CAP_BYTES;
     const { req, res, info, reqBuf, resBuf, startTime, edgeClass, captureBodies } = input;
 
     const reqContentType = headerValue(req.getHeader('content-type'));
     const resContentType = typeof res.headers['content-type'] === 'string' ? res.headers['content-type'] : undefined;
+
+    // Undo any `content-encoding` BEFORE the redactor sees the payload. Node's
+    // IncomingMessage hands us the raw wire bytes — every client library that
+    // sends `Accept-Encoding` inflates downstream, in userland — so without this
+    // a gzip'd JSON response would be stored as mangled bytes, unscanned, and
+    // reported `redaction.applied=false`. A coding we cannot undo yields NO body.
+    const reqBody = decodeBody(reqBuf.toBuffer(), headerValue(req.getHeader('content-encoding')), cap, reqBuf.truncated);
+    const resBody = decodeBody(resBuf.toBuffer(), pickHeader(res.headers, 'content-encoding'), cap, resBuf.truncated);
 
     // The resolved remote IP the connection actually went to — transport
     // detail alongside the peer.host identity (the name the app dialed).
@@ -181,10 +191,10 @@ export class HttpBodyCaptureInstrumentation extends InstrumentationBase<HttpBody
       statusCode: res.statusCode ?? 0,
       reqContentType,
       resContentType,
-      reqBodyRaw: reqBuf.toString(),
-      reqBodyTruncated: reqBuf.truncated,
-      resBodyRaw: resBuf.toString(),
-      resBodyTruncated: resBuf.truncated,
+      reqBodyRaw: reqBody.text,
+      reqBodyTruncated: reqBody.truncated,
+      resBodyRaw: resBody.text,
+      resBodyTruncated: resBody.truncated,
       requestHeaders: outgoingHeaders(req),
       responseHeaders: res.headers as Record<string, string | string[] | undefined>,
       correlation: {
