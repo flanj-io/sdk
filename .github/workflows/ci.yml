@@ -44,11 +44,26 @@ jobs:
       - run: yarn lint
       - run: yarn build   # tsc -b — lint+test never type-build the emitted output, so a @types/node
                           # or typescript major can break `yarn build` with CI fully green.
-      - run: yarn test    # unit + redaction vectors + cross-language parity fixtures + zero-network sentinel + OTLP contract test
+      - run: yarn test    # unit + redaction vectors + cross-language parity fixtures + zero-network sentinel +
+                          # OTLP contract test + the pack manifest (test/packaging.spec.ts) + README floor
+
+  smoke:
+    # A STRANGER'S FIRST RUN. `yarn test` asserts what `yarn pack` would list;
+    # this asserts the tarball, once installed into a scratch app with no source
+    # tree and no workspace links, actually resolves `@flanj/sdk/register`,
+    # captures a call and flushes it before the process exits.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with: { node-version: '23' }
+      - run: corepack enable
+      - run: yarn install --immutable
+      - run: bash scripts/smoke-pack.sh
 
   notify-e2e:
     # Integration gate lives in the private e2e repo; tell it a new SDK landed on main.
-    needs: [dco, test]
+    needs: [dco, test, smoke]
     if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     steps:
