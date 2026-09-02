@@ -16,6 +16,7 @@ or an error. Capture failure = "we stopped collecting", never "the agent broke".
 | `assemble-contract-snapshot.ts` | `assembleContractSnapshot` — projects each tool onto the ToolDef wire keys (`name/description/inputSchema/outputSchema/annotations` — collector `contract.ParseToolsList` decodes this in Step C), adds `serverInfo`/`protocolVersion`/`capabilities.tools.listChanged`, then floor-redacts the whole JSON before anything is attached. Schemas verbatim; no `outputSchema` stays absent (the honest "no output contract declared" state). |
 | `resolve-mcp-edge.ts` | Edge identity (spec §4.B): streamable-HTTP → endpoint URL host[:port] through the shared external/internal heuristic; stdio → `serverInfo.name`, class **`local-process`** (additive `flanj.edge.class` value, CONTRACTS §2). `local-process` captures + redacts bodies (a local MCP process usually fronts an external API); an `internal` HTTP peer stays metadata-only. |
 | `mcp-record.ts` | `McpCapturedCall`/`McpContractSnapshot` → the CONTRACTS §2 "v0.5 (Step B)" rows. Call records: the HTTP attribute set plus `flanj.transport`/`flanj.mcp.*`, minus `flanj.http.status_code`; `flanj.corr.client_request_id` carries the client-generated id and `flanj.corr.request_id` stays provider-issued-only (the wrapper sees no HTTP response headers, so it emits none). |
+| `result-meta.ts` | The **protocol revision 2026-07-28** readers, all total and read-only: `serverInfoFromMeta` (`_meta["io.modelcontextprotocol/serverInfo"]`), `traceContextFromMeta` (`_meta.traceparent` → W3C trace/span ids, nothing at all rather than a bogus id), `resultTypeOf` (`complete` / `input_required`, verbatim), `taskIdOf` (a Tasks HANDLE — the payload arrives via `tasks/get`), `catalogCacheHints` (`ttlMs` / `cacheScope`). |
 | `mcp-types.ts` | The shared shapes. `McpCapturedCall extends CapturedCall` — same RedactedCall shape as HTTP. |
 
 ## Never break
@@ -33,6 +34,16 @@ or an error. Capture failure = "we stopped collecting", never "the agent broke".
 - **One snapshot per COMPLETE list.** A failed page ends the chain and emits nothing partial.
 - **Honest labels.** Client-generated ids are never surfaced in a provider-issued slot; server
   identity attributes are omitted (never guessed) when the client does not surface them.
+- **Identity comes from `_meta`, not the handshake** (revision 2026-07-28 deleted `initialize` and
+  protocol sessions). `serverInfoFromMeta` is absorbed from EVERY result — `tools/list` and
+  `tools/call` — and is sticky: a later result carrying no `_meta` never erases it. The handshake
+  accessors (`getServerVersion()`, `serverInfo`, `protocolVersion`) remain only as the fallback for
+  older servers, and `_meta` wins over them. This is load-bearing: `resolveMcpEdge` keys a stdio
+  edge by `serverInfo.name`, so with no source for it every local server collapses onto
+  `unknown-mcp-server` and their alternating tool lists become phantom `definition_change` findings.
+- **An `input_required` result and a Tasks handle are not evidence.** Both are captured and marked
+  (`mcp.resultType` / `mcp.taskId`); a task handle's body is dropped because the envelope is not the
+  tool's output. Detection skips both — see `internal/drift/mcp.go` in the collector.
 
 ## Wiring
 

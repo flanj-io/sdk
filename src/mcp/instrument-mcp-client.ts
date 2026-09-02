@@ -3,6 +3,7 @@ import { assembleContractSnapshot } from './assemble-contract-snapshot';
 import { assembleMcpCall } from './assemble-mcp-call';
 import { emitContractSnapshot, emitMcpCall } from './mcp-record';
 import { resolveMcpEdge } from './resolve-mcp-edge';
+import { catalogCacheHints, serverInfoFromMeta, type CatalogCacheHints } from './result-meta';
 import type { McpCapturedCall, McpContractSnapshot, McpServerIdentity, McpServerKind } from './mcp-types';
 
 /**
@@ -113,12 +114,50 @@ export function instrumentMcpClient<T extends McpClientLike>(client: T, options:
     chain: null as { tools: unknown[]; expectedCursor: unknown } | null,
     /** Observed-but-unclaimed client-generated JSON-RPC ids, FIFO per tool name. */
     pendingIds: [] as { tool: string; id: string }[],
-    refetching: false
+    refetching: false,
+    /**
+     * Server identity as last seen in a RESULT's `_meta` — the authoritative
+     * source since protocol revision 2026-07-28 removed the handshake. Sticky:
+     * a result that says nothing about the server never erases what an earlier
+     * one told us.
+     */
+    observedServer: {} as McpServerIdentity,
+    /** `ttlMs` / `cacheScope` as last seen on a `tools/list` result. */
+    catalogCache: undefined as CatalogCacheHints | undefined
   };
 
   /** One stable weak handle to THIS client, used to key its send observation. */
   const clientRef = new WeakRef(c as object);
 
+  /**
+   * Absorb one result's `_meta` server identity. Called on EVERY result — both
+   * `tools/list` and `tools/call` — before anything that needs the edge, because
+   * `resolveMcpEdge` keys a stdio (`local-process`) edge by `serverInfo.name`:
+   * without this, every stdio server on the host collapses onto the single edge
+   * `unknown-mcp-server`, and two servers sharing that key alternate their tool
+   * lists into phantom `definition_change` findings.
+   */
+  const absorbServerInfo = (result: unknown): void => {
+    try {
+      const seen = serverInfoFromMeta(result);
+      if (seen === undefined) return;
+      if (seen.name !== undefined) state.observedServer.name = seen.name;
+      if (seen.version !== undefined) state.observedServer.version = seen.version;
+      if (seen.protocolVersion !== undefined) state.observedServer.protocolVersion = seen.protocolVersion;
+    } catch {
+      /* capture-side only — never disturb the app */
+    }
+  };
+
+  /**
+   * Server identity, `_meta` first and the handshake accessors as fallback.
+   *
+   * The accessors (`getServerVersion()`, `client.serverInfo`,
+   * `client.protocolVersion`) are all populated from the `initialize` RESULT,
+   * which revision 2026-07-28 deleted — they are empty against a current server
+   * and still correct against one on an older revision, so they stay as the
+   * fallback rather than the source.
+   */
   const serverIdentity = (): McpServerIdentity => {
     const id: McpServerIdentity = {};
     try {
@@ -137,6 +176,13 @@ export function instrumentMcpClient<T extends McpClientLike>(client: T, options:
       if (typeof listChanged === 'boolean') id.listChanged = listChanged;
     } catch {
       /* capture-side only — never disturb the app */
+    }
+    // `_meta` wins: it is per-result and current, where the accessors are a
+    // snapshot of a handshake that may not have happened at all.
+    if (state.observedServer.name !== undefined) id.name = state.observedServer.name;
+    if (state.observedServer.version !== undefined) id.version = state.observedServer.version;
+    if (state.observedServer.protocolVersion !== undefined) {
+      id.protocolVersion = state.observedServer.protocolVersion;
     }
     return id;
   };
@@ -273,7 +319,8 @@ export function instrumentMcpClient<T extends McpClientLike>(client: T, options:
           edgeClass: e.edgeClass,
           serverKind: e.serverKind,
           server: e.server,
-          tools
+          tools,
+          cache: state.catalogCache
         })
       );
     } catch {
@@ -291,6 +338,11 @@ export function instrumentMcpClient<T extends McpClientLike>(client: T, options:
    */
   const accumulatePage = (cursor: unknown, result: unknown): void => {
     try {
+      // Before anything that resolves the edge: every result carries the server's
+      // identity now, and a tools/list result carries the catalog cache directives.
+      absorbServerInfo(result);
+      const hints = catalogCacheHints(result);
+      if (hints !== undefined) state.catalogCache = hints;
       if (result === null || typeof result !== 'object') return;
       const r = result as { tools?: unknown; nextCursor?: unknown };
       if (!Array.isArray(r.tools)) return;
@@ -349,6 +401,7 @@ export function instrumentMcpClient<T extends McpClientLike>(client: T, options:
       }
       return p.then(
         (res) => {
+          absorbServerInfo(res); // identity rides every result now — learn it before resolving the edge
           captureCall(toolName, toolArgs, res, isErrorResult(res), startedAt);
           return res;
         },

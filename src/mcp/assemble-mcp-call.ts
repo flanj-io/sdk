@@ -1,6 +1,7 @@
 import { assembleCapturedCall } from '../instrumentation/assemble-call';
 import { CappedBuffer } from '../instrumentation/capped-buffer';
 import { DEFAULT_BODY_CAP_BYTES } from '../instrumentation/config';
+import { resultTypeOf, taskIdOf, traceContextFromMeta } from './result-meta';
 import type { McpCallMeta, McpCapturedCall, McpServerKind } from './mcp-types';
 
 /** The direction-agnostic inputs for one completed MCP tool call. */
@@ -28,6 +29,18 @@ export interface AssembleMcpCallInput {
 }
 
 /**
+ * A Tasks handle is an ENVELOPE, not a result: `tools/call` returned
+ * `{task: {taskId, status, …}}` and the tool's real payload arrives later via
+ * `tasks/get`, on a surface this SDK does not yet instrument. Capturing the
+ * envelope's fields as if they were the tool's response body is how a detector
+ * ends up modelling `taskId`/`status`/`createdAt` as the tool's output shape —
+ * so the body is dropped and `mcp.taskId` says why the record is empty.
+ */
+function isTaskEnvelope(result: unknown): boolean {
+  return taskIdOf(result) !== undefined;
+}
+
+/**
  * Redact at source and assemble one MCP tool call on the SAME RedactedCall
  * shape as HTTP, funnelled through the one shared assembler
  * ({@link assembleCapturedCall}) so every floor rule — cap, content-type gate,
@@ -42,7 +55,10 @@ export function assembleMcpCall(input: AssembleMcpCallInput): McpCapturedCall {
   const cap = input.bodyCapBytes ?? DEFAULT_BODY_CAP_BYTES;
 
   const req = capSerialized(serializeArgs(input.args), cap);
-  const res = responseBody(input.result, cap);
+  const res = isTaskEnvelope(input.result)
+    ? { text: '', truncated: false, contentType: undefined }
+    : responseBody(input.result, cap);
+  const trace = traceContextFromMeta(input.result);
 
   const call = assembleCapturedCall({
     integration: input.integration,
@@ -63,7 +79,10 @@ export function assembleMcpCall(input: AssembleMcpCallInput): McpCapturedCall {
     resBodyTruncated: res.truncated,
     requestHeaders: {},
     responseHeaders: {},
-    correlation: {},
+    // Trace context now has a documented `_meta` convention (revision
+    // 2026-07-28). Before it, the MCP path carried NO trace id at all while the
+    // HTTP path filled both slots.
+    correlation: trace ?? {},
     durationMs: input.durationMs
   });
 
@@ -77,6 +96,10 @@ export function assembleMcpCall(input: AssembleMcpCallInput): McpCapturedCall {
   if (input.protocolVersion !== undefined) mcp.protocolVersion = input.protocolVersion;
   if (input.sessionId !== undefined) mcp.sessionId = input.sessionId;
   if (input.clientRequestId !== undefined) mcp.clientRequestId = input.clientRequestId;
+  const resultType = resultTypeOf(input.result);
+  if (resultType !== undefined) mcp.resultType = resultType;
+  const taskId = taskIdOf(input.result);
+  if (taskId !== undefined) mcp.taskId = taskId;
 
   return { ...call, transport: 'mcp', mcp };
 }
