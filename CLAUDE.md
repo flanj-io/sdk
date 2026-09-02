@@ -24,14 +24,20 @@ Redaction happens here, at the call site, **before** anything is attached or exp
 ## Stack & commands
 
 - TypeScript, Node 23, Yarn 4. OTel-JS `@opentelemetry/api ^1.9`, SDK+instrumentation `^0.221`.
-- `yarn install` · `yarn build` · `yarn test` (unit + redaction vectors + OTLP contract) · `yarn test:watch` · `yarn lint`.
+- `yarn install` · `yarn build` · `yarn test` (unit + redaction vectors + OTLP contract + pack manifest) ·
+  `yarn test:watch` · `yarn lint` · `bash scripts/smoke-pack.sh` (packs, installs the tarball into a scratch app).
+- **Publishing goes through `yarn npm publish`** (it rewrites the `workspace:` protocol; plain `npm publish` does not),
+  and `@flanj/redaction-patterns` must be published **first** — the SDK tarball depends on it by plain version.
 
 ## Layout
 
 ```
 src/
   index.ts                         # the distro entrypoint (start(): register both instrumentations + OTLP logs exporter)
-  register.ts                      # the `./register` zero-code entry (see package.json exports)
+  register.ts                      # the `./register` zero-code entry (see package.json exports) — KEEPS the handle
+  otlp-endpoint.ts                 # endpoint resolution: FLANJ_/OTEL_ precedence + base-URL -> /v1/logs normalization
+  export-failure-warning.ts        # wraps the exporter so the FIRST export failure prints one line (no diag hijack)
+  flush-on-exit.ts                 # beforeExit + SIGTERM/SIGINT flush, bounded, then re-raise the signal
   version.ts                       # package version (OTLP scope)
   instrumentation/                 # the capture core — see instrumentation/CLAUDE.md
     http-body-capture.ts           # EGRESS: PassThrough-tee capture of req/resp bodies on the http/https client path
@@ -61,7 +67,12 @@ packages/
     test/fixtures.spec.ts          # the CROSS-LANGUAGE parity battery (contracts/redaction-fixtures.json; Go runs it too)
     test/no-network.spec.ts        # zero-external-calls sentinel
     test/property.spec.ts, recognizers.spec.ts, redact-headers.spec.ts
-test/integration/                  # real in-process http calls end-to-end (client, server, ignore-self-export)
+test/integration/                  # real in-process http calls end-to-end (client, server, ignore-self-export,
+                                   # otlp-endpoint 404-is-not-silent, register-flush spawning REAL children)
+test/fixtures/                     # plain-CJS child scripts driven by test/integration/register-flush.spec.ts
+test/packaging.spec.ts             # asserts the REAL `yarn pack` file list (dist entries in; src/test/contracts out)
+test/readme.spec.ts                # asserts the README's first-run floor incl. the Not-captured list (fetch/undici)
+scripts/smoke-pack.sh              # a stranger's first run: pack -> npm install the tarball -> require ./register
 contracts/                         # vendored from the canonical e2e/contracts (do not hand-edit; sync) — see contracts/README.md
 REDACTION.md                       # the floor's design: composed validators, owned responsibilities, parity, never-subtract
 ```

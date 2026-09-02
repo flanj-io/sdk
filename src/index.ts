@@ -1,10 +1,12 @@
 import { LoggerProvider, BatchLogRecordProcessor, SimpleLogRecordProcessor } from '@opentelemetry/sdk-logs';
 import { OTLPLogExporter } from '@opentelemetry/exporter-logs-otlp-http';
 import { resourceFromAttributes } from '@opentelemetry/resources';
-import type { LogRecordProcessor } from '@opentelemetry/sdk-logs';
+import type { LogRecordExporter, LogRecordProcessor } from '@opentelemetry/sdk-logs';
 import { HttpBodyCaptureInstrumentation } from './instrumentation/http-body-capture';
 import { HttpServerCaptureInstrumentation } from './instrumentation/http-server-capture';
 import { emitCall } from './instrumentation/otlp-record';
+import { resolveOtlpLogsEndpoint } from './otlp-endpoint';
+import { withExportFailureWarning } from './export-failure-warning';
 import { SDK_NAME, SDK_VERSION } from './version';
 
 export interface StartOptions {
@@ -12,7 +14,13 @@ export interface StartOptions {
   integration?: string;
   /** service.name resource attribute. Env: OTEL_SERVICE_NAME. */
   serviceName?: string;
-  /** OTLP/HTTP logs endpoint. Env: FLANJ_OTLP_ENDPOINT. Default http://localhost:4318/v1/logs. */
+  /**
+   * OTLP/HTTP **logs** endpoint. A base URL (no path) is normalized by appending
+   * `/v1/logs`; any other path is used as given.
+   *
+   * Env, in order: `FLANJ_OTLP_ENDPOINT`, `OTEL_EXPORTER_OTLP_LOGS_ENDPOINT`,
+   * `OTEL_EXPORTER_OTLP_ENDPOINT`. Default `http://localhost:4318/v1/logs`.
+   */
   otlpEndpoint?: string;
   /** Body capture cap in bytes. Env: FLANJ_BODY_CAP_BYTES. Default 16384. */
   bodyCapBytes?: number;
@@ -33,6 +41,16 @@ export interface FlanjHandle {
   instrumentation: HttpBodyCaptureInstrumentation;
   /** Ingress (server-path) body-capture instrumentation. */
   serverInstrumentation: HttpServerCaptureInstrumentation;
+  /** The resolved integration id emitted as `flanj.integration`. */
+  integration: string;
+  /** The resolved, normalized OTLP/HTTP logs endpoint records are exported to. */
+  endpoint: string;
+  /**
+   * Export everything buffered so far and resolve when it has left the process.
+   * The batch processor's export timer is `unref`'d with a 1s delay, so a
+   * short-lived process **must** flush (or shut down) or it loses its last batch.
+   */
+  flush: () => Promise<void>;
   shutdown: () => Promise<void>;
 }
 
@@ -44,15 +62,19 @@ export interface FlanjHandle {
 export function start(options: StartOptions = {}): FlanjHandle {
   const integration = options.integration ?? process.env.FLANJ_INTEGRATION_ID ?? 'unknown-integration';
   const serviceName = options.serviceName ?? process.env.OTEL_SERVICE_NAME ?? 'flanj-consumer';
-  const endpoint =
-    options.otlpEndpoint ?? process.env.FLANJ_OTLP_ENDPOINT ?? 'http://localhost:4318/v1/logs';
+  const endpoint = resolveOtlpLogsEndpoint(options.otlpEndpoint);
   const bodyCapBytes = options.bodyCapBytes ?? envInt('FLANJ_BODY_CAP_BYTES');
+
+  // Wrap the exporter so the first export failure is not swallowed: OTel routes
+  // export errors to `diag`, and with no diag logger a 404 is zero rows, zero stderr, exit 0.
+  const makeExporter = (): LogRecordExporter =>
+    withExportFailureWarning(new OTLPLogExporter({ url: endpoint }), endpoint);
 
   const processor: LogRecordProcessor =
     options.processor ??
     (options.simpleProcessor
-      ? new SimpleLogRecordProcessor({ exporter: new OTLPLogExporter({ url: endpoint }) })
-      : new BatchLogRecordProcessor({ exporter: new OTLPLogExporter({ url: endpoint }) }));
+      ? new SimpleLogRecordProcessor({ exporter: makeExporter() })
+      : new BatchLogRecordProcessor({ exporter: makeExporter() }));
 
   const loggerProvider = new LoggerProvider({
     resource: resourceFromAttributes({
@@ -93,6 +115,9 @@ export function start(options: StartOptions = {}): FlanjHandle {
     loggerProvider,
     instrumentation,
     serverInstrumentation,
+    integration,
+    endpoint,
+    flush: () => loggerProvider.forceFlush(),
     shutdown: async () => {
       instrumentation.disable();
       serverInstrumentation.disable();
@@ -147,3 +172,8 @@ export type { EdgeClass } from './instrumentation/classify-host';
 export { buildLogAttributes, emitCall } from './instrumentation/otlp-record';
 export type { CapturedCall } from './instrumentation/captured-call';
 export type { HttpBodyCaptureConfig } from './instrumentation/config';
+export {
+  DEFAULT_OTLP_LOGS_ENDPOINT,
+  normalizeOtlpLogsEndpoint,
+  resolveOtlpLogsEndpoint
+} from './otlp-endpoint';
