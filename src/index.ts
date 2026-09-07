@@ -33,6 +33,15 @@ export interface StartOptions {
    * own OTLP endpoint host; add more here (e.g. health-check or metrics hosts).
    */
   ignoreUrls?: readonly (string | RegExp)[];
+  /**
+   * INGRESS: the reverse proxies / load balancers in front of this service, as
+   * IPs or CIDR blocks. `X-Forwarded-For` is believed only from these socket
+   * peers, and the caller is then the hop the proxy appended (rightmost
+   * untrusted). Env: FLANJ_TRUSTED_PROXIES (comma-separated). Default: none —
+   * the header is ignored and the socket peer is the caller, so behind a proxy
+   * every inbound call classifies internal (metadata-only) until this is set.
+   */
+  trustedProxies?: readonly string[];
 }
 
 export interface FlanjHandle {
@@ -64,6 +73,7 @@ export function start(options: StartOptions = {}): FlanjHandle {
   const serviceName = options.serviceName ?? process.env.OTEL_SERVICE_NAME ?? 'flanj-consumer';
   const endpoint = resolveOtlpLogsEndpoint(options.otlpEndpoint);
   const bodyCapBytes = options.bodyCapBytes ?? envInt('FLANJ_BODY_CAP_BYTES');
+  const trustedProxies = options.trustedProxies ?? envList('FLANJ_TRUSTED_PROXIES');
 
   // Wrap the exporter so the first export failure is not swallowed: OTel routes
   // export errors to `diag`, and with no diag logger a 404 is zero rows, zero stderr, exit 0.
@@ -108,6 +118,7 @@ export function start(options: StartOptions = {}): FlanjHandle {
     integration,
     bodyCapBytes,
     ignoreUrls,
+    trustedProxies,
     onCapture
   });
 
@@ -131,6 +142,17 @@ function envInt(key: string): number | undefined {
   if (!raw) return undefined;
   const n = Number.parseInt(raw, 10);
   return Number.isFinite(n) ? n : undefined;
+}
+
+/** A comma-separated env list; undefined when unset or blank. */
+function envList(key: string): readonly string[] | undefined {
+  const raw = process.env[key];
+  if (!raw) return undefined;
+  const items = raw
+    .split(',')
+    .map((s) => s.trim())
+    .filter(Boolean);
+  return items.length > 0 ? items : undefined;
 }
 
 /** `host[:port]` of a URL, or undefined if unparseable. */

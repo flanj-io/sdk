@@ -8,6 +8,8 @@ import { assembleCapturedCall } from './assemble-call';
 import { decodeBody } from './decode-body';
 import { classifyHost, type EdgeClass } from './classify-host';
 import { DEFAULT_BODY_CAP_BYTES, HttpBodyCaptureConfig, isIgnoredUrl } from './config';
+import { resolveIngressPeer } from './resolve-ingress-peer';
+import { TrustedProxies } from './trusted-proxies';
 
 /** LIVE, mutable exports of a core module (see http-body-capture.ts for the why). */
 function builtin(id: 'node:http' | 'node:https'): Record<string, unknown> {
@@ -32,13 +34,33 @@ type HeaderValue = string | string[] | number | undefined;
  * redaction at source; **internal** callers are metadata-only — bodies are NEVER
  * teed, so no raw internal body can exist.
  *
+ * The caller is the SOCKET PEER. `X-Forwarded-For` is believed only when that
+ * peer is a configured trusted proxy (`trustedProxies`), and then the caller is
+ * the hop the proxy appended, not the leftmost one — see `resolveIngressPeer`.
+ * Unconfigured, the header is ignored: it is client-controlled, and honouring it
+ * let any caller pick its own edge class and so whether its bodies were captured.
+ *
  * Everything is wrapped defensively: a capture failure is swallowed and the
  * app's own request handling (which still reads the full, unmodified body) is
  * never disturbed.
  */
 export class HttpServerCaptureInstrumentation extends InstrumentationBase<HttpBodyCaptureConfig> {
+  /**
+   * `config.trustedProxies`, parsed once per config. The base constructor
+   * routes through `setConfig`, so this is populated before any request can be
+   * seen (`declare`: no field initializer may reset it after `super()`).
+   */
+  declare private trusted: TrustedProxies;
+
   constructor(config: HttpBodyCaptureConfig) {
     super(`${SDK_NAME}/instrumentation-http-server-capture`, SDK_VERSION, config);
+  }
+
+  override setConfig(config: HttpBodyCaptureConfig): void {
+    // Parse — and validate — HERE, so an unparseable entry fails at start(),
+    // never inside a request where the swallow-everything guard would hide it.
+    this.trusted = new TrustedProxies(config.trustedProxies);
+    super.setConfig(config);
   }
 
   protected init(): InstrumentationModuleDefinition[] {
@@ -95,11 +117,13 @@ export class HttpServerCaptureInstrumentation extends InstrumentationBase<HttpBo
 
     if (isIgnoredUrl(`${protocol}//${host}${path}`, cfg.ignoreUrls)) return;
 
-    // Classify the CALLER/source: X-Forwarded-For first hop, else the socket peer.
-    const peerHost =
-      firstForwardedHop(req.headers['x-forwarded-for']) ??
-      (req.socket as unknown as { remoteAddress?: string } | undefined)?.remoteAddress ??
-      '';
+    // Classify the CALLER/source: the socket peer — or, when that peer is a
+    // trusted proxy, the hop the proxy appended to X-Forwarded-For.
+    const peerHost = resolveIngressPeer({
+      socketAddress: (req.socket as unknown as { remoteAddress?: string } | undefined)?.remoteAddress,
+      forwardedFor: req.headers['x-forwarded-for'],
+      trustedProxies: this.trusted
+    });
     const edgeClass: EdgeClass = classifyHost(peerHost);
     const captureBodies = edgeClass === 'external';
 
@@ -232,8 +256,8 @@ export class HttpServerCaptureInstrumentation extends InstrumentationBase<HttpBo
     const resBody = decodeBody(resBuf.toBuffer(), headerValue(responseHeaders['content-encoding']), cap, resBuf.truncated);
 
     // The caller's socket address — kept alongside peerHost even when a
-    // forwarded header supplied the identity (behind a proxy this is the LB's
-    // address; still useful transport detail).
+    // trusted proxy's forwarded header supplied the identity (then it is the
+    // proxy's address; still useful transport detail).
     const peerAddr = (req.socket as unknown as { remoteAddress?: string } | undefined)?.remoteAddress;
 
     return assembleCapturedCall({
@@ -295,15 +319,6 @@ function recordHeader(sink: Record<string, HeaderValue>, key: unknown, value: un
   if (Array.isArray(value)) sink[key.toLowerCase()] = value.map((v) => String(v));
   else if (typeof value === 'number') sink[key.toLowerCase()] = value;
   else sink[key.toLowerCase()] = String(value);
-}
-
-/** First hop of an `X-Forwarded-For` chain — the original client. */
-function firstForwardedHop(xff: string | string[] | undefined): string | undefined {
-  if (xff === undefined) return undefined;
-  const v = Array.isArray(xff) ? xff[0] : xff;
-  if (!v) return undefined;
-  const first = v.split(',')[0]?.trim();
-  return first ? first : undefined;
 }
 
 function safeAppend(buf: CappedBuffer, chunk: unknown, encoding?: BufferEncoding): void {

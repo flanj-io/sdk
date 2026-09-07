@@ -38,6 +38,7 @@ then open <http://127.0.0.1:5335> and look at the **Traffic** tab: your call sho
 | `OTEL_SERVICE_NAME` | `flanj-consumer` | The `service.name` resource attribute. |
 | `FLANJ_BODY_CAP_BYTES` | `16384` | Per-body capture cap, in bytes. |
 | `FLANJ_IGNORE_URLS` | — | Comma-separated substrings; a matching URL is never captured. The exporter's own host is always ignored. |
+| `FLANJ_TRUSTED_PROXIES` | — | Comma-separated IPs / CIDR blocks of the reverse proxies or load balancers in front of your service (`10.0.0.0/8,fd00::/8`). Inbound calls are classified by their **socket peer**; `X-Forwarded-For` is honoured only from these peers, and the caller is then the hop your proxy appended (the rightmost one that is not itself a trusted proxy), never the leftmost. Unset, the header is ignored — so **behind a proxy every inbound call classifies internal (metadata-only) until you set this**. An entry that is not an IP or CIDR fails `start()`. |
 | `FLANJ_FLUSH_TIMEOUT_MS` | `5000` | Upper bound on the exit/`SIGTERM` flush, so a wedged collector can never make your process unkillable. |
 | `FLANJ_QUIET` | — | `1` silences the one-line startup notice. |
 
@@ -80,6 +81,12 @@ directions: calls your service **makes** (egress) and calls it **receives** (ing
 
 Bodies are captured only on **external** edges and only for JSON/text/form content types; internal edges
 are metadata-only. See [REDACTION.md](REDACTION.md) for what is redacted and how.
+
+**Inbound calls behind a reverse proxy.** The caller of an inbound call is its socket peer — behind a load
+balancer that is the balancer's private address, so every inbound edge classifies **internal** and no bodies
+are captured. `X-Forwarded-For` is client-controlled, so the SDK does not believe it by default: set
+`FLANJ_TRUSTED_PROXIES` to your proxies' addresses (or `trustedProxies` in `start()`) and the header is
+honoured from exactly those peers, taking the hop your proxy appended rather than whatever the client sent.
 
 ## Also in this distribution
 

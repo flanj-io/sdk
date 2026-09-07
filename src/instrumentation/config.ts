@@ -31,6 +31,19 @@ export interface HttpBodyCaptureConfig extends InstrumentationConfig {
    * capture→export→capture feedback loop against a co-located collector).
    */
   ignoreUrls?: readonly (string | RegExp)[];
+  /**
+   * INGRESS only: the reverse proxies / load balancers in front of this
+   * service, as IPs or CIDR blocks (`10.0.0.0/8`, `fd00::/8`, `::1`). The
+   * caller of an inbound request is its socket peer; `X-Forwarded-For` is
+   * believed ONLY when that peer is in this set, and then the caller is the hop
+   * our own proxy appended (the rightmost hop that is not itself a trusted
+   * proxy) — never the leftmost, which the client chose. Default: none — the
+   * header is ignored, because it is client-controlled and would let any caller
+   * pick its own edge class (and so whether its bodies are captured). Behind a
+   * proxy, leave this unset and every inbound caller classifies internal.
+   * An entry that is not an IP or CIDR throws at construction.
+   */
+  trustedProxies?: readonly string[];
   /** Sink for each completed, redacted call. Wired to the OTLP logger by start(). */
   onCapture?: (call: CapturedCall) => void;
 }
