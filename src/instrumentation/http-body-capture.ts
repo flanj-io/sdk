@@ -9,12 +9,17 @@ import { assembleCapturedCall } from './assemble-call';
 import { decodeBody } from './decode-body';
 import { classifyHost, type EdgeClass } from './classify-host';
 import { DEFAULT_BODY_CAP_BYTES, HttpBodyCaptureConfig, isIgnoredUrl } from './config';
+import { syncBuiltinEsmExports } from './sync-builtin-esm-exports';
 
 /**
  * Return the LIVE, mutable exports of a core module. `import * as http` under an
  * ESM/esbuild transform yields a read-only namespace whose `request` property is
  * non-configurable — shimmer's defineProperty then fails. `process.getBuiltinModule`
  * (Node 22.3+) returns the real singleton exports object, which is patchable.
+ *
+ * Patching it reaches every property-at-call-time caller; an ESM named import or
+ * namespace taken before `enable()` additionally needs the facade re-sync that
+ * `enable()`/`disable()` perform (see `sync-builtin-esm-exports.ts`).
  */
 function builtin(id: 'node:http' | 'node:https'): Record<string, unknown> {
   const get = (process as unknown as { getBuiltinModule(id: string): Record<string, unknown> }).getBuiltinModule;
@@ -42,7 +47,9 @@ export class HttpBodyCaptureInstrumentation extends InstrumentationBase<HttpBody
 
   // We patch the (already-loaded) core http/https modules directly in enable()
   // rather than via require-in-the-middle, which does not re-fire for core
-  // modules loaded before the instrumentation is registered.
+  // modules loaded before the instrumentation is registered — and the ESM
+  // counterpart (import-in-the-middle) only works behind a loader hook that
+  // was registered before any user module, i.e. it needs the preload anyway.
   protected init(): InstrumentationModuleDefinition[] {
     return [];
   }
@@ -50,6 +57,9 @@ export class HttpBodyCaptureInstrumentation extends InstrumentationBase<HttpBody
   override enable(): void {
     this.patchModule(builtin('node:http'), 'http:');
     this.patchModule(builtin('node:https'), 'https:');
+    // Push the patched `request`/`get` into the ESM facades too, so a module
+    // that did `import { request } from 'node:http'` BEFORE start() sees them.
+    syncBuiltinEsmExports();
   }
 
   override disable(): void {
@@ -58,6 +68,8 @@ export class HttpBodyCaptureInstrumentation extends InstrumentationBase<HttpBody
         if (typeof mod[name] === 'function') this._unwrap(mod, name);
       }
     }
+    // ...and hand the originals back to those same ESM bindings.
+    syncBuiltinEsmExports();
   }
 
   private patchModule(mod: Record<string, unknown>, protocol: string): void {

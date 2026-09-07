@@ -46,13 +46,27 @@ order, if `FLANJ_OTLP_ENDPOINT` is unset — so a host already configured for OT
 
 ### ESM, CJS, and shutdown
 
-`-r @flanj/sdk/register` works for **both** CommonJS and ESM entrypoints; `node --import @flanj/sdk/register`
-works too. From code, a single side-effecting import at the very top of your entrypoint is equivalent:
+The preload works for **both** CommonJS and ESM entrypoints, and is the recommended form because it runs
+before any of your modules load:
+
+```bash
+node -r @flanj/sdk/register app.js          # CJS or ESM entrypoint
+node --import @flanj/sdk/register app.mjs   # the ESM-native flag; equivalent
+```
+
+From code, a single side-effecting import is equivalent — put it **first** in your entrypoint:
 
 ```js
 import '@flanj/sdk/register';   // ESM
 require('@flanj/sdk/register'); // CJS
 ```
+
+Every way of reaching `node:http`/`node:https` is captured: `http.request(...)` on a `require`d or
+default-imported module, an `import * as http` namespace, and ESM named imports —
+`import { request, get } from 'node:http'` — **including bindings a module took before the SDK started**
+(the SDK re-syncs Node's builtin ESM bindings whenever it patches or unpatches). What can never be captured
+is a call made before the SDK started, or a function copied into a local variable before then
+(`const r = http.request`), which no patch can reach — hence the preload.
 
 The register entry flushes on `beforeExit` and on `SIGTERM`/`SIGINT` (then re-raises the signal), so a
 one-shot script and a pod's last batch both deliver. If you start the SDK yourself instead, you own that:

@@ -60,6 +60,17 @@ describe('README — first-run essentials', () => {
   });
 
   /**
+   * The load patterns are part of the contract: the `--import` preload, and that
+   * an ESM named import of node:http taken BEFORE the SDK started is captured
+   * (test/integration/esm-named-import.spec.ts proves it; the README must say it).
+   */
+  it('documents the --import preload and the ESM named-import form', () => {
+    expect(readme).toContain('node --import @flanj/sdk/register');
+    expect(readme).toContain("import { request, get } from 'node:http'");
+    expect(lower).toContain('before the sdk started');
+  });
+
+  /**
    * The load-bearing one: the gap between "the HTTP calls your service makes"
    * and what is actually instrumented must be stated, by name.
    */
