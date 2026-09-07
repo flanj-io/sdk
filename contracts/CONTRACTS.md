@@ -150,6 +150,26 @@ A store that does not recognise a record type drops it silently (it never become
 store exporter requires method + route). Unknown types are therefore forward-compatible; upgrade
 the store pod before the fronts.
 
+**Collector-internal attributes on `"call"` records — the per-call verdict** *(2026-09-07; additive,
+`schema_version` stays 1; never emitted by the SDK)*. The drift processor stamps EVERY call record that
+passes through it — on every branch of its per-call path, the ones that validate nothing included — with
+what it did. In the tiered topology the stamp crosses the front→store hop with the record.
+
+| Attribute | Type | Notes |
+|---|---|---|
+| `flanj.validated` | string | `"clean"` — validated against its contract, nothing found · `"drifted"` — validated, and the call departed from the contract (a `live-vs-spec` / `output_mismatch` finding names it) · `"not-validated"` — the processor saw the call and explicitly could not validate it. **Absent** on a record no drift processor saw (an older front; a pipeline without `flanjdrift`); the store decodes absence as `"unknown"` — never as clean. |
+| `flanj.validated.reason` *(optional)* | string | Present iff `flanj.validated` is `"not-validated"`: the FIRST gate that stopped validation, in the processor's own order. `no-contract` (nothing bound to the call's edge in the processor's cache at that moment — nothing uploaded, an upload it has not loaded yet, a tiered front that cannot read the store pod, no self contract configured; MCP: no `tools/list` snapshot observed yet) · `not-routable` (a bound document does not describe the call — method + path, or the request could not be reconstructed) · `response-not-in-contract` (the document routes the call but declares neither this response's status nor its media type — an `application/problem+json` body under a contract that declares `application/json`, an undocumented status — so there was no schema to compare the body to; not a finding kind yet, and never clean) · `body-not-decodable` (the body could not be read or decoded as its declared media type) · `validator-error` (refused for a reason the collector does not classify) · MCP, in `DetectCall` order: `tool-not-listed` · `input-required` · `no-output-contract` · `error-result` · `task-handle` · `result-not-json`. Readers tolerate values they do not know. |
+
+*Why a stamp.* Until 2026-09-07 the collector UI DERIVED "was this call checked?" from the store's
+contract list — a document bound to the call's host, bound before the call was captured. Both are
+facts about the store, and the drift processor learns of an upload later than the store does: its
+spec cache refreshes on an announced kick floored at 5 s, a tiered front on a 10 s ticker, a front
+with the wrong `store_pod_token` never. A drifting charge driven inside that window went through the
+processor unvalidated, produced no finding and no drifted flag, and rendered CONFORMING — beside the
+healthy front's DRIFTED for the same charge on the tiered shape, and permanently on the mis-tokened
+front. Only the process that validates can say whether it did. Readers treat a missing or
+`not-validated` stamp as **not checked** — never conforming.
+
 Canonical example: [`v1/golden-otlp-call.json`](./v1/golden-otlp-call.json) — one drifting charge call
 (response `amount` returned as the string `"1200"` where the spec declares integer), card number already
 redacted. The collector's contract test ingests this and must deterministically emit the expected Finding.
@@ -202,6 +222,18 @@ JSON Schema: [`v1/redacted-call.schema.json`](./v1/redacted-call.schema.json). S
                                           "containsASCIIExtendedChars": false } } ] }
 }
 ```
+
+Three **store-owned, read-API-only** fields ride on the STORED call (`GET /api/calls`, `GET
+/api/calls/…`) and never promote to the CP — readers tolerate them via `additionalProperties: true`:
+
+| Field | Type | Meaning |
+|---|---|---|
+| `drifted` | bool | THIS call produced a per-call finding (`live-vs-spec` on REST, `output_mismatch` on MCP). Set by the store on every occurrence, and on insert from `validated: "drifted"`. Omitted when false. |
+| `validated` *(2026-09-07)* | string | The drift processor's own verdict, from `flanj.validated` (§2): `"clean"` \| `"drifted"` \| `"not-validated"` \| `"unknown"` (the record reached the store carrying no verdict). **Absent** on a row stored before verdicts were recorded — the ONLY case a reader may fall back to inferring coverage from the contract list. |
+| `validated_reason` *(2026-09-07)* | string | The gate that stopped validation, from `flanj.validated.reason` (§2). Present iff `validated` is `"not-validated"`. |
+
+The collector UI's contract chip reads `validated`, never the contract list: a call with no verdict
+is `not checked`, never CONFORMING.
 
 ---
 
