@@ -95,7 +95,10 @@ another's traffic. The rule is idempotent, and the collector applies the identic
    set on `CapturedCall`, an attribute, or anything exported — not even transiently. This is asserted
    by the integration test's "no raw body survived anywhere" case.
 6. **Content-type gate.** If the direction's content-type is not JSON/text/form, the body is dropped
-   entirely (empty string), not redacted-and-kept. Binary/multipart never lands. On the INGRESS path the
+   entirely (empty string), not redacted-and-kept. Binary/multipart never lands. "JSON" is decided on the
+   media type alone (parameters stripped) OR its RFC 6839 base type, so `application/problem+json`,
+   `application/vnd.api+json`, `application/hal+json`, … gate exactly as `application/json` (`config.ts`;
+   only the `+json` suffix is mapped until the default list grows an XML entry). On the INGRESS path the
    type is derived from the recorded `writeHead` headers merged UNDER `res.getHeaders()`: Node's
    `writeHead(status, headers)` fast path never populates the outgoing-header map when `setHeader` was
    not called first, so `res.getHeader('content-type')` alone reads empty for every Fastify-shaped app
