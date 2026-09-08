@@ -32,6 +32,9 @@ Redaction happens here, at the call site, **before** anything is attached or exp
   (`src/instrumentation/builtin-module.spec.ts`). Change all three or none. Develop on 22+; CI runs 23.
 - `yarn install` · `yarn build` · `yarn test` (unit + redaction vectors + OTLP contract + pack manifest) ·
   `yarn test:watch` · `yarn lint` · `bash scripts/smoke-pack.sh` (packs, installs the tarball into a scratch app).
+- `@opentelemetry/sdk-trace-base` / `-node` are devDeps of the coexistence fixtures, pinned **exactly** to the
+  version `@opentelemetry/sdk-node` already resolves: a `^` range resolves a second, newer OTel core into the
+  tree and the fixtures then run against a different core than the SDK does.
 - **Publishing goes through `yarn npm publish`** (it rewrites the `workspace:` protocol; plain `npm publish` does not),
   and `@flanj/redaction-patterns` must be published **first** — the SDK tarball depends on it by plain version.
 
@@ -53,7 +56,10 @@ src/
     trusted-proxies.ts             # the peers whose X-Forwarded-For ingress may believe (IPs/CIDRs; default none)
     resolve-ingress-peer.ts        # ingress caller: socket peer, or the hop a TRUSTED proxy appended (never the leftmost)
     otlp-record.ts                 # build the flanj.* OTLP log record from a CapturedCall
-    builtin-module.ts              # the LIVE core exports both paths patch + the Node-version gate (start() throws below it)
+    wrap-layer.ts                  # patch by STACKING on the wrapper already there (coexist with OTel's http instr.)
+    flanj-instrumentation.ts       # the base both capture classes extend — no OTel module hooks, no RITM singleton
+    builtin-module.ts              # the LIVE core exports both paths patch (accessor snapshotted at load) + the
+                                   # Node-version gate (start() throws below it)
     captured-call.ts, capped-buffer.ts, http-args.ts, config.ts
   mcp/                             # v0.5 Step B: MCP CLIENT instrumentation — see mcp/CLAUDE.md
     instrument-mcp-client.ts       # instrumentMcpClient(client): wrap listTools/callTool, pass-through, both package lines
@@ -77,8 +83,10 @@ packages/
     test/no-network.spec.ts        # zero-external-calls sentinel
     test/property.spec.ts, recognizers.spec.ts, redact-headers.spec.ts
 test/integration/                  # real in-process http calls end-to-end (client, server, ignore-self-export,
-                                   # otlp-endpoint 404-is-not-silent, register-flush spawning REAL children)
-test/fixtures/                     # plain-CJS child scripts driven by test/integration/register-flush.spec.ts
+                                   # otlp-endpoint 404-is-not-silent, register-flush + otel-coexistence spawning
+                                   # REAL children — the latter proves OTel's http spans survive both orders)
+test/fixtures/                     # child scripts the integration specs spawn: plain-CJS (register-flush),
+                                   # esm-named-import/, otel-coexistence/ (OTel HttpInstrumentation + Flanj)
 test/packaging.spec.ts             # asserts the REAL `yarn pack` file list (dist entries in; src/test/contracts out)
 test/readme.spec.ts                # asserts the README's first-run floor incl. the Not-captured list (fetch/undici)
 scripts/smoke-pack.sh              # a stranger's first run: pack -> npm install the tarball -> require ./register
@@ -98,6 +106,11 @@ REDACTION.md                       # the floor's design: composed validators, ow
    is undone before redaction, and a coding we cannot undo stores no body rather than an unscanned frame.
 4. **Emit the exact `flanj.*` convention** in `contracts/CONTRACTS.md` §2. The emitted record must match
    `contracts/golden-otlp-call.json`.
+5. **Coexist with the app's OpenTelemetry.** Patching `node:http` must STACK on whatever is already
+   installed (`instrumentation/wrap-layer.ts`) — never `isWrapped → _unwrap → wrap`, and never construct an
+   OTel `InstrumentationBase`, whose require-in-the-middle singleton caches core modules and silences
+   `@opentelemetry/instrumentation-http`. Both failure modes were silent; both are locked by
+   `test/integration/otel-coexistence.spec.ts`.
 
 ## Contract
 
