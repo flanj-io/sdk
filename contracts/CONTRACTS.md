@@ -150,6 +150,26 @@ A store that does not recognise a record type drops it silently (it never become
 store exporter requires method + route). Unknown types are therefore forward-compatible; upgrade
 the store pod before the fronts.
 
+**Collector-internal attributes on `"call"` records — the per-call verdict** *(2026-09-07; additive,
+`schema_version` stays 1; never emitted by the SDK)*. The drift processor stamps EVERY call record that
+passes through it — on every branch of its per-call path, the ones that validate nothing included — with
+what it did. In the tiered topology the stamp crosses the front→store hop with the record.
+
+| Attribute | Type | Notes |
+|---|---|---|
+| `flanj.validated` | string | `"clean"` — validated against its contract, nothing found · `"drifted"` — validated, and the call departed from the contract (a `live-vs-spec` / `output_mismatch` finding names it) · `"not-validated"` — the processor saw the call and explicitly could not validate it. **Absent** on a record no drift processor saw (an older front; a pipeline without `flanjdrift`); the store decodes absence as `"unknown"` — never as clean. |
+| `flanj.validated.reason` *(optional)* | string | Present iff `flanj.validated` is `"not-validated"`: the FIRST gate that stopped validation, in the processor's own order. `no-contract` (nothing bound to the call's edge in the processor's cache at that moment — nothing uploaded, an upload it has not loaded yet, a tiered front that cannot read the store pod, no self contract configured; MCP: no `tools/list` snapshot observed yet) · `not-routable` (a bound document does not describe the call — method + path, or the request could not be reconstructed) · `status-undeclared` (the document routes the call but declares no response for this status — nothing to compare the body to; not a finding kind yet, and never clean) · `media-type-undeclared` (the status is declared via a `4XX`/`5XX` **range** or **only via `default`**, and not with this media type — a `502 text/html` gateway page under a contract whose `default` response declares `application/json`; same posture, and permanent: a `default` response is a catch-all, so an unexpected media type on it is not evidence that the provider breached anything. A status declared by **exact code** with an undeclared media type is NOT this reason: flanj-io/collector#44 makes it a `live-vs-spec` finding, rule `content-type-mismatch` — the provider's own published response shape departed — and the call is stamped `drifted`. #44 also validates an RFC 6839 `+json` body against the declared `application/json` schema, `default` included, before any of these gates) · `body-not-decodable` (the body could not be read or decoded as its declared media type) · `response-header-missing` (the document requires a response header the captured call does not carry — headers reach the collector through the SDK allowlist — so the validator stopped before the body) · `no-schema` (the validator had nothing to compare: a HEAD or redirect status it skips, an operation with no responses, a declared response with no body content, or a media type declared without a schema — never clean) · `validator-error` (refused for a reason the collector does not classify) · MCP, in `DetectCall` order: `tool-not-listed` · `input-required` · `no-output-contract` · `error-result` · `task-handle` · `result-not-json`. Readers tolerate values they do not know. |
+
+*Why a stamp.* Until 2026-09-07 the collector UI DERIVED "was this call checked?" from the store's
+contract list — a document bound to the call's host, bound before the call was captured. Both are
+facts about the store, and the drift processor learns of an upload later than the store does: its
+spec cache refreshes on an announced kick floored at 5 s, a tiered front on a 10 s ticker, a front
+with the wrong `store_pod_token` never. A drifting charge driven inside that window went through the
+processor unvalidated, produced no finding and no drifted flag, and rendered CONFORMING — beside the
+healthy front's DRIFTED for the same charge on the tiered shape, and permanently on the mis-tokened
+front. Only the process that validates can say whether it did. Readers treat a missing or
+`not-validated` stamp as **not checked** — never conforming.
+
 Canonical example: [`v1/golden-otlp-call.json`](./v1/golden-otlp-call.json) — one drifting charge call
 (response `amount` returned as the string `"1200"` where the spec declares integer), card number already
 redacted. The collector's contract test ingests this and must deterministically emit the expected Finding.
@@ -202,6 +222,18 @@ JSON Schema: [`v1/redacted-call.schema.json`](./v1/redacted-call.schema.json). S
                                           "containsASCIIExtendedChars": false } } ] }
 }
 ```
+
+Three **store-owned, read-API-only** fields ride on the STORED call (`GET /api/calls`, `GET
+/api/calls/…`) and are store-owned facts: a flag body carries them as part of the call record (the CP ignores them — its schema tolerates them via `additionalProperties: true`) and no reader may treat them as CP-verified:
+
+| Field | Type | Meaning |
+|---|---|---|
+| `drifted` | bool | THIS call produced a per-call finding (`live-vs-spec` on REST, `output_mismatch` on MCP). Set by the store on every occurrence, and on insert from `validated: "drifted"`. Omitted when false. |
+| `validated` *(2026-09-07)* | string | The drift processor's own verdict, from `flanj.validated` (§2): `"clean"` \| `"drifted"` \| `"not-validated"` \| `"unknown"` (the record reached the store carrying no verdict). **Absent** on a row stored before verdicts were recorded — the ONLY case a reader may fall back to inferring coverage from the contract list. |
+| `validated_reason` *(2026-09-07)* | string | The gate that stopped validation, from `flanj.validated.reason` (§2). Present iff `validated` is `"not-validated"`. |
+
+The collector UI's contract chip reads `validated`, never the contract list: a call with no verdict
+is `not checked`, never CONFORMING.
 
 ---
 
@@ -517,7 +549,8 @@ is deliberately unaffected: one document per deployment, not one per vendor.
 | `consumer_display_name` *(optional)* | human name of this consumer org, e.g. `Acme Consumer Ltd`; sent on the flag. |
 | `self_spec_path` *(optional)* | the OpenAPI spec THIS org publishes as a provider; validates INBOUND (server-direction) responses against the org's own contract |
 | `self_integration_id` *(optional)* | labels self-spec findings (default `self`); must differ from `integration_id` |
-| `cp_base_url` | control-plane base URL for the flag POST |
+| `cp_base_url` | control-plane base URL the COLLECTOR's own requests go to (register/me, flags, thread routes, the syncs). May be in-network — a docker service name, a k8s Service, a VPC-private ingress — because only the collector has to reach it; see `cp_public_url` for the browser's side |
+| `cp_public_url` *(optional, flanjui — 2026-09-07)* | the control-plane origin the OPERATOR'S BROWSER can open: the base of the local UI's one link out, `dashboard_url` on the collector's `GET /api/connect` (emitted only while Connected; the collector composes the `/d` path). A link built from an in-network `cp_base_url` is dead off-host — the launch-week defect. Unset: the link falls back to `cp_base_url` only when its host is not obviously non-public (loopback / private IP / single-label / `.local` `.internal` `.svc` `.cluster.local` `.test` `.example`-style suffixes), otherwise `dashboard_url` is omitted and the UI keeps the pill a Settings button. Validated at boot: absolute `http(s)` URL, no credentials. Never logged. The `/api/connect` shape is unchanged — `dashboard_url` was already optional; only its presence rule narrowed |
 | `cp_deploy_token` | static Bearer token (the only outbound auth) |
 | `body_cap_bytes` | capture cap, default `16384` |
 | `backend` | store backend: `sqlite` (default — embedded, one pod per db file) or `postgres` (shared external DB; multiple collector pods may write to one database) |
@@ -526,9 +559,9 @@ is deliberately unaffected: one document per deployment, not one per vendor.
 | `window_max_rows` / `window_max_bytes` | rolling-window ceilings (with `backend=postgres`, set identically on every pod sharing the database) |
 | `finding_sync` | *(flanjui, bool, default `true` — slice2-2026-08-28)* the background finding-shape sync to the CP (`POST /api/v1/findings`, §5): every 15s, when a collector key exists, the UI extension sends the current findings **shape-only** (`expected`/`actual`/`detail` stripped at source). `false` disables that POST entirely. It governs the findings egress ONLY — the directory-name refresh that rides the same ticker has its own switch, `directory_sync` (v1p1-2026-08-31). |
 | `directory_sync` | *(flanjui, bool, default `true` — v1p1-2026-08-31)* the background **directory refresh** — the vendor-directory down-channel, which carries display names today: on the SAME 15s ticker as `finding_sync`, when a collector key exists, the UI extension does one conditional full-table **GET** of the directory display-name table (`GET /api/v1/directory`, ETag / `If-None-Match`; `304` = no-op) and stores the response for local name resolution. It is a pure FETCH — this collector's own edges, peer hosts and domains are **never sent** in this request, there is no per-edge or per-miss lookup, and nothing about the deployment's dependency graph leaves on this path. `false` disables the refresh only (the findings sync is unaffected); names still resolve offline from the **baked directory seed** shipped in the collector image, **plus whatever table was already pulled** — turning the switch off stops future fetches, it does not clear a table fetched earlier, so a previously-connected collector keeps serving those names (frozen, and going stale) until the store is reset. |
-| `store_pod_endpoint` *(optional, flanjdrift)* | base URL of the store pod's `spec_endpoint`. Set on a FRONT of the tiered topology only: a front runs drift but owns no store, so this is how uploaded contracts reach it. Empty everywhere else, where the co-located store is read in-process |
+| `store_pod_endpoint` *(optional, flanjdrift)* | base URL of the store pod's `spec_endpoint`. Set on a FRONT of the tiered topology only: a front runs drift but owns no store, so this is how uploaded contracts — and, since 2026-09-07, the observed MCP `tools/list` snapshots every front forwards, i.e. the org-wide MCP baseline — reach it. Empty everywhere else, where the co-located store is read in-process |
 | `store_pod_token` *(optional, flanjdrift)* | bearer token presented to `store_pod_endpoint`; must match the store pod's `spec_token`. Use `${env:…}`; never logged |
-| `spec_endpoint` *(optional, flanjstore)* | intra-cluster bind for the read-only CONTRACT endpoint (`GET /internal/contracts`, `GET /internal/contracts/doc`). Set on the tiered topology's STORE POD so fronts can read uploaded contracts. Contracts only — no calls, no findings, no settings — and never the loopback UI |
+| `spec_endpoint` *(optional, flanjstore)* | intra-cluster bind for the read-only CONTRACT endpoint (`GET /internal/contracts`, `GET /internal/contracts/doc`). Set on the tiered topology's STORE POD so fronts can read provider contracts bound to an edge: uploaded OpenAPI documents and observed MCP `tools/list` snapshots (format `mcp`, since 2026-09-07). Contracts only — no calls, no findings, no settings, never the self contract — and never the loopback UI |
 | `spec_token` *(optional, flanjstore)* | bearer token `spec_endpoint` requires. Use `${env:…}`; never logged |
 | `ui_endpoint` | localhost bind for the UI extension, default `127.0.0.1:5335` |
 | `otlp_endpoint` | OTLP receiver bind, default `0.0.0.0:4318` |
@@ -537,3 +570,10 @@ is deliberately unaffected: one document per deployment, not one per vendor.
 flanj keys: a front's forwarding is the core OpenTelemetry `otlphttp` exporter (upstream's keys —
 `endpoint` = the store pod's base URL, e.g. `http://flanj-store:4318`), and the store pod runs the
 same `flanjstore` / `flanjui` keys above. Role is chosen by which config file runs.*
+
+*The `flanjstore` EXPORTER (2026-09-07) likewise adds no flanj keys: it accepts upstream's
+`sending_queue` and `retry_on_failure` sections (the exporterhelper keys `otlphttp` has), both ON by
+default — a bounded in-memory queue (64 MiB, rejecting when full) and backoff retry (1s→30s, 15 min)
+on a failed store write — so `flanjstore: {}` keeps every default. The store is idempotent on
+`flanj.call.id` and on the finding id, so a retried batch never duplicates a row or an
+`occurrence_count`.*
