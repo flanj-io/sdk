@@ -1,8 +1,14 @@
 {
   "name": "@flanj/sdk",
-  "version": "0.0.1",
+  "version": "0.1.0",
   "description": "Thin OpenTelemetry-JS distribution: HTTP request/response body capture with redaction-at-source, exporting the flanj.* OTLP convention to a Flanj collector.",
   "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/flanj-io/sdk.git"
+  },
+  "homepage": "https://github.com/flanj-io/sdk#readme",
+  "bugs": "https://github.com/flanj-io/sdk/issues",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
   "files": [
@@ -53,7 +59,7 @@
     }
   },
   "dependencies": {
-    "@flanj/redaction-patterns": "workspace:*",
+    "@flanj/redaction-patterns": "workspace:^",
     "@opentelemetry/api": "^1.9.0",
     "@opentelemetry/api-logs": "^0.221.0",
     "@opentelemetry/exporter-logs-otlp-http": "^0.221.0",

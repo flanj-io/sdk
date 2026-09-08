@@ -1,15 +1,25 @@
 {
   "name": "@flanj/redaction-patterns",
-  "version": "0.0.1",
+  "version": "0.1.0",
   "description": "The Flanj redaction floor: composed, hardened validators (Luhn PAN, email, IBAN, phone) behind a swappable Recognizer/Redactor interface; deep-traversal, base64 decode-then-scan, PAN/PII/secret redaction at source. Governed by the cross-repo redaction contracts.",
   "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/flanj-io/sdk.git",
+    "directory": "packages/redaction-patterns"
+  },
+  "homepage": "https://github.com/flanj-io/sdk/tree/main/packages/redaction-patterns#readme",
+  "bugs": "https://github.com/flanj-io/sdk/issues",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
   "files": [
-    "dist",
-    "README.md"
+    "./dist",
+    "!./dist/**/*.spec.*",
+    "./README.md",
+    "./LICENSE"
   ],
   "scripts": {
+    "prepack": "yarn build",
     "build": "tsc -p tsconfig.json",
     "test": "vitest run",
     "test:watch": "vitest"
@@ -19,7 +29,8 @@
     "validator": "^13.15.35"
   },
   "devDependencies": {
-    "@types/validator": "^13.15.2"
+    "@types/validator": "^13.15.2",
+    "typescript": "^5.7.0"
   },
   "keywords": [
     "redaction",
