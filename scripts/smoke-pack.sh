@@ -13,7 +13,7 @@ work="$(mktemp -d)"
 trap 'rm -rf "$work"' EXIT
 
 cd "$repo_root"
-yarn build   # the workspace package has no prepack of its own
+yarn build   # both packs run their own prepack too; this just warms the build
 yarn workspace @flanj/redaction-patterns pack -o "$work/redaction-patterns.tgz"
 yarn pack -o "$work/flanj-sdk.tgz"
 
