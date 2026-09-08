@@ -79,8 +79,9 @@ directions: calls your service **makes** (egress) and calls it **receives** (ing
 - **`node:http2`.**
 - **Webhooks you receive** — see Roadmap below.
 
-Bodies are captured only on **external** edges and only for JSON/text/form content types; internal edges
-are metadata-only. See [REDACTION.md](REDACTION.md) for what is redacted and how.
+Bodies are captured only on **external** edges and only for JSON/text/form content types — JSON includes
+every RFC 6839 `+json` media type (`application/problem+json`, `application/vnd.api+json`, `application/hal+json`,
+…); internal edges are metadata-only. See [REDACTION.md](REDACTION.md) for what is redacted and how.
 
 **Inbound calls behind a reverse proxy.** The caller of an inbound call is its socket peer — behind a load
 balancer that is the balancer's private address, so every inbound edge classifies **internal** and no bodies
