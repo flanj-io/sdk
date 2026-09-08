@@ -24,8 +24,16 @@ jobs:
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
         run: |
+          # --no-merges: a merge commit contributes no authored content — the
+          # commits it brings in carry their own sign-offs — and nothing that
+          # creates one signs it: not GitHub's "Update branch" button, not the
+          # `git merge origin/main` this workspace prescribes for resolving a
+          # conflict. Without this, syncing a PR with main reds its own DCO
+          # check, and the only way out is force-pushing an amended merge onto
+          # a shared branch. The upstream DCO app skips merges for the same
+          # reason.
           missing=0
-          for c in $(git rev-list "$BASE_SHA..$HEAD_SHA"); do
+          for c in $(git rev-list --no-merges "$BASE_SHA..$HEAD_SHA"); do
             if ! git log -1 --format=%B "$c" | grep -qiE '^Signed-off-by: .+ <.+@.+>'; then
               echo "::error::commit $c is missing a Signed-off-by trailer (use git commit -s)"
               missing=1
