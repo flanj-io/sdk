@@ -94,3 +94,39 @@ describe('yarn pack — the published tarball', () => {
     expect(rootFiles.sort()).toEqual(['LICENSE', 'README.md', 'REDACTION.md', 'package.json']);
   });
 });
+
+/**
+ * `src/version.ts` hardcodes the version a second time. It is what the OTLP
+ * logger scope and the register banner report, so when it drifts from
+ * package.json every captured record is stamped with a version that was never
+ * published — silently, since nothing else reads it. The 0.0.1 -> 0.1.0 launch
+ * bump had to be made by hand in both files.
+ */
+describe('the version is stated once, in two places that must agree', () => {
+  const repoManifest = JSON.parse(readFileSync(resolve(repoRoot, 'package.json'), 'utf8')) as {
+    version: string;
+  };
+
+  it('matches SDK_VERSION in src/version.ts', async () => {
+    const { SDK_VERSION, SDK_NAME } = (await import('../src/version')) as {
+      SDK_VERSION: string;
+      SDK_NAME: string;
+    };
+    expect(SDK_VERSION).toBe(repoManifest.version);
+    expect(SDK_NAME).toBe('@flanj/sdk');
+  });
+
+  it('keeps the workspace dependency on the redaction floor resolvable', () => {
+    // `yarn npm publish` rewrites `workspace:^` to a caret range over the
+    // floor's own version. A mismatched major/minor there publishes an SDK
+    // that cannot resolve its only first-party dependency.
+    const root = JSON.parse(readFileSync(resolve(repoRoot, 'package.json'), 'utf8')) as {
+      dependencies: Record<string, string>;
+    };
+    const floor = JSON.parse(
+      readFileSync(resolve(repoRoot, 'packages/redaction-patterns/package.json'), 'utf8')
+    ) as { version: string };
+    expect(root.dependencies['@flanj/redaction-patterns']).toMatch(/^workspace:/);
+    expect(floor.version).toBe(repoManifest.version);
+  });
+});
