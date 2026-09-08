@@ -14,8 +14,8 @@
  *
  * Reads: FLANJ_INTEGRATION_ID, FLANJ_OTLP_ENDPOINT (or OTEL_EXPORTER_OTLP_LOGS_ENDPOINT /
  * OTEL_EXPORTER_OTLP_ENDPOINT), OTEL_SERVICE_NAME, FLANJ_BODY_CAP_BYTES, FLANJ_IGNORE_URLS,
- * FLANJ_FLUSH_TIMEOUT_MS, FLANJ_QUIET. The SDK always ignores its own OTLP exporter host so a
- * co-located collector can't cause a capture feedback loop.
+ * FLANJ_TRUSTED_PROXIES, FLANJ_FLUSH_TIMEOUT_MS, FLANJ_QUIET. The SDK always ignores its own OTLP
+ * exporter host so a co-located collector can't cause a capture feedback loop.
  *
  * The handle is **kept**, not discarded: it is the only flush/shutdown path, and without it a
  * process that exits inside the batch processor's 1s export window ships nothing (see

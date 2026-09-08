@@ -41,7 +41,8 @@ describe('README — first-run essentials', () => {
       'FLANJ_OTLP_ENDPOINT',
       'OTEL_SERVICE_NAME',
       'FLANJ_BODY_CAP_BYTES',
-      'FLANJ_IGNORE_URLS'
+      'FLANJ_IGNORE_URLS',
+      'FLANJ_TRUSTED_PROXIES'
     ]) {
       expect(readme, `${key} is not documented`).toContain(key);
     }
@@ -79,6 +80,19 @@ describe('README — first-run essentials', () => {
     for (const client of ['axios', 'got', 'node-fetch', 'superagent']) {
       expect(readme, `${client} is not named as captured`).toContain(client);
     }
+  });
+
+  /**
+   * The ingress trap: behind a load balancer every inbound call is internal
+   * (metadata-only) until the proxy is declared trusted. Silent, like the fetch
+   * gap — so the README must say it, next to the variable that fixes it.
+   */
+  it('says inbound calls behind a proxy classify internal until FLANJ_TRUSTED_PROXIES is set', () => {
+    const row = readme.split('\n').find((line) => line.includes('`FLANJ_TRUSTED_PROXIES`'));
+    expect(row, 'no FLANJ_TRUSTED_PROXIES row').toBeTruthy();
+    expect(row).toContain('X-Forwarded-For');
+    expect(row?.toLowerCase()).toContain('internal');
+    expect(lower).toContain('behind a reverse proxy');
   });
 
   it('lists what is NOT captured, naming fetch, undici and node:http2', () => {

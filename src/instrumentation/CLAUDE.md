@@ -17,14 +17,18 @@ non-negotiable lives — **redact at source, drop the raw buffer, never attach r
 | `decode-body.ts` | `decodeBody` — undo a body's `content-encoding` (gzip · deflate · br, node core `zlib`) before the redactor sees it, output hard-bounded by the cap. A coding it cannot undo returns NO text (`decoded: false`). |
 | `capped-buffer.ts` | `CappedBuffer` — accumulates stream chunks up to `body_cap_bytes`, discards the rest, flags `truncated`. The retained bytes are the only copy; there is no separate uncapped buffer. |
 | `http-args.ts` | `parseRequestArgs` — normalize the overloaded `request(url, opts, cb)` / `request(opts, cb)` shapes into `{ method, protocol, host, path }`. `host` is the EDGE KEY, so the scheme's own default port is dropped (`:80` on http, `:443` on https) and any other port is kept — see below. |
-| `config.ts` | `HttpBodyCaptureConfig`, content-type gate, defaults (`DEFAULT_BODY_CAP_BYTES = 16384`). |
+| `trusted-proxies.ts` | `TrustedProxies` — the configured set of socket peers (IPs / CIDRs, node core `net.BlockList`) whose `X-Forwarded-For` the ingress path may believe. Empty by default ⇒ nobody. An unparseable entry THROWS at construction (i.e. at `start()`). |
+| `resolve-ingress-peer.ts` | `resolveIngressPeer` — the ingress CALLER: the socket peer, or — only when that peer is a trusted proxy — the hop the proxy appended to `X-Forwarded-For` (rightmost untrusted hop, walking past trusted tiers; never the leftmost). |
+| `config.ts` | `HttpBodyCaptureConfig`, content-type gate, defaults (`DEFAULT_BODY_CAP_BYTES = 16384`), `trustedProxies`. |
 | `sync-builtin-esm-exports.ts` | `syncBuiltinEsmExports()` — `module.syncBuiltinESMExports()` behind a never-throw guard: pushes the patched (or restored) `request`/`get` into node:http's ESM facade so ESM named imports / namespaces taken BEFORE `start()` see them. Called at the end of the client path's `enable()` and `disable()`. |
 
 ## External vs internal (the surfacing floor)
 
 Every captured edge is classified from the **peer** host — egress: the destination; ingress: the
-caller (`X-Forwarded-For` first hop, else `socket.remoteAddress`). **External ⇒ bodies captured +
-redacted; internal ⇒ metadata-only, bodies are NEVER teed.** The redaction floor cannot be bypassed on
+caller — `socket.remoteAddress`, or, **only when that socket peer is a configured trusted proxy**
+(`trustedProxies` / `FLANJ_TRUSTED_PROXIES`), the hop the proxy appended to `X-Forwarded-For`
+(`resolveIngressPeer`). **External ⇒ bodies captured + redacted; internal ⇒ metadata-only, bodies
+are NEVER teed.** The redaction floor cannot be bypassed on
 internal edges because there is nothing to bypass — the raw bytes are never read. v0.5 (Step B) adds
 the additive edge class `local-process` (stdio MCP servers, `src/mcp/` — bodies captured + redacted);
 `classifyHost` itself is unchanged and stays byte-identical to the collector's. Emitted on every
@@ -32,6 +36,21 @@ record: `flanj.peer.host`, `flanj.edge.class`, `flanj.capture.bodies`; plus the
 OPTIONAL `flanj.peer.addr` (the peer's socket address — egress: the resolved remote
 address; ingress: `socket.remoteAddress`) — transport detail for display, never an
 identity or edge key, omitted when the socket layer exposed none.
+
+### Why `X-Forwarded-For` is not believed by default (2026-09-07)
+
+The ingress caller used to be the header's FIRST hop whenever the header was present, from any peer.
+That hop is client-controlled by definition, so the caller chose its own edge class — and with it
+whether its bodies were captured: `X-Forwarded-For: 10.0.0.1` from the public internet ⇒ `internal`
+⇒ no bodies ⇒ drift detection blind for that call, silently; a public address claimed from inside ⇒
+`external` ⇒ internal bodies captured and stored, exactly what the metadata-only rule exists to
+prevent. Now the socket peer is the caller unless it is in `trustedProxies`, and a trusted proxy's
+chain is read from the RIGHT: each trusted hop was appended by one of our own tiers, the first
+untrusted one is the client (a chain made only of trusted hops originated inside the tier; its
+leftmost is reported). Consequence to document wherever the SDK is deployed behind a load balancer:
+until the balancer is declared trusted, every inbound call classifies internal. The set is parsed
+once, in `setConfig` (the OTel base constructor routes through it), so a typo fails `start()` instead
+of silently trusting nobody.
 
 ## One origin, one edge key
 
@@ -68,12 +87,18 @@ another's traffic. The rule is idempotent, and the collector applies the identic
    `Server.prototype.emit`, which every instance looks up at call time, so an `import { createServer }`
    binding was never affected.
 
-   **Supported load patterns** (all locked by `test/integration/esm-named-import.spec.ts` +
-   `register-flush.spec.ts`): the preload (`node -r @flanj/sdk/register` / `node --import
+   **Supported load patterns** (`test/integration/esm-named-import.spec.ts` locks the ESM named-import
+   form, CJS `http.request`, and both preload spellings; `register-flush.spec.ts` the flush; the
+   `import * as` namespace and default-import forms are verified by hand, not by a fixture): the preload (`node -r @flanj/sdk/register` / `node --import
    @flanj/sdk/register`, CJS or ESM app); `import`/`require` of `@flanj/sdk/register` or `start()` from
    code, in any position relative to the app's own `node:http` imports; callers via `http.request`,
    `require('http').request`, `import http from`, `import * as http`, `import { request, get }`. Not
    reachable by any patch: calls made before `start()`, and a function copied into a local before then.
+   **One caveat:** under an ESM loader hook that REWRITES `node:http` — OTel's import-in-the-middle
+   (`--import @opentelemetry/instrumentation/hook.mjs` with `HttpInstrumentation`) — the app's named
+   import binds to the hook's wrapper-module copy, which `syncBuiltinESMExports()` cannot reach;
+   `start()` from code then misses egress taken before it (1 of 4 records in review). Use the preload
+   (`--import @flanj/sdk/register`, after the hook) there.
 2. **Tee, don't consume.** Request bodies are teed by wrapping `write`/`end`; response bodies by
    wrapping the `IncomingMessage`'s internal `push`, so a consumer reading with `for await`
    (async iterator) is never starved. **Do not** add a passive flowing-mode `on('data')` listener —
@@ -95,7 +120,10 @@ another's traffic. The rule is idempotent, and the collector applies the identic
    set on `CapturedCall`, an attribute, or anything exported — not even transiently. This is asserted
    by the integration test's "no raw body survived anywhere" case.
 6. **Content-type gate.** If the direction's content-type is not JSON/text/form, the body is dropped
-   entirely (empty string), not redacted-and-kept. Binary/multipart never lands. On the INGRESS path the
+   entirely (empty string), not redacted-and-kept. Binary/multipart never lands. "JSON" is decided on the
+   media type alone (parameters stripped) OR its RFC 6839 base type, so `application/problem+json`,
+   `application/vnd.api+json`, `application/hal+json`, … gate exactly as `application/json` (`config.ts`;
+   only the `+json` suffix is mapped until the default list grows an XML entry). On the INGRESS path the
    type is derived from the recorded `writeHead` headers merged UNDER `res.getHeaders()`: Node's
    `writeHead(status, headers)` fast path never populates the outgoing-header map when `setHeader` was
    not called first, so `res.getHeader('content-type')` alone reads empty for every Fastify-shaped app
@@ -125,8 +153,9 @@ another's traffic. The rule is idempotent, and the collector applies the identic
 `integration` → `flanj.integration`; `bodyCapBytes` → `body_cap_bytes` (default 16384);
 `captureContentTypes` → the content-type gate; `headerAllowlist` → the header allowlist;
 `ignoreUrls` → URL patterns never captured (`start()` seeds it with its own OTLP export endpoint, so the SDK
-never captures its own export — `test/integration/ignore-self-export.spec.ts`); `onCapture` → the sink
-`start()` wires to the OTLP logger.
+never captures its own export — `test/integration/ignore-self-export.spec.ts`); `trustedProxies` →
+`FLANJ_TRUSTED_PROXIES`, the ingress-only trusted-proxy set (IPs / CIDRs; default none — SDK-side, not a
+collector §8 key); `onCapture` → the sink `start()` wires to the OTLP logger.
 
 ## Tests
 
@@ -134,9 +163,15 @@ never captures its own export — `test/integration/ignore-self-export.spec.ts`)
 - `../../test/integration/http-capture.spec.ts` — drives a real in-process http call end-to-end and
   asserts: every required `flanj.*` key present, bodies redacted, correlation keys carried, app
   undisturbed, and **no raw PAN reachable** anywhere in the emitted attributes.
-- `../../test/integration/http-server-capture.spec.ts` — the INGRESS path end-to-end (`direction="server"`),
-  including the `writeHead` reply idioms (object · `(code, reason, obj)` · flat array) A/B'd against `setHeader`,
-  and a gzip'd response (the compression-middleware shape).
+- `../../test/integration/http-server-capture.spec.ts` — the INGRESS path end-to-end (`direction="server"`)
+  with loopback declared a trusted proxy (`FLANJ_TRUSTED_PROXIES`): the caller is the hop the proxy appended
+  (a spoofed private first hop, an internal caller claiming a public one, a two-tier chain, an all-trusted
+  chain, a hostname hop), plus the `writeHead` reply idioms (object · `(code, reason, obj)` · flat array)
+  A/B'd against `setHeader`, and a gzip'd response (the compression-middleware shape).
+- `../../test/integration/http-server-capture-untrusted.spec.ts` — the DEFAULT (no trusted proxies): the
+  header is ignored from any peer, public or private claims alike; and an unparseable entry fails `start()`.
+- `trusted-proxies.spec.ts` / `resolve-ingress-peer.spec.ts` — the set (IPs, CIDRs, mapped/zoned/ported
+  spellings, non-IP hops never trusted, invalid entries throw) and the right-to-left walk.
 - `../../test/integration/http-capture-encoding.spec.ts` — EGRESS gzip/brotli responses are stored decoded and
   tokenised, with an identity control on the same server and an unknown-coding honest-empty case.
 - `decode-body.spec.ts` — the codings, the cut-at-the-cap prefix, the over-cap bound, and the honest-empty paths.

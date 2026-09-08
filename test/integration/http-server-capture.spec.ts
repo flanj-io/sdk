@@ -12,9 +12,14 @@ import { InMemoryLogExporter } from '../support/in-memory-log-exporter';
  * bodies — and the app's OWN handler still reads the full, unmodified body.
  *
  * The client that drives the request connects over loopback, which classifies
- * internal. To exercise the EXTERNAL path we set `X-Forwarded-For` (as a proxy
- * would), making the caller a public IP; a second call with NO forwarded header
- * exercises the INTERNAL / metadata-only path.
+ * internal. To exercise the EXTERNAL path this process plays the org's own
+ * reverse proxy: loopback is declared a TRUSTED PROXY (via `FLANJ_TRUSTED_PROXIES`,
+ * the zero-code env route; the `trustedProxies` option is exercised in the
+ * sibling `http-server-capture-untrusted.spec.ts`) and the driver sets
+ * `X-Forwarded-For` the way a proxy would, ending with the hop the proxy
+ * appended. A call with NO forwarded header exercises the INTERNAL /
+ * metadata-only path. That sibling spec starts the SDK WITHOUT trusted proxies
+ * and proves the header is then ignored outright.
  */
 
 const PAN = '4111111111111111'; // valid-Luhn test Visa
@@ -28,11 +33,17 @@ const exporter = new InMemoryLogExporter();
 const handlerBodies: Record<string, string> = {};
 
 beforeAll(async () => {
+  // Loopback (both spellings) and the 172.16/12 block are "our proxy tier"; 10/8
+  // and 192.168/16 deliberately are NOT, so a hop there is an untrusted caller.
+  process.env.FLANJ_TRUSTED_PROXIES = '127.0.0.0/8, ::1, 172.16.0.0/12';
   handle = start({
     integration: 'acme-payments',
     serviceName: 'acme-provider',
     processor: new SimpleLogRecordProcessor({ exporter })
   });
+  delete process.env.FLANJ_TRUSTED_PROXIES;
+  // The env route reached the ingress instrumentation, parsed as a list.
+  expect(handle.serverInstrumentation.getConfig().trustedProxies).toEqual(['127.0.0.0/8', '::1', '172.16.0.0/12']);
 
   // Server created AFTER start(); the prototype patch applies to it regardless.
   server = createServer((req, res) => {
@@ -109,16 +120,20 @@ function serverRecordFor(path: string): Record<string, unknown> {
   return rec.attributes as Record<string, unknown>;
 }
 
-describe('ingress (server) capture — EXTERNAL caller (X-Forwarded-For)', () => {
+describe('ingress (server) capture — EXTERNAL caller via the trusted proxy (X-Forwarded-For)', () => {
   let attrs: Record<string, unknown>;
   let appResponse: string;
 
   beforeAll(async () => {
+    // The chain a real proxy hands over when the CLIENT itself sent
+    // "X-Forwarded-For: 10.0.0.1" (exploit (a): claim a private first hop so
+    // the call classifies internal and no body is captured): the proxy appends
+    // the client's real address, and THAT hop is the caller.
     appResponse = await driveCall(
       '/v1/charges',
       {
         'content-type': 'application/json',
-        'x-forwarded-for': '203.0.113.7, 10.0.0.1',
+        'x-forwarded-for': '10.0.0.1, 203.0.113.7',
         'x-request-id': 'req_client_in',
         'idempotency-key': 'idem_in_1'
       },
@@ -128,15 +143,19 @@ describe('ingress (server) capture — EXTERNAL caller (X-Forwarded-For)', () =>
     attrs = serverRecordFor('/v1/charges');
   });
 
-  it('emits a direction=server record classified from the caller', () => {
+  it('emits a direction=server record classified from the hop the proxy appended, not the leftmost', () => {
     expect(attrs['flanj.direction']).toBe('server');
     expect(attrs['flanj.record.type']).toBe('call');
-    expect(attrs['flanj.peer.host']).toBe('203.0.113.7'); // first XFF hop
+    expect(attrs['flanj.peer.host']).toBe('203.0.113.7'); // the rightmost untrusted hop
     expect(attrs['flanj.edge.class']).toBe('external');
     expect(attrs['flanj.capture.bodies']).toBe(true);
     expect(attrs['flanj.http.method']).toBe('POST');
     expect(attrs['flanj.http.route']).toBe('/v1/charges');
     expect(attrs['flanj.http.status_code']).toBe(200);
+  });
+
+  it('keeps the socket address (the proxy) as flanj.peer.addr — transport detail, not identity', () => {
+    expect(attrs['flanj.peer.addr']).toMatch(/^(::ffff:)?127\.0\.0\.1$/);
   });
 
   it('REDACTS the incoming request body at source — raw PAN unreachable', () => {
@@ -281,5 +300,74 @@ describe.each([
 
   it('leaves no raw PAN on the row', () => {
     expect(JSON.stringify(attrs)).not.toContain(PAN);
+  });
+});
+
+/**
+ * The header is believed only from the trusted proxy, and only the hop the
+ * proxy appended counts. Each row is one call the loopback "proxy" forwards
+ * with the chain a real proxy would present.
+ */
+describe.each([
+  {
+    name: 'an INTERNAL caller behind the proxy claiming a public identity (exploit (b))',
+    path: '/spoof/public-from-inside',
+    xff: '203.0.113.7, 192.168.1.20',
+    peerHost: '192.168.1.20',
+    edgeClass: 'internal'
+  },
+  {
+    name: 'a two-tier proxy chain: the edge LB hop is walked past, the leftmost is never taken',
+    path: '/spoof/two-tier',
+    xff: '198.51.100.4, 203.0.113.7, 172.16.5.5',
+    peerHost: '203.0.113.7',
+    edgeClass: 'external'
+  },
+  {
+    name: 'a chain made only of trusted hops: the request originated inside the proxy tier',
+    path: '/spoof/all-trusted',
+    xff: '172.16.5.5',
+    peerHost: '172.16.5.5',
+    edgeClass: 'internal'
+  },
+  {
+    name: 'a hostname hop (a proxy forwarding a name, as the e2e consumers do) is kept verbatim',
+    path: '/spoof/hostname-hop',
+    xff: '10.0.0.1, api.consumer-a.test',
+    peerHost: 'api.consumer-a.test',
+    edgeClass: 'external'
+  }
+])('ingress (server) capture — $name', ({ path, xff, peerHost, edgeClass }) => {
+  let attrs: Record<string, unknown>;
+
+  beforeAll(async () => {
+    await driveCall(
+      path,
+      { 'content-type': 'application/json', 'x-forwarded-for': xff },
+      JSON.stringify({ amount: 1200, source: PAN })
+    );
+    await new Promise((r) => setTimeout(r, 30));
+    attrs = serverRecordFor(path);
+  });
+
+  it(`classifies the caller as ${peerHost} (${edgeClass})`, () => {
+    expect(attrs['flanj.peer.host']).toBe(peerHost);
+    expect(attrs['flanj.edge.class']).toBe(edgeClass);
+    expect(attrs['flanj.capture.bodies']).toBe(edgeClass === 'external');
+  });
+
+  it(edgeClass === 'external' ? 'captures and redacts the bodies' : 'captures NO body — metadata-only', () => {
+    if (edgeClass === 'external') {
+      expect(attrs['flanj.http.request.body']).toContain('⟦REDACTED:PAN⟧');
+      expect(attrs['flanj.http.response.body']).toContain('⟦REDACTED:EMAIL⟧');
+    } else {
+      expect(attrs['flanj.http.request.body']).toBe('');
+      expect(attrs['flanj.http.response.body']).toBe('');
+    }
+    expect(JSON.stringify(attrs)).not.toContain(PAN);
+  });
+
+  it('still lets the app read the full raw body', () => {
+    expect(handlerBodies[path]).toContain(PAN);
   });
 });
