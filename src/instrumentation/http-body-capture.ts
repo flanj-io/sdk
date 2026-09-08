@@ -10,21 +10,7 @@ import { decodeBody } from './decode-body';
 import { classifyHost, type EdgeClass } from './classify-host';
 import { DEFAULT_BODY_CAP_BYTES, HttpBodyCaptureConfig, isIgnoredUrl } from './config';
 import { syncBuiltinEsmExports } from './sync-builtin-esm-exports';
-
-/**
- * Return the LIVE, mutable exports of a core module. `import * as http` under an
- * ESM/esbuild transform yields a read-only namespace whose `request` property is
- * non-configurable — shimmer's defineProperty then fails. `process.getBuiltinModule`
- * (Node 22.3+) returns the real singleton exports object, which is patchable.
- *
- * Patching it reaches every property-at-call-time caller; an ESM named import or
- * namespace taken before `enable()` additionally needs the facade re-sync that
- * `enable()`/`disable()` perform (see `sync-builtin-esm-exports.ts`).
- */
-function builtin(id: 'node:http' | 'node:https'): Record<string, unknown> {
-  const get = (process as unknown as { getBuiltinModule(id: string): Record<string, unknown> }).getBuiltinModule;
-  return get.call(process, id);
-}
+import { builtinModule } from './builtin-module';
 
 /**
  * Custom OTel instrumentation that tees the request + response bodies of
@@ -55,15 +41,15 @@ export class HttpBodyCaptureInstrumentation extends InstrumentationBase<HttpBody
   }
 
   override enable(): void {
-    this.patchModule(builtin('node:http'), 'http:');
-    this.patchModule(builtin('node:https'), 'https:');
+    this.patchModule(builtinModule('node:http'), 'http:');
+    this.patchModule(builtinModule('node:https'), 'https:');
     // Push the patched `request`/`get` into the ESM facades too, so a module
     // that did `import { request } from 'node:http'` BEFORE start() sees them.
     syncBuiltinEsmExports();
   }
 
   override disable(): void {
-    for (const mod of [builtin('node:http'), builtin('node:https')]) {
+    for (const mod of [builtinModule('node:http'), builtinModule('node:https')]) {
       for (const name of ['request', 'get'] as const) {
         if (typeof mod[name] === 'function') this._unwrap(mod, name);
       }

@@ -5,6 +5,7 @@ import type { LogRecordExporter, LogRecordProcessor } from '@opentelemetry/sdk-l
 import { HttpBodyCaptureInstrumentation } from './instrumentation/http-body-capture';
 import { HttpServerCaptureInstrumentation } from './instrumentation/http-server-capture';
 import { TrustedProxies } from './instrumentation/trusted-proxies';
+import { assertSupportedNodeVersion } from './instrumentation/builtin-module';
 import { emitCall } from './instrumentation/otlp-record';
 import { resolveOtlpLogsEndpoint } from './otlp-endpoint';
 import { withExportFailureWarning } from './export-failure-warning';
@@ -70,6 +71,12 @@ export interface FlanjHandle {
  * on :4318. Returns a handle for shutdown.
  */
 export function start(options: StartOptions = {}): FlanjHandle {
+  // FIRST, before any option is read: on a Node without `process.getBuiltinModule`
+  // there is nothing to patch, so the SDK is inert. It used to surface as a
+  // TypeError from a dist/ path, inside the OTel base constructor; say what is
+  // actually wrong, and say it before an exporter or provider exists to leak.
+  assertSupportedNodeVersion();
+
   const integration = options.integration ?? process.env.FLANJ_INTEGRATION_ID ?? 'unknown-integration';
   const serviceName = options.serviceName ?? process.env.OTEL_SERVICE_NAME ?? 'flanj-consumer';
   const endpoint = resolveOtlpLogsEndpoint(options.otlpEndpoint);
@@ -195,6 +202,7 @@ export type {
 
 export { HttpBodyCaptureInstrumentation } from './instrumentation/http-body-capture';
 export { HttpServerCaptureInstrumentation } from './instrumentation/http-server-capture';
+export { SUPPORTED_NODE_RANGE, assertSupportedNodeVersion } from './instrumentation/builtin-module';
 export { classifyHost } from './instrumentation/classify-host';
 export type { EdgeClass } from './instrumentation/classify-host';
 export { buildLogAttributes, emitCall } from './instrumentation/otlp-record';

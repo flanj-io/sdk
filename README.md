@@ -6,7 +6,9 @@ sensitive data at the source**, and exports them (over OTLP) to a Flanj collecto
 
 ## Quick start
 
-Needs Node `^18.19.0 || >=20.6.0` and a running [Flanj collector](https://github.com/flanj-io/collector).
+Needs Node `^20.16.0 || >=22.3.0` and a running [Flanj collector](https://github.com/flanj-io/collector).
+The SDK patches core `node:http` through `process.getBuiltinModule`, which landed in Node 20.16.0 and 22.3.0;
+on anything older `start()` throws one line naming the requirement rather than capturing nothing.
 
 ```bash
 npm install @flanj/sdk        # or: yarn add @flanj/sdk

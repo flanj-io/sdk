@@ -20,6 +20,7 @@ non-negotiable lives — **redact at source, drop the raw buffer, never attach r
 | `trusted-proxies.ts` | `TrustedProxies` — the configured set of socket peers (IPs / CIDRs, node core `net.BlockList`) whose `X-Forwarded-For` the ingress path may believe. Empty by default ⇒ nobody. An unparseable entry THROWS at construction (i.e. at `start()`). |
 | `resolve-ingress-peer.ts` | `resolveIngressPeer` — the ingress CALLER: the socket peer, or — only when that peer is a trusted proxy — the hop the proxy appended to `X-Forwarded-For` (rightmost untrusted hop, walking past trusted tiers; never the leftmost). |
 | `config.ts` | `HttpBodyCaptureConfig`, content-type gate, defaults (`DEFAULT_BODY_CAP_BYTES = 16384`), `trustedProxies`. |
+| `builtin-module.ts` | `builtinModule(id)` — the LIVE, mutable core `http`/`https` exports both capture paths patch, plus `assertSupportedNodeVersion()` / `SUPPORTED_NODE_RANGE`: `process.getBuiltinModule` exists only from Node **20.16.0 / 22.3.0**, so below that the SDK is inert and `start()` throws one sentence instead of a `TypeError` from `dist/`. |
 | `sync-builtin-esm-exports.ts` | `syncBuiltinEsmExports()` — `module.syncBuiltinESMExports()` behind a never-throw guard: pushes the patched (or restored) `request`/`get` into node:http's ESM facade so ESM named imports / namespaces taken BEFORE `start()` see them. Called at the end of the client path's `enable()` and `disable()`. |
 
 ## External vs internal (the surfacing floor)
@@ -75,7 +76,8 @@ another's traffic. The rule is idempotent, and the collector applies the identic
    `http`/`https` are usually loaded before the SDK starts, so RITM's hook never re-fires (and
    import-in-the-middle only works behind a loader hook registered before any user module — the
    preload contract anyway, so `init()` returns no module definitions on purpose). `enable()` patches
-   the singleton exports returned by `process.getBuiltinModule('node:http'|'node:https')` (Node 22.3+)
+   the singleton exports returned by `process.getBuiltinModule('node:http'|'node:https')` (Node 20.16+ /
+   22.3+ — `builtin-module.ts`; below that there is nothing patchable, so `start()` refuses)
    — that object is mutable/patchable, whereas an ESM `import * as http` namespace is frozen and
    defeats shimmer. That reaches every property-at-call-time caller but **not** an ESM binding:
    `import { request } from 'node:http'` (and the `import * as` namespace) reads a slot in node:http's

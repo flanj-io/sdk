@@ -23,7 +23,13 @@ Redaction happens here, at the call site, **before** anything is attached or exp
 
 ## Stack & commands
 
-- TypeScript, Node 23, Yarn 4. OTel-JS `@opentelemetry/api ^1.9`, SDK+instrumentation `^0.221`.
+- TypeScript, Yarn 4. OTel-JS `@opentelemetry/api ^1.9`, SDK+instrumentation `^0.221`.
+- **Node `^20.16.0 || >=22.3.0`** — the published `engines`, and a real floor, not a preference: the
+  capture path patches core `http` through `process.getBuiltinModule`, which exists only from Node
+  20.16.0 and 22.3.0 (so NOT 18.x, 20.6–20.15, any 21.x, or 22.0–22.2). `start()` refuses to run
+  below it with one sentence. Three places state that range and a test locks each pair: `engines.node`,
+  the README's Quick start line (`test/readme.spec.ts`), and `SUPPORTED_NODE_RANGE`
+  (`src/instrumentation/builtin-module.spec.ts`). Change all three or none. Develop on 22+; CI runs 23.
 - `yarn install` · `yarn build` · `yarn test` (unit + redaction vectors + OTLP contract + pack manifest) ·
   `yarn test:watch` · `yarn lint` · `bash scripts/smoke-pack.sh` (packs, installs the tarball into a scratch app).
 - **Publishing goes through `yarn npm publish`** (it rewrites the `workspace:` protocol; plain `npm publish` does not),
@@ -47,6 +53,7 @@ src/
     trusted-proxies.ts             # the peers whose X-Forwarded-For ingress may believe (IPs/CIDRs; default none)
     resolve-ingress-peer.ts        # ingress caller: socket peer, or the hop a TRUSTED proxy appended (never the leftmost)
     otlp-record.ts                 # build the flanj.* OTLP log record from a CapturedCall
+    builtin-module.ts              # the LIVE core exports both paths patch + the Node-version gate (start() throws below it)
     captured-call.ts, capped-buffer.ts, http-args.ts, config.ts
   mcp/                             # v0.5 Step B: MCP CLIENT instrumentation — see mcp/CLAUDE.md
     instrument-mcp-client.ts       # instrumentMcpClient(client): wrap listTools/callTool, pass-through, both package lines

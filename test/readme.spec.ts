@@ -16,6 +16,9 @@ import { resolve } from 'node:path';
 
 const readme = readFileSync(resolve(__dirname, '../README.md'), 'utf8');
 const lower = readme.toLowerCase();
+const pkg = JSON.parse(readFileSync(resolve(__dirname, '../package.json'), 'utf8')) as {
+  engines?: { node?: string };
+};
 
 describe('README — first-run essentials', () => {
   it('opens with a Quick start, before the deep material', () => {
@@ -54,10 +57,28 @@ describe('README — first-run essentials', () => {
     expect(readme).toContain('Traffic');
   });
 
-  it('says which module systems and Node versions are supported', () => {
+  it('says which module systems are supported', () => {
     expect(lower).toContain('esm');
     expect(lower).toContain('cjs');
-    expect(readme).toMatch(/Node\s*`?\^?18\.19/);
+  });
+
+  /**
+   * This assertion used to read `/Node\s*`?\^?18\.19/`, which LOCKED a claim the
+   * code could not honour: the capture path reaches core `http` through
+   * `process.getBuiltinModule` (Node 20.16.0 / 22.3.0), so `start()` threw a
+   * TypeError on every 18.x. The spec pinned the README, the README matched
+   * `engines`, and all three were wrong together. Comparing the README against
+   * `engines.node` instead means the requirement can only ever be restated, never
+   * independently invented — whatever npm enforces is what the reader is told.
+   */
+  it('states the supported Node range byte-for-byte from package.json engines', () => {
+    const range = pkg.engines?.node;
+    expect(range, 'package.json declares no engines.node').toBeTruthy();
+    expect(readme, `README does not carry the engines range ${range}`).toContain(`Node \`${range}\``);
+  });
+
+  it('names the accessor that sets the floor, so the number is not arbitrary', () => {
+    expect(readme).toContain('process.getBuiltinModule');
   });
 
   /**
