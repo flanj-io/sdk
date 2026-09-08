@@ -117,8 +117,8 @@ describe.each([
 });
 
 describe('start() — an unparseable trusted proxy entry fails the boot', () => {
-  // LAST in this file: start() enables the egress instrumentation before the
-  // ingress one throws, so the http client path is wrapped twice from here on.
+  // The proxy set is validated before start() takes any other effect, so a
+  // bad entry leaves no egress patch and no logger provider behind.
   it('throws at start(), naming the entry, rather than silently trusting nobody', () => {
     expect(() =>
       start({

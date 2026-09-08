@@ -39,9 +39,13 @@ export interface HttpBodyCaptureConfig extends InstrumentationConfig {
    * our own proxy appended (the rightmost hop that is not itself a trusted
    * proxy) — never the leftmost, which the client chose. Default: none — the
    * header is ignored, because it is client-controlled and would let any caller
-   * pick its own edge class (and so whether its bodies are captured). Behind a
-   * proxy, leave this unset and every inbound caller classifies internal.
-   * An entry that is not an IP or CIDR throws at construction.
+   * pick its own edge class (and so whether its bodies are captured). Left
+   * unset behind a proxy, every inbound caller classifies internal.
+   * List your PROXIES' addresses, not your whole network: every address in
+   * this set is skipped when walking the chain, so a caller inside it can
+   * still pick its own class. Prefer host entries (`10.0.0.5`, `fd00::5`)
+   * over broad ranges. An entry that is not an IP or CIDR throws at
+   * construction — before anything else in start() has taken effect.
    */
   trustedProxies?: readonly string[];
   /** Sink for each completed, redacted call. Wired to the OTLP logger by start(). */

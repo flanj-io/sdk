@@ -4,6 +4,7 @@ import { resourceFromAttributes } from '@opentelemetry/resources';
 import type { LogRecordExporter, LogRecordProcessor } from '@opentelemetry/sdk-logs';
 import { HttpBodyCaptureInstrumentation } from './instrumentation/http-body-capture';
 import { HttpServerCaptureInstrumentation } from './instrumentation/http-server-capture';
+import { TrustedProxies } from './instrumentation/trusted-proxies';
 import { emitCall } from './instrumentation/otlp-record';
 import { resolveOtlpLogsEndpoint } from './otlp-endpoint';
 import { withExportFailureWarning } from './export-failure-warning';
@@ -74,6 +75,11 @@ export function start(options: StartOptions = {}): FlanjHandle {
   const endpoint = resolveOtlpLogsEndpoint(options.otlpEndpoint);
   const bodyCapBytes = options.bodyCapBytes ?? envInt('FLANJ_BODY_CAP_BYTES');
   const trustedProxies = options.trustedProxies ?? envList('FLANJ_TRUSTED_PROXIES');
+  // Validate the proxy set FIRST: a bad entry must throw before the egress patch
+// and the logger provider exist, or an app that catches the throw and carries
+// on keeps capturing every outbound body into an orphan exporter with no
+// flush or shutdown path (verified in review).
+  new TrustedProxies(trustedProxies);
 
   // Wrap the exporter so the first export failure is not swallowed: OTel routes
   // export errors to `diag`, and with no diag logger a 404 is zero rows, zero stderr, exit 0.
