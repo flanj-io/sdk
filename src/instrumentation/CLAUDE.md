@@ -17,13 +17,17 @@ non-negotiable lives — **redact at source, drop the raw buffer, never attach r
 | `decode-body.ts` | `decodeBody` — undo a body's `content-encoding` (gzip · deflate · br, node core `zlib`) before the redactor sees it, output hard-bounded by the cap. A coding it cannot undo returns NO text (`decoded: false`). |
 | `capped-buffer.ts` | `CappedBuffer` — accumulates stream chunks up to `body_cap_bytes`, discards the rest, flags `truncated`. The retained bytes are the only copy; there is no separate uncapped buffer. |
 | `http-args.ts` | `parseRequestArgs` — normalize the overloaded `request(url, opts, cb)` / `request(opts, cb)` shapes into `{ method, protocol, host, path }`. `host` is the EDGE KEY, so the scheme's own default port is dropped (`:80` on http, `:443` on https) and any other port is kept — see below. |
-| `config.ts` | `HttpBodyCaptureConfig`, content-type gate, defaults (`DEFAULT_BODY_CAP_BYTES = 16384`). |
+| `trusted-proxies.ts` | `TrustedProxies` — the configured set of socket peers (IPs / CIDRs, node core `net.BlockList`) whose `X-Forwarded-For` the ingress path may believe. Empty by default ⇒ nobody. An unparseable entry THROWS at construction (i.e. at `start()`). |
+| `resolve-ingress-peer.ts` | `resolveIngressPeer` — the ingress CALLER: the socket peer, or — only when that peer is a trusted proxy — the hop the proxy appended to `X-Forwarded-For` (rightmost untrusted hop, walking past trusted tiers; never the leftmost). |
+| `config.ts` | `HttpBodyCaptureConfig`, content-type gate, defaults (`DEFAULT_BODY_CAP_BYTES = 16384`), `trustedProxies`. |
 
 ## External vs internal (the surfacing floor)
 
 Every captured edge is classified from the **peer** host — egress: the destination; ingress: the
-caller (`X-Forwarded-For` first hop, else `socket.remoteAddress`). **External ⇒ bodies captured +
-redacted; internal ⇒ metadata-only, bodies are NEVER teed.** The redaction floor cannot be bypassed on
+caller — `socket.remoteAddress`, or, **only when that socket peer is a configured trusted proxy**
+(`trustedProxies` / `FLANJ_TRUSTED_PROXIES`), the hop the proxy appended to `X-Forwarded-For`
+(`resolveIngressPeer`). **External ⇒ bodies captured + redacted; internal ⇒ metadata-only, bodies
+are NEVER teed.** The redaction floor cannot be bypassed on
 internal edges because there is nothing to bypass — the raw bytes are never read. v0.5 (Step B) adds
 the additive edge class `local-process` (stdio MCP servers, `src/mcp/` — bodies captured + redacted);
 `classifyHost` itself is unchanged and stays byte-identical to the collector's. Emitted on every
@@ -31,6 +35,21 @@ record: `flanj.peer.host`, `flanj.edge.class`, `flanj.capture.bodies`; plus the
 OPTIONAL `flanj.peer.addr` (the peer's socket address — egress: the resolved remote
 address; ingress: `socket.remoteAddress`) — transport detail for display, never an
 identity or edge key, omitted when the socket layer exposed none.
+
+### Why `X-Forwarded-For` is not believed by default (2026-09-07)
+
+The ingress caller used to be the header's FIRST hop whenever the header was present, from any peer.
+That hop is client-controlled by definition, so the caller chose its own edge class — and with it
+whether its bodies were captured: `X-Forwarded-For: 10.0.0.1` from the public internet ⇒ `internal`
+⇒ no bodies ⇒ drift detection blind for that call, silently; a public address claimed from inside ⇒
+`external` ⇒ internal bodies captured and stored, exactly what the metadata-only rule exists to
+prevent. Now the socket peer is the caller unless it is in `trustedProxies`, and a trusted proxy's
+chain is read from the RIGHT: each trusted hop was appended by one of our own tiers, the first
+untrusted one is the client (a chain made only of trusted hops originated inside the tier; its
+leftmost is reported). Consequence to document wherever the SDK is deployed behind a load balancer:
+until the balancer is declared trusted, every inbound call classifies internal. The set is parsed
+once, in `setConfig` (the OTel base constructor routes through it), so a typo fails `start()` instead
+of silently trusting nobody.
 
 ## One origin, one edge key
 
@@ -106,8 +125,9 @@ another's traffic. The rule is idempotent, and the collector applies the identic
 `integration` → `flanj.integration`; `bodyCapBytes` → `body_cap_bytes` (default 16384);
 `captureContentTypes` → the content-type gate; `headerAllowlist` → the header allowlist;
 `ignoreUrls` → URL patterns never captured (`start()` seeds it with its own OTLP export endpoint, so the SDK
-never captures its own export — `test/integration/ignore-self-export.spec.ts`); `onCapture` → the sink
-`start()` wires to the OTLP logger.
+never captures its own export — `test/integration/ignore-self-export.spec.ts`); `trustedProxies` →
+`FLANJ_TRUSTED_PROXIES`, the ingress-only trusted-proxy set (IPs / CIDRs; default none — SDK-side, not a
+collector §8 key); `onCapture` → the sink `start()` wires to the OTLP logger.
 
 ## Tests
 
@@ -115,9 +135,15 @@ never captures its own export — `test/integration/ignore-self-export.spec.ts`)
 - `../../test/integration/http-capture.spec.ts` — drives a real in-process http call end-to-end and
   asserts: every required `flanj.*` key present, bodies redacted, correlation keys carried, app
   undisturbed, and **no raw PAN reachable** anywhere in the emitted attributes.
-- `../../test/integration/http-server-capture.spec.ts` — the INGRESS path end-to-end (`direction="server"`),
-  including the `writeHead` reply idioms (object · `(code, reason, obj)` · flat array) A/B'd against `setHeader`,
-  and a gzip'd response (the compression-middleware shape).
+- `../../test/integration/http-server-capture.spec.ts` — the INGRESS path end-to-end (`direction="server"`)
+  with loopback declared a trusted proxy (`FLANJ_TRUSTED_PROXIES`): the caller is the hop the proxy appended
+  (a spoofed private first hop, an internal caller claiming a public one, a two-tier chain, an all-trusted
+  chain, a hostname hop), plus the `writeHead` reply idioms (object · `(code, reason, obj)` · flat array)
+  A/B'd against `setHeader`, and a gzip'd response (the compression-middleware shape).
+- `../../test/integration/http-server-capture-untrusted.spec.ts` — the DEFAULT (no trusted proxies): the
+  header is ignored from any peer, public or private claims alike; and an unparseable entry fails `start()`.
+- `trusted-proxies.spec.ts` / `resolve-ingress-peer.spec.ts` — the set (IPs, CIDRs, mapped/zoned/ported
+  spellings, non-IP hops never trusted, invalid entries throw) and the right-to-left walk.
 - `../../test/integration/http-capture-encoding.spec.ts` — EGRESS gzip/brotli responses are stored decoded and
   tokenised, with an identity control on the same server and an unknown-coding honest-empty case.
 - `decode-body.spec.ts` — the codings, the cut-at-the-cap prefix, the over-cap bound, and the honest-empty paths.

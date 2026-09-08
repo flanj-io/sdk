@@ -44,6 +44,8 @@ src/
     http-server-capture.ts         # INGRESS: incoming request + response body capture (direction="server")
     assemble-call.ts               # direction-agnostic redact-at-source assembler (both paths funnel through here)
     classify-host.ts               # external | internal edge heuristic (byte-identical in the collector)
+    trusted-proxies.ts             # the peers whose X-Forwarded-For ingress may believe (IPs/CIDRs; default none)
+    resolve-ingress-peer.ts        # ingress caller: socket peer, or the hop a TRUSTED proxy appended (never the leftmost)
     otlp-record.ts                 # build the flanj.* OTLP log record from a CapturedCall
     captured-call.ts, capped-buffer.ts, http-args.ts, config.ts
   mcp/                             # v0.5 Step B: MCP CLIENT instrumentation — see mcp/CLAUDE.md
