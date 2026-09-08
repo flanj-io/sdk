@@ -20,6 +20,7 @@ non-negotiable lives — **redact at source, drop the raw buffer, never attach r
 | `trusted-proxies.ts` | `TrustedProxies` — the configured set of socket peers (IPs / CIDRs, node core `net.BlockList`) whose `X-Forwarded-For` the ingress path may believe. Empty by default ⇒ nobody. An unparseable entry THROWS at construction (i.e. at `start()`). |
 | `resolve-ingress-peer.ts` | `resolveIngressPeer` — the ingress CALLER: the socket peer, or — only when that peer is a trusted proxy — the hop the proxy appended to `X-Forwarded-For` (rightmost untrusted hop, walking past trusted tiers; never the leftmost). |
 | `config.ts` | `HttpBodyCaptureConfig`, content-type gate, defaults (`DEFAULT_BODY_CAP_BYTES = 16384`), `trustedProxies`. |
+| `sync-builtin-esm-exports.ts` | `syncBuiltinEsmExports()` — `module.syncBuiltinESMExports()` behind a never-throw guard: pushes the patched (or restored) `request`/`get` into node:http's ESM facade so ESM named imports / namespaces taken BEFORE `start()` see them. Called at the end of the client path's `enable()` and `disable()`. |
 
 ## External vs internal (the surfacing floor)
 
@@ -70,10 +71,34 @@ another's traffic. The rule is idempotent, and the collector applies the identic
 
 ## The capture path (why it is shaped this way)
 
-1. **Patch the live module, not require-in-the-middle.** Core `http`/`https` are usually loaded
-   before the SDK starts, so RITM's hook never re-fires. `enable()` patches the singleton exports
-   returned by `process.getBuiltinModule('node:http'|'node:https')` (Node 22.3+) — that object is
-   mutable/patchable, whereas an ESM `import * as http` namespace is frozen and defeats shimmer.
+1. **Patch the live module, not require-in-the-middle — then re-sync the ESM facade.** Core
+   `http`/`https` are usually loaded before the SDK starts, so RITM's hook never re-fires (and
+   import-in-the-middle only works behind a loader hook registered before any user module — the
+   preload contract anyway, so `init()` returns no module definitions on purpose). `enable()` patches
+   the singleton exports returned by `process.getBuiltinModule('node:http'|'node:https')` (Node 22.3+)
+   — that object is mutable/patchable, whereas an ESM `import * as http` namespace is frozen and
+   defeats shimmer. That reaches every property-at-call-time caller but **not** an ESM binding:
+   `import { request } from 'node:http'` (and the `import * as` namespace) reads a slot in node:http's
+   ESM facade that Node fills from the CJS exports once, when the facade is created. A module that took
+   the binding before `start()` kept calling the original — zero rows, silently. So the client path's
+   `enable()`/`disable()` finish with `module.syncBuiltinESMExports()` (`sync-builtin-esm-exports.ts`),
+   which rewrites those slots; ESM imports are live bindings, so already-evaluated importers see the
+   patch (and the originals again after `disable()`). The server path needs none of this: it patches
+   `Server.prototype.emit`, which every instance looks up at call time, so an `import { createServer }`
+   binding was never affected.
+
+   **Supported load patterns** (`test/integration/esm-named-import.spec.ts` locks the ESM named-import
+   form, CJS `http.request`, and both preload spellings; `register-flush.spec.ts` the flush; the
+   `import * as` namespace and default-import forms are verified by hand, not by a fixture): the preload (`node -r @flanj/sdk/register` / `node --import
+   @flanj/sdk/register`, CJS or ESM app); `import`/`require` of `@flanj/sdk/register` or `start()` from
+   code, in any position relative to the app's own `node:http` imports; callers via `http.request`,
+   `require('http').request`, `import http from`, `import * as http`, `import { request, get }`. Not
+   reachable by any patch: calls made before `start()`, and a function copied into a local before then.
+   **One caveat:** under an ESM loader hook that REWRITES `node:http` — OTel's import-in-the-middle
+   (`--import @opentelemetry/instrumentation/hook.mjs` with `HttpInstrumentation`) — the app's named
+   import binds to the hook's wrapper-module copy, which `syncBuiltinESMExports()` cannot reach;
+   `start()` from code then misses egress taken before it (1 of 4 records in review). Use the preload
+   (`--import @flanj/sdk/register`, after the hook) there.
 2. **Tee, don't consume.** Request bodies are teed by wrapping `write`/`end`; response bodies by
    wrapping the `IncomingMessage`'s internal `push`, so a consumer reading with `for await`
    (async iterator) is never starved. **Do not** add a passive flowing-mode `on('data')` listener —
@@ -151,4 +176,7 @@ collector §8 key); `onCapture` → the sink `start()` wires to the OTLP logger.
   tokenised, with an identity control on the same server and an unknown-coding honest-empty case.
 - `decode-body.spec.ts` — the codings, the cut-at-the-cap prefix, the over-cap bound, and the honest-empty paths.
 - `../../test/integration/ignore-self-export.spec.ts` — the SDK's own OTLP export is never captured.
+- `../../test/integration/esm-named-import.spec.ts` — REAL ESM children under the built `dist/register.js`: a
+  module that took `import { request, get, createServer } from 'node:http'` BEFORE the SDK started has every
+  call captured (the facade re-sync), and the `node --import <register>` preload form works.
 - `classify-host.spec.ts` — the external/internal edge heuristic.

@@ -67,6 +67,10 @@ export class HttpServerCaptureInstrumentation extends InstrumentationBase<HttpBo
     return [];
   }
 
+  // A prototype method: every Server instance — including one built through an
+  // ESM `import { createServer }` binding taken before start() — looks `emit` up
+  // at call time, so no ESM facade re-sync is needed here (contrast the
+  // `request`/`get` EXPORTS the client path patches in http-body-capture.ts).
   override enable(): void {
     this.patchServer(builtin('node:http'));
     this.patchServer(builtin('node:https'));
