@@ -303,12 +303,24 @@ versions. What failed the bar was the *claim*, not the evidence, so the flag car
 ("you're asking whether the change was intended", not "this is a bug"). Nothing auto-flags: the flag is a
 human act on the row.
 
-**Call-less flags (qfix2-2026-08-26).** A `definition_change` has `source_call_id: null` by nature, so the
-flag that carries it has **no `call`**: `call` is optional in
-[`v1/cp-flag-request.schema.json`](./v1/cp-flag-request.schema.json) when `finding.kind` is
-`definition_change`, and required for every other kind — a call-less `output_mismatch` (or any
-call-evidenced kind) is still refused with `400 {"error":"finding_has_no_call"}`. The thread renders the
-two published snapshots as its evidence and no failing-call section. This supersedes the v0.5 §7 deferral.
+**Call-less flags (qfix2-2026-08-26, WIDENED v1p4-2026-09-08).** A `definition_change` has
+`source_call_id: null` by nature, so the flag that carries it has **no `call`**. That was the original,
+kind-scoped relaxation; it left every *other* kind refused with `400 finding_has_no_call` even when the
+operator had written out what they were asking, which is a flag control that 400s — worse than no control.
+
+The rule is now the honest one, and it holds for every kind: **`call` is OPTIONAL when the request carries a
+non-empty `message`, or when the finding is call-less by nature (`definition_change`); it is REQUIRED
+otherwise.** A thread must carry *something* — evidence, or words; a flag with neither is still
+`400 {"error":"finding_has_no_call"}`. The `definition_change` arm is the qfix2 rule kept verbatim, so a
+snapshot-only flag with an empty message stays legal exactly as before; what the message arm adds is every
+*other* kind. `finding` is
+optional outright, which is what makes a **message-only thread started from an edge** possible: an edge is
+a registrable domain, not a drift, so no finding exists to attach. Such a thread is created with
+`evidence_count: 0` and renders as a question — message plus both org names, with a trust strip that
+claims no redacted evidence, because none is attached. All of it lives in
+[`v1/cp-flag-request.schema.json`](./v1/cp-flag-request.schema.json). Server-side `not_flaggable`
+refusals for consumer-local kinds (`stale_client`) are **unchanged** — those never cross the boundary with
+or without a message. This supersedes the v0.5 §7 deferral and the qfix2 kind list.
 
 **`spec_version_to` is the evidence version of a `definition_change`** (existing field; its consumer-facing
 semantics are stated here for the first time — no wire change). It is the AFTER snapshot's content hash, and
@@ -344,7 +356,7 @@ Thread state is `open | closed` (reopenable); `turn` labels are derived. Errors 
 
 OpenAPI-style summary; JSON Schema for the flag request body:
 [`v1/cp-flag-request.schema.json`](./v1/cp-flag-request.schema.json) (`invitee_email` optional, ignored;
-`call` optional for `definition_change` only — §4).
+`finding` optional; `call` optional when `message` is non-empty or the kind is `definition_change` — §4).
 
 ### `POST /api/v1/collectors/register`  (Bearer `cp_deploy_token`)
 `{ "consumer_display_name", "contact_email", "contact_display_name"?, "local_ui_url"? }` → `201` (or `200` on the
@@ -369,13 +381,19 @@ Headers: `X-Flanj-Collector-Version`, `X-Flanj-Schema-Version`.
                                              //   provider on the thread page) | "call_pick" (the operator chose
                                              //   the call while looking at it — starts revealed). Unknown values
                                              //   read as "finding" (tolerant). Collectors need not send it.
-  "call": { /* RedactedCall — OMITTED for a call-less definition_change (qfix2-2026-08-26) */ },
-  "finding": { /* Finding */ } }
+  "provider_host": "api.acme.test",         // OPTIONAL, additive (v1p4-2026-09-08): the edge's observed host, for a
+                                             //   thread with NO call. The domain is the anchor, so a message-only
+                                             //   thread names the edge it was started from and the thread page can
+                                             //   resolve a verified directory name (or the bare domain) instead of
+                                             //   an unattributed asserted one. IGNORED when `call` is present.
+  "call": { /* RedactedCall — OPTIONAL when `message` is non-empty, or on a definition_change (v1p4-2026-09-08) */ },
+  "finding": { /* Finding — OPTIONAL; absent for a message-only thread started from an edge */ } }
 // response 201 (200 on replay → "status":"existing", same thread_public_id, fresh token)
 { "thread_id": "0191…", "thread_public_id": "<opaque>",
   "thread_url": "https://<peek-origin>/t/<thread_public_id>#k=<token>",   // the Thread link the consumer copies
   "peek_url": "<deprecated alias of thread_url>", "magic_token": "<deprecated alias>", "state": "open", "status": "created" }
-// 400 finding_has_no_call  — `call` missing on any kind except definition_change
+// 400 finding_has_no_call  — `call` missing, `message` empty, and the kind is not call-less by nature
+// 403 not_flaggable        — a consumer-local kind (`stale_client`), with or without a message
 // 412 not_connected | contact_unconfirmed
 ```
 `thread_public_id` is random/opaque/≥128-bit/URL-safe; the bearer `<token>` (≥128-bit CSPRNG, stored hashed)
