@@ -13,8 +13,9 @@ import { InMemoryLogExporter } from '../support/in-memory-log-exporter';
  * silently dropped in both directions and the collector saw an empty response.
  *
  * One request drives both records: the egress (client) record of the call and,
- * because the in-process server sees an external `X-Forwarded-For`, the ingress
- * (server) record of the same exchange. An `application/octet-stream` reply on
+ * because the in-process server sees an external `X-Forwarded-For` from a
+ * trusted proxy (loopback, configured as one), the ingress (server) record of
+ * the same exchange. An `application/octet-stream` reply on
  * a sibling route is the control that binary is still never captured.
  */
 
@@ -53,6 +54,9 @@ beforeAll(async () => {
   await new Promise<void>((r) => server.listen(0, '127.0.0.1', r));
 
   handle = start({
+    // The in-process server's socket peer is loopback; sdk#26 believes X-Forwarded-For
+    // only from configured proxies, so loopback plays the trusted proxy here.
+    trustedProxies: ['127.0.0.0/8', '::1'],
     integration: 'acme-payments',
     serviceName: 'acme-consumer',
     processor: new SimpleLogRecordProcessor({ exporter })
