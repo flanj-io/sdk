@@ -15,7 +15,7 @@
     "test:watch": "vitest"
   },
   "dependencies": {
-    "libphonenumber-js": "^1.13.11",
+    "libphonenumber-js": "^1.13.12",
     "validator": "^13.15.35"
   },
   "devDependencies": {
