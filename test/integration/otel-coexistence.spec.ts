@@ -141,6 +141,31 @@ describe('running next to @opentelemetry/instrumentation-http', () => {
   });
 });
 
+describe('when OTel’s http instrumentation is disabled at runtime', () => {
+  it('loses the layer OTel popped, and gets it back from disable() + enable()', async () => {
+    // `shimmer.unwrap` restores the OUTERMOST wrapper's original, so OTel's own
+    // `disable()` pops OURS and leaves OTel's installed. Everyone who patches
+    // this way shares that; the README documents it, and this holds the two
+    // numbers the documented recovery rests on.
+    const child = spawn(process.execPath, [resolve(fixtures, 'recover-after-otel-disable.cjs')], {
+      env: { ...process.env, SDK_ENTRY: sdkEntry },
+      stdio: ['ignore', 'pipe', 'pipe']
+    });
+    const result = await onExit(child);
+    expect(result.stderr).toBe('');
+    expect(result.code).toBe(0);
+
+    const counts = JSON.parse(result.stdout.trim().split('\n').at(-1) as string) as {
+      whileEvicted: number;
+      afterReenable: number;
+    };
+
+    expect(counts.whileEvicted).toBe(0);
+    // One egress + one ingress record for the call driven after re-enabling.
+    expect(counts.afterReenable).toBe(2);
+  }, 60_000);
+});
+
 describe('ESM preload under OTel’s import-in-the-middle hook', () => {
   let receiver: OtlpReceiver;
   let provider: Provider;

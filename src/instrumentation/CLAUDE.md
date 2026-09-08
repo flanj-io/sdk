@@ -181,9 +181,12 @@ That flips which handle wins when an app starts the SDK twice (a preload plus a 
 LIVE one does, and the second handle's sink stays empty. Measured, and the better default: the preload's
 handle is the one wired to `flushOnExit`, so a short-lived process no longer loses its last batch.
 
-Known interaction, measured: disabling OTel's http instrumentation at runtime pops the OUTERMOST wrapper,
-which may be ours (shimmer's semantics, shared by everyone who patches this way). `disable()` then
-`enable()` on our instrumentation reinstalls it.
+Known interaction, measured and locked by
+`test/integration/otel-coexistence.spec.ts` (`recover-after-otel-disable.cjs`): disabling OTel's http
+instrumentation at runtime pops the OUTERMOST wrapper, which may be ours (shimmer's semantics, shared by
+everyone who patches this way) — capture goes to zero, and `disable()` then `enable()` on our
+instrumentations reinstalls it. `enable()` alone does not: the base is idempotent, so the flag must go
+down first.
 
 ## Never break
 
