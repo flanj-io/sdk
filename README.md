@@ -83,6 +83,37 @@ const flanj = start({ integration: 'acme-payments' });
 await flanj.shutdown(); // or flanj.flush() — records are batched, so this is not optional
 ```
 
+### Running next to OpenTelemetry
+
+This SDK is built to run **beside** your existing OpenTelemetry setup, not instead of it. OTel's
+`@opentelemetry/instrumentation-http` gives you spans and metadata; Flanj adds the request/response
+payloads. Both patch the same functions on `node:http`, so Flanj wraps **on top of** whatever is already
+installed rather than replacing it — and it never installs OTel's require-in-the-middle module hooks, which
+would stop OTel's own patch from running.
+
+Either registration order works, and both are covered by a real-process test
+(`test/integration/otel-coexistence.spec.ts`):
+
+```js
+// OTel first, then Flanj — or the other way round. Both keep their spans and their rows.
+registerInstrumentations({ instrumentations: [new HttpInstrumentation()] });
+require('@flanj/sdk/register');
+```
+
+One ordering rule, and only when you use OTel's **ESM loader hook**: the hook first, your OTel setup next,
+the Flanj preload last.
+
+```bash
+node --import @opentelemetry/instrumentation/hook.mjs \
+     --import ./otel-setup.mjs \
+     --import @flanj/sdk/register \
+     app.mjs
+```
+
+Known interaction: calling `disable()` on OTel's http instrumentation while Flanj is loaded removes the
+**outermost** wrapper, which may be Flanj's (that is `shimmer`'s behaviour, shared by every library that
+patches this way). Capture comes back with `handle.instrumentation.disable()` followed by `enable()`.
+
 ## What is captured
 
 **Captured** — any client that goes through Node's core `node:http` / `node:https`, which is most of them:

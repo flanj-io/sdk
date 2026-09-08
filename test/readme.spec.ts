@@ -93,6 +93,20 @@ describe('README — first-run essentials', () => {
   });
 
   /**
+   * The product's pitch is running next to an existing OTel setup, and for two
+   * releases that silently did not work (whoever patched `node:http` second tore
+   * the other's wrapper out). The README must state that both orders are
+   * supported, and the one ordering rule under OTel's ESM loader hook.
+   */
+  it('documents coexistence with OpenTelemetry, in either registration order', () => {
+    const section = readme.slice(readme.indexOf('### Running next to OpenTelemetry'));
+    expect(section, 'no OpenTelemetry coexistence section').not.toBe(readme);
+    expect(section).toContain('@opentelemetry/instrumentation-http');
+    expect(section.toLowerCase()).toContain('either registration order');
+    expect(section).toContain('@opentelemetry/instrumentation/hook.mjs');
+  });
+
+  /**
    * The load-bearing one: the gap between "the HTTP calls your service makes"
    * and what is actually instrumented must be stated, by name.
    */

@@ -20,8 +20,10 @@ non-negotiable lives — **redact at source, drop the raw buffer, never attach r
 | `trusted-proxies.ts` | `TrustedProxies` — the configured set of socket peers (IPs / CIDRs, node core `net.BlockList`) whose `X-Forwarded-For` the ingress path may believe. Empty by default ⇒ nobody. An unparseable entry THROWS at construction (i.e. at `start()`). |
 | `resolve-ingress-peer.ts` | `resolveIngressPeer` — the ingress CALLER: the socket peer, or — only when that peer is a trusted proxy — the hop the proxy appended to `X-Forwarded-For` (rightmost untrusted hop, walking past trusted tiers; never the leftmost). |
 | `config.ts` | `HttpBodyCaptureConfig`, content-type gate, defaults (`DEFAULT_BODY_CAP_BYTES = 16384`), `trustedProxies`. |
-| `builtin-module.ts` | `builtinModule(id)` — the LIVE, mutable core `http`/`https` exports both capture paths patch, plus `assertSupportedNodeVersion()` / `SUPPORTED_NODE_RANGE`: `process.getBuiltinModule` exists only from Node **20.16.0 / 22.3.0**, so below that the SDK is inert and `start()` throws one sentence instead of a `TypeError` from `dist/`. |
-| `sync-builtin-esm-exports.ts` | `syncBuiltinEsmExports()` — `module.syncBuiltinESMExports()` behind a never-throw guard: pushes the patched (or restored) `request`/`get` into node:http's ESM facade so ESM named imports / namespaces taken BEFORE `start()` see them. Called at the end of the client path's `enable()` and `disable()`. |
+| `wrap-layer.ts` | `wrapLayer` / `unwrapLayer` — patch a function by STACKING on whatever is already installed, and remove only our own layer. Carries shimmer's `__original`/`__unwrap` but deliberately NOT `__wrapped`, so `isWrapped()` is false and another instrumentation stacks on us instead of tearing us out. |
+| `flanj-instrumentation.ts` | `FlanjInstrumentation` — the base both capture classes extend, in place of OTel's `InstrumentationBase`: config, an enabled flag, `patch()`/`unpatch()`. Installs no module hooks, so it never creates the RITM singleton whose cache silenced OTel's own http instrumentation. |
+| `builtin-module.ts` | `builtinModule(id)` — the LIVE, mutable core `http`/`https` exports both capture paths patch, through a `process.getBuiltinModule` reference snapshotted at load so a lookup never seeds another library's require-hook cache. Plus `assertSupportedNodeVersion()` / `SUPPORTED_NODE_RANGE`: that accessor exists only from Node **20.16.0 / 22.3.0**, so below that the SDK is inert and `start()` throws one sentence instead of a `TypeError` from `dist/`. |
+| `sync-builtin-esm-exports.ts` | `syncBuiltinEsmExports()` — `module.syncBuiltinESMExports()` behind a never-throw guard: pushes the patched (or restored) `request`/`get` into node:http's ESM facade so ESM named imports / namespaces taken BEFORE `start()` see them. Called at the end of the client path's `patch()` and `unpatch()`. |
 
 ## External vs internal (the surfacing floor)
 
@@ -50,7 +52,7 @@ chain is read from the RIGHT: each trusted hop was appended by one of our own ti
 untrusted one is the client (a chain made only of trusted hops originated inside the tier; its
 leftmost is reported). Consequence to document wherever the SDK is deployed behind a load balancer:
 until the balancer is declared trusted, every inbound call classifies internal. The set is parsed
-once, in `setConfig` (the OTel base constructor routes through it), so a typo fails `start()` instead
+once, in `setConfig` (the base constructor routes through it), so a typo fails `start()` instead
 of silently trusting nobody.
 
 ## One origin, one edge key
@@ -75,15 +77,16 @@ another's traffic. The rule is idempotent, and the collector applies the identic
 1. **Patch the live module, not require-in-the-middle — then re-sync the ESM facade.** Core
    `http`/`https` are usually loaded before the SDK starts, so RITM's hook never re-fires (and
    import-in-the-middle only works behind a loader hook registered before any user module — the
-   preload contract anyway, so `init()` returns no module definitions on purpose). `enable()` patches
-   the singleton exports returned by `process.getBuiltinModule('node:http'|'node:https')` (Node 20.16+ /
-   22.3+ — `builtin-module.ts`; below that there is nothing patchable, so `start()` refuses)
+   preload contract anyway, which is why we do not extend OTel's `InstrumentationBase` at all; see
+   "Coexisting with another instrumentation" below). `patch()` patches the singleton exports
+   `builtinModule('node:http'|'node:https')` returns (Node 20.16+ / 22.3+ — `builtin-module.ts`;
+   below that there is nothing patchable, so `start()` refuses)
    — that object is mutable/patchable, whereas an ESM `import * as http` namespace is frozen and
    defeats shimmer. That reaches every property-at-call-time caller but **not** an ESM binding:
    `import { request } from 'node:http'` (and the `import * as` namespace) reads a slot in node:http's
    ESM facade that Node fills from the CJS exports once, when the facade is created. A module that took
    the binding before `start()` kept calling the original — zero rows, silently. So the client path's
-   `enable()`/`disable()` finish with `module.syncBuiltinESMExports()` (`sync-builtin-esm-exports.ts`),
+   `patch()`/`unpatch()` finish with `module.syncBuiltinESMExports()` (`sync-builtin-esm-exports.ts`),
    which rewrites those slots; ESM imports are live bindings, so already-evaluated importers see the
    patch (and the originals again after `disable()`). The server path needs none of this: it patches
    `Server.prototype.emit`, which every instance looks up at call time, so an `import { createServer }`
@@ -134,6 +137,54 @@ another's traffic. The rule is idempotent, and the collector applies the identic
    **dropped** (not redacted); `authorization`/`cookie`/`set-cookie` become a `⟦REDACTED:TOKEN⟧` token
    if ever present in an allowlisted context. Raw credential headers are never emitted.
 
+## Coexisting with another instrumentation (2026-09-08)
+
+The whole pitch is running next to an app's existing OTel setup, and until this fix that silently did not
+work. `@opentelemetry/instrumentation-http` patches the same `request`/`get` exports and the same
+`Server.prototype.emit`, and **whoever patched second removed the other**, with no error either way:
+
+| registration order | OTel spans | flanj records |
+|---|---|---|
+| OTel alone | 4 | 0 |
+| Flanj alone | 0 | 4 |
+| OTel then Flanj | **0** | 4 |
+| Flanj then OTel | **0** | 4 |
+| ESM preload under OTel's `hook.mjs` | **0** | 4 |
+
+Two independent causes, one per order:
+
+1. **OTel first.** `InstrumentationBase._wrap` is `isWrapped → _unwrap → wrap`: the inherited method
+   UNWRAPPED OTel's `outgoingRequest`/`incomingRequest` wrappers before installing ours.
+2. **Flanj first.** Constructing an `InstrumentationBase` instantiates `RequireInTheMiddleSingleton`, whose
+   hook covers `Module.prototype.require` AND `process.getBuiltinModule` and caches every core module it
+   sees. Our own `enable()` lookups filled that cache with `http`/`https` before the app registered
+   `HttpInstrumentation`, so OTel's patch never ran.
+
+So: `wrapLayer` instead of `_wrap` (stack, never unwrap), and `FlanjInstrumentation` instead of
+`InstrumentationBase` (no module hooks, no singleton). Three rules that must not be "cleaned up":
+
+- **Never mark a layer `__wrapped`.** It is the one shimmer mark we withhold, and the only reason an OTel
+  instrumentation registered AFTER us stacks instead of unwrapping us. `isWrapped()` needs all three marks.
+- **Never remove a buried layer.** `unwrapLayer` pops only while ours is outermost; the wrapper above holds
+  our function by reference and splicing would cut the chain. A buried layer goes inert instead, because
+  every patch body checks `isEnabled()` — which is why `disable()` flips the flag BEFORE calling `unpatch()`.
+- **Never do work in a subclass field initializer.** The base constructor calls `enable()` → `patch()`, which
+  runs before subclass fields are assigned. The layer mark is built inside `patch()`; `trustedProxies` is
+  parsed inside `setConfig()`; `trusted` is `declare`d.
+
+One live layer per tag (the instrumentation name): a second `start()` in one process finds ours in the
+chain and declines, so the same call is never captured twice. A layer whose owner is disabled does not
+count — it is inert, and a fresh instrumentation takes over from it.
+
+That flips which handle wins when an app starts the SDK twice (a preload plus a code-level `start()`, say).
+`_wrap` used to unwrap the first instance and install the second, so the LAST start captured; now the FIRST
+LIVE one does, and the second handle's sink stays empty. Measured, and the better default: the preload's
+handle is the one wired to `flushOnExit`, so a short-lived process no longer loses its last batch.
+
+Known interaction, measured: disabling OTel's http instrumentation at runtime pops the OUTERMOST wrapper,
+which may be ours (shimmer's semantics, shared by everyone who patches this way). `disable()` then
+`enable()` on our instrumentation reinstalls it.
+
 ## Never break
 
 - **Instrumentation must not break the app.** Every patched entry point is wrapped in try/catch; a
@@ -181,4 +232,10 @@ collector §8 key); `onCapture` → the sink `start()` wires to the OTLP logger.
 - `../../test/integration/esm-named-import.spec.ts` — REAL ESM children under the built `dist/register.js`: a
   module that took `import { request, get, createServer } from 'node:http'` BEFORE the SDK started has every
   call captured (the facade re-sync), and the `node --import <register>` preload form works.
+- `wrap-layer.spec.ts` / `flanj-instrumentation.spec.ts` — the stacking patch (stacks, is not `isWrapped`,
+  pops only when outermost, one live layer per tag) and the lifecycle it rests on.
+- `../../test/integration/otel-coexistence.spec.ts` — REAL children registering
+  `@opentelemetry/instrumentation-http` against an InMemorySpanExporter AND `start()`, in BOTH orders plus
+  the ESM preload under OTel's `hook.mjs`: OTel still records its client and server spans while Flanj still
+  emits one record per call. Fails 4/7 on the pre-fix code.
 - `classify-host.spec.ts` — the external/internal edge heuristic.

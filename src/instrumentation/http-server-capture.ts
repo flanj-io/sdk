@@ -1,7 +1,9 @@
 import type { IncomingMessage, ServerResponse } from 'node:http';
-import { InstrumentationBase, type InstrumentationModuleDefinition } from '@opentelemetry/instrumentation';
 import { context, trace } from '@opentelemetry/api';
 import { SDK_NAME, SDK_VERSION } from '../version';
+import { FlanjInstrumentation } from './flanj-instrumentation';
+import { builtinModule } from './builtin-module';
+import { wrapLayer, unwrapLayer, type LayerMark } from './wrap-layer';
 import { CappedBuffer } from './capped-buffer';
 import { CapturedCall } from './captured-call';
 import { assembleCapturedCall } from './assemble-call';
@@ -10,7 +12,6 @@ import { classifyHost, type EdgeClass } from './classify-host';
 import { DEFAULT_BODY_CAP_BYTES, HttpBodyCaptureConfig, isIgnoredUrl } from './config';
 import { resolveIngressPeer } from './resolve-ingress-peer';
 import { TrustedProxies } from './trusted-proxies';
-import { builtinModule } from './builtin-module';
 
 interface ServerCtor {
   prototype: Record<string, unknown> & { emit?: unknown };
@@ -39,7 +40,7 @@ type HeaderValue = string | string[] | number | undefined;
  * app's own request handling (which still reads the full, unmodified body) is
  * never disturbed.
  */
-export class HttpServerCaptureInstrumentation extends InstrumentationBase<HttpBodyCaptureConfig> {
+export class HttpServerCaptureInstrumentation extends FlanjInstrumentation<HttpBodyCaptureConfig> {
   /**
    * `config.trustedProxies`, parsed once per config. The base constructor
    * routes through `setConfig`, so this is populated before any request can be
@@ -58,33 +59,34 @@ export class HttpServerCaptureInstrumentation extends InstrumentationBase<HttpBo
     super.setConfig(config);
   }
 
-  protected init(): InstrumentationModuleDefinition[] {
-    return [];
-  }
-
   // A prototype method: every Server instance — including one built through an
   // ESM `import { createServer }` binding taken before start() — looks `emit` up
   // at call time, so no ESM facade re-sync is needed here (contrast the
   // `request`/`get` EXPORTS the client path patches in http-body-capture.ts).
-  override enable(): void {
-    this.patchServer(builtinModule('node:http'));
-    this.patchServer(builtinModule('node:https'));
+  //
+  // The wrapper STACKS on whatever is already on `emit` (see `wrap-layer.ts`):
+  // OTel's own http instrumentation patches this exact method to open its
+  // server spans, and unwrapping it there would have silenced them.
+  protected patch(): void {
+    // Built here, not in a field: the base constructor calls enable() → patch()
+    // BEFORE a subclass field initializer would have run.
+    const layer: LayerMark = { tag: this.instrumentationName, isLive: () => this.isEnabled() };
+    this.patchServer(builtinModule('node:http'), layer);
+    this.patchServer(builtinModule('node:https'), layer);
   }
 
-  override disable(): void {
+  protected unpatch(): void {
     for (const mod of [builtinModule('node:http'), builtinModule('node:https')]) {
       const Server = mod.Server as ServerCtor | undefined;
-      if (Server?.prototype && typeof Server.prototype.emit === 'function') {
-        this._unwrap(Server.prototype, 'emit');
-      }
+      // Removes THIS layer only, and only while it is the outermost wrapper;
+      // buried under another library's it stays, inert (`isEnabled()` is false).
+      if (Server?.prototype) unwrapLayer(Server.prototype, 'emit', this.instrumentationName);
     }
   }
 
-  private patchServer(mod: Record<string, unknown>): void {
+  private patchServer(mod: Record<string, unknown>, layer: LayerMark): void {
     const Server = mod.Server as ServerCtor | undefined;
-    if (Server?.prototype && typeof Server.prototype.emit === 'function') {
-      this._wrap(Server.prototype, 'emit', this.makeEmitPatch());
-    }
+    if (Server?.prototype) wrapLayer(Server.prototype, 'emit', layer, this.makeEmitPatch());
   }
 
   private makeEmitPatch() {
@@ -92,7 +94,7 @@ export class HttpServerCaptureInstrumentation extends InstrumentationBase<HttpBo
     return (original: unknown) => {
       const originalFn = original as (this: unknown, event: string, ...args: unknown[]) => boolean;
       return function patched(this: unknown, event: string, ...args: unknown[]): boolean {
-        if (event === 'request') {
+        if (event === 'request' && self.isEnabled()) {
           try {
             self.instrumentRequest(args[0] as IncomingMessage, args[1] as ServerResponse);
           } catch {

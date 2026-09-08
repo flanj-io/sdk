@@ -1,7 +1,9 @@
 import type { ClientRequest, IncomingMessage } from 'node:http';
-import { InstrumentationBase, type InstrumentationModuleDefinition } from '@opentelemetry/instrumentation';
 import { context, trace } from '@opentelemetry/api';
 import { SDK_NAME, SDK_VERSION } from '../version';
+import { FlanjInstrumentation } from './flanj-instrumentation';
+import { builtinModule } from './builtin-module';
+import { wrapLayer, unwrapLayer, type LayerMark } from './wrap-layer';
 import { CappedBuffer } from './capped-buffer';
 import { parseRequestArgs } from './http-args';
 import { CapturedCall } from './captured-call';
@@ -10,7 +12,6 @@ import { decodeBody } from './decode-body';
 import { classifyHost, type EdgeClass } from './classify-host';
 import { DEFAULT_BODY_CAP_BYTES, HttpBodyCaptureConfig, isIgnoredUrl } from './config';
 import { syncBuiltinEsmExports } from './sync-builtin-esm-exports';
-import { builtinModule } from './builtin-module';
 
 /**
  * Custom OTel instrumentation that tees the request + response bodies of
@@ -26,43 +27,47 @@ import { builtinModule } from './builtin-module';
  * consumer reading the stream with `for await` (async iterator) is never starved
  * — no passive flowing-mode `on('data')` listener is added.
  */
-export class HttpBodyCaptureInstrumentation extends InstrumentationBase<HttpBodyCaptureConfig> {
+export class HttpBodyCaptureInstrumentation extends FlanjInstrumentation<HttpBodyCaptureConfig> {
   constructor(config: HttpBodyCaptureConfig) {
     super(`${SDK_NAME}/instrumentation-http-body-capture`, SDK_VERSION, config);
   }
 
-  // We patch the (already-loaded) core http/https modules directly in enable()
-  // rather than via require-in-the-middle, which does not re-fire for core
-  // modules loaded before the instrumentation is registered — and the ESM
-  // counterpart (import-in-the-middle) only works behind a loader hook that
-  // was registered before any user module, i.e. it needs the preload anyway.
-  protected init(): InstrumentationModuleDefinition[] {
-    return [];
-  }
-
-  override enable(): void {
-    this.patchModule(builtinModule('node:http'), 'http:');
-    this.patchModule(builtinModule('node:https'), 'https:');
+  // We patch the (already-loaded) core http/https modules directly rather than
+  // via require-in-the-middle, which does not re-fire for core modules loaded
+  // before the instrumentation is registered — and the ESM counterpart
+  // (import-in-the-middle) only works behind a loader hook that was registered
+  // before any user module, i.e. it needs the preload anyway. See
+  // `flanj-instrumentation.ts` for why we do not extend OTel's
+  // `InstrumentationBase` (its RITM singleton silenced OTel's own http spans).
+  protected patch(): void {
+    // Built here, not in a field: the base constructor calls enable() → patch()
+    // BEFORE a subclass field initializer would have run.
+    const layer: LayerMark = { tag: this.instrumentationName, isLive: () => this.isEnabled() };
+    this.patchModule(builtinModule('node:http'), 'http:', layer);
+    this.patchModule(builtinModule('node:https'), 'https:', layer);
     // Push the patched `request`/`get` into the ESM facades too, so a module
     // that did `import { request } from 'node:http'` BEFORE start() sees them.
     syncBuiltinEsmExports();
   }
 
-  override disable(): void {
+  protected unpatch(): void {
     for (const mod of [builtinModule('node:http'), builtinModule('node:https')]) {
       for (const name of ['request', 'get'] as const) {
-        if (typeof mod[name] === 'function') this._unwrap(mod, name);
+        // Removes THIS layer only, and only while it is the outermost wrapper;
+        // buried under another library's wrapper it stays, inert, because
+        // `isEnabled()` is already false.
+        unwrapLayer(mod, name, this.instrumentationName);
       }
     }
-    // ...and hand the originals back to those same ESM bindings.
+    // ...and hand whatever is now installed back to those same ESM bindings.
     syncBuiltinEsmExports();
   }
 
-  private patchModule(mod: Record<string, unknown>, protocol: string): void {
+  private patchModule(mod: Record<string, unknown>, protocol: string, layer: LayerMark): void {
     for (const name of ['request', 'get'] as const) {
-      if (typeof mod[name] === 'function') {
-        this._wrap(mod, name, this.makeRequestPatch(protocol));
-      }
+      // wrapLayer STACKS: an existing wrapper (OTel's span instrumentation,
+      // say) keeps running underneath ours instead of being torn out.
+      wrapLayer(mod, name, layer, this.makeRequestPatch(protocol));
     }
   }
 
@@ -72,6 +77,7 @@ export class HttpBodyCaptureInstrumentation extends InstrumentationBase<HttpBody
       const originalFn = original as (...args: unknown[]) => ClientRequest;
       return function patched(this: unknown, ...args: unknown[]): ClientRequest {
         const req = originalFn.apply(this, args);
+        if (!self.isEnabled()) return req;
         try {
           self.instrumentRequest(req, args, protocol);
         } catch {
