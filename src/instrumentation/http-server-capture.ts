@@ -10,12 +10,7 @@ import { classifyHost, type EdgeClass } from './classify-host';
 import { DEFAULT_BODY_CAP_BYTES, HttpBodyCaptureConfig, isIgnoredUrl } from './config';
 import { resolveIngressPeer } from './resolve-ingress-peer';
 import { TrustedProxies } from './trusted-proxies';
-
-/** LIVE, mutable exports of a core module (see http-body-capture.ts for the why). */
-function builtin(id: 'node:http' | 'node:https'): Record<string, unknown> {
-  const get = (process as unknown as { getBuiltinModule(id: string): Record<string, unknown> }).getBuiltinModule;
-  return get.call(process, id);
-}
+import { builtinModule } from './builtin-module';
 
 interface ServerCtor {
   prototype: Record<string, unknown> & { emit?: unknown };
@@ -72,12 +67,12 @@ export class HttpServerCaptureInstrumentation extends InstrumentationBase<HttpBo
   // at call time, so no ESM facade re-sync is needed here (contrast the
   // `request`/`get` EXPORTS the client path patches in http-body-capture.ts).
   override enable(): void {
-    this.patchServer(builtin('node:http'));
-    this.patchServer(builtin('node:https'));
+    this.patchServer(builtinModule('node:http'));
+    this.patchServer(builtinModule('node:https'));
   }
 
   override disable(): void {
-    for (const mod of [builtin('node:http'), builtin('node:https')]) {
+    for (const mod of [builtinModule('node:http'), builtinModule('node:https')]) {
       const Server = mod.Server as ServerCtor | undefined;
       if (Server?.prototype && typeof Server.prototype.emit === 'function') {
         this._unwrap(Server.prototype, 'emit');
