@@ -445,6 +445,54 @@ Headers: `X-Flanj-Collector-Version`, `X-Flanj-Schema-Version`.
 - The CP upserts by `(collector, signature)` — re-syncing the same finding updates its counters and
   timestamps, never duplicates. Send the current `ListFindings` page each tick; the CP is idempotent.
 
+### `POST /api/v1/edges/sync`  (Bearer collector key) — *(v1p2-2026-09-09)*
+
+**Edge registration.** Each unique **external** edge the collector has discovered is registered
+BEFORE any finding exists, from the same background ticker (`edge_sync`, §8 — on by default), so the
+owner's dashboard can show the integration graph rather than only the places something has broken.
+Headers: `X-Flanj-Collector-Version`, `X-Flanj-Schema-Version`.
+
+```jsonc
+// request — the COMPLETE allow-list. Four fields per edge, and no others exist.
+{ "edges": [ {
+    "registrable_domain": "acme.test",   // eTLD+1, computed LOCALLY via the public-suffix list;
+                                         //   an IP-literal peer registers the literal
+    "direction": "outbound",             // "outbound" (this org is the CONSUMER on the edge) |
+                                         //   "inbound" (this org is the PROVIDER). The edge-ORIENTATION
+                                         //   vocabulary, not the §2 call-direction words client/server
+    "first_seen": "…", "last_seen": "…"
+} ] }
+// response 200 { "received": n, "stored": n }
+```
+
+- **Internal edges never leave.** The §2 external/internal classification that keeps internal
+  same-team edges off `GET /api/edges` keeps them off this wire too: an internal edge — RFC1918 /
+  loopback / link-local / ULA peers, `.svc.cluster.local` / `.internal` / `.local` names, single-label
+  hostnames — appears in NO sync payload, ever, and neither does the SDK's `local-process` class. The
+  collector asserts this on the marshalled bytes, not on the struct.
+- **The peer host never leaves either** — only the registrable domain. `api.acme.test` and
+  `api-eu.acme.test:8443` register as ONE row, `acme.test`, spanning the earliest `first_seen` and the
+  latest `last_seen` of the hosts it folds. Which subdomain and port an org answers on is the
+  deployment's business; which organisation it talks to is the fact being registered.
+- **No volume aggregates.** `call_count` / `drift_count` / rpm are not fields here and will not be
+  added until something needs them.
+- Max **200** edges per request; more → `400` (validation). An EMPTY array is a valid no-op. A batch
+  with ANY invalid row is refused whole (`400`) — nothing from it is stored. Over the cap the
+  collector sends a STABLE subset (earliest-seen first), not a different slice each tick.
+- Per-field length caps (characters): `registrable_domain` ≤253 · `direction` ≤16 · `first_seen` /
+  `last_seen` ≤64. All four are required and non-empty; `direction` is exactly `outbound` | `inbound`.
+- Auth: collector key required — **no confirmed-contact requirement** (the same install-time anchor
+  as the findings sync); the deploy token names no single collector and is refused with
+  `403 collector_key_required`; missing/invalid bearer `401`. **Gated on Connect**: a collector that
+  never Connected holds no key and registers nothing.
+- The CP upserts by `(collector, registrable_domain, direction)` — re-registering the same edge
+  refreshes `last_seen` in place, never duplicates. Send the current external edge set each tick;
+  the CP is idempotent, and the collector keeps no "already registered" bookkeeping to drift.
+- **Disclosed and switchable.** The collector's Connect panel states this flow before the operator
+  Connects, and `edge_sync: false` (§8) disables it without touching the findings sync. This is a
+  DIFFERENT path from the directory pull below: the directory `GET` sends nothing about this
+  collector, and that promise is unchanged — registration is a separate, disclosed, switchable POST.
+
 ---
 
 ## 6. Redaction contract (the security floor)
@@ -576,7 +624,8 @@ is deliberately unaffected: one document per deployment, not one per vendor.
 | `dsn` | postgres connection string, required iff `backend=postgres`; use `${env:…}` interpolation for credentials — the collector only ever logs it redacted |
 | `window_max_rows` / `window_max_bytes` | rolling-window ceilings (with `backend=postgres`, set identically on every pod sharing the database) |
 | `finding_sync` | *(flanjui, bool, default `true` — slice2-2026-08-28)* the background finding-shape sync to the CP (`POST /api/v1/findings`, §5): every 15s, when a collector key exists, the UI extension sends the current findings **shape-only** (`expected`/`actual`/`detail` stripped at source). `false` disables that POST entirely. It governs the findings egress ONLY — the directory-name refresh that rides the same ticker has its own switch, `directory_sync` (v1p1-2026-08-31). |
-| `directory_sync` | *(flanjui, bool, default `true` — v1p1-2026-08-31)* the background **directory refresh** — the vendor-directory down-channel, which carries display names today: on the SAME 15s ticker as `finding_sync`, when a collector key exists, the UI extension does one conditional full-table **GET** of the directory display-name table (`GET /api/v1/directory`, ETag / `If-None-Match`; `304` = no-op) and stores the response for local name resolution. It is a pure FETCH — this collector's own edges, peer hosts and domains are **never sent** in this request, there is no per-edge or per-miss lookup, and nothing about the deployment's dependency graph leaves on this path. `false` disables the refresh only (the findings sync is unaffected); names still resolve offline from the **baked directory seed** shipped in the collector image, **plus whatever table was already pulled** — turning the switch off stops future fetches, it does not clear a table fetched earlier, so a previously-connected collector keeps serving those names (frozen, and going stale) until the store is reset. |
+| `directory_sync` | *(flanjui, bool, default `true` — v1p1-2026-08-31)* the background **directory refresh** — the vendor-directory down-channel, which carries display names today: on the SAME 15s ticker as `finding_sync`, when a collector key exists, the UI extension does one conditional full-table **GET** of the directory display-name table (`GET /api/v1/directory`, ETag / `If-None-Match`; `304` = no-op) and stores the response for local name resolution. It is a pure FETCH — this collector's own edges, peer hosts and domains are **never sent** in this request, there is no per-edge or per-miss lookup, and nothing about the deployment's dependency graph leaves on this path. `false` disables the refresh only (the findings sync is unaffected); names still resolve offline from the **baked directory seed** shipped in the collector image, **plus whatever table was already pulled** — turning the switch off stops future fetches, it does not clear a table fetched earlier, so a previously-connected collector keeps serving those names (frozen, and going stale) until the store is reset. The "your edges are never sent" promise above is about THIS request and stays exactly as stated; **edge registration is a different path** (`edge_sync`, below) — separately gated, separately disclosed, and never reached by turning this one on. |
+| `edge_sync` | *(flanjui, bool, default `true` — v1p2-2026-09-09)* **edge registration** — the third leg of the same 15s ticker, gated independently of the other two. Once a collector key exists, each unique **EXTERNAL** edge is registered to the CP (`POST /api/v1/edges/sync`, §5) as `{registrable_domain, direction, first_seen, last_seen}` and nothing else: no calls, no bodies, no payloads, no peer hosts, no call or drift counts. **Internal edges never leave** — the same classification that keeps them off `GET /api/edges` keeps them off the wire, asserted on the marshalled bytes. Nothing is sent before Connect. `false` disables the registration only (`finding_sync` and `directory_sync` are unaffected); with all three false no ticker starts at all. Unlike `directory_sync`, this leg DOES send something about this collector's edges — which is why the Connect panel discloses it before the operator Connects. |
 | `store_pod_endpoint` *(optional, flanjdrift)* | base URL of the store pod's `spec_endpoint`. Set on a FRONT of the tiered topology only: a front runs drift but owns no store, so this is how uploaded contracts — and, since 2026-09-07, the observed MCP `tools/list` snapshots every front forwards, i.e. the org-wide MCP baseline — reach it. Empty everywhere else, where the co-located store is read in-process |
 | `store_pod_token` *(optional, flanjdrift)* | bearer token presented to `store_pod_endpoint`; must match the store pod's `spec_token`. Use `${env:…}`; never logged |
 | `spec_endpoint` *(optional, flanjstore)* | intra-cluster bind for the read-only CONTRACT endpoint (`GET /internal/contracts`, `GET /internal/contracts/doc`). Set on the tiered topology's STORE POD so fronts can read provider contracts bound to an edge: uploaded OpenAPI documents and observed MCP `tools/list` snapshots (format `mcp`, since 2026-09-07). Contracts only — no calls, no findings, no settings, never the self contract — and never the loopback UI |
