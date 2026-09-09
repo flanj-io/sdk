@@ -12,6 +12,14 @@ on:
 permissions:
   contents: read
 
+# Actions-minutes budget: without this, pushing three times to a branch runs three full
+# pipelines to completion — nothing supersedes anything. Cancel only on pull_request: a
+# push to main is the promotion signal that dispatches the integration gate, and killing
+# one mid-flight would drop that dispatch.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
   dco:
     runs-on: ubuntu-latest
@@ -24,14 +32,17 @@ jobs:
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
         run: |
-          # --no-merges: a merge commit contributes no authored content — the
-          # commits it brings in carry their own sign-offs — and nothing that
-          # creates one signs it: not GitHub's "Update branch" button, not the
-          # `git merge origin/main` this workspace prescribes for resolving a
-          # conflict. Without this, syncing a PR with main reds its own DCO
-          # check, and the only way out is force-pushing an amended merge onto
-          # a shared branch. The upstream DCO app skips merges for the same
-          # reason.
+          # --no-merges: DCO certifies AUTHORED contributions, and a merge commit
+          # introduces none — it only joins two histories whose own commits this
+          # loop already checks. Without the flag the gate is unsatisfiable by
+          # construction: a merge made with GitHub's own "Update branch" button
+          # is authored by GitHub and can never carry a trailer, so bringing main
+          # into a long-running branch (the standard remedy for a stale or
+          # conflicted PR) permanently reds the check, and the only way back is a
+          # force-push. Every commit a human wrote is still checked; this matches
+          # what the upstream DCO app does. Residual, stated so it is not a
+          # surprise: an "evil merge" that carries content present in neither
+          # parent would now skip the check — narrow, and visible in review.
           missing=0
           for c in $(git rev-list --no-merges "$BASE_SHA..$HEAD_SHA"); do
             if ! git log -1 --format=%B "$c" | grep -qiE '^Signed-off-by: .+ <.+@.+>'; then
