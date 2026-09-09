@@ -57,6 +57,40 @@ describe('README — first-run essentials', () => {
     expect(readme).toContain('Traffic');
   });
 
+  /**
+   * The verify step gives a UI URL that a plain `docker run -p 5335:5335` of the
+   * collector does not serve: its UI binds CONTAINER loopback by design, so the
+   * port publish forwards to nothing and the two lines after it fail with
+   * `curl: (7) Failed to connect` — which reads as "the SDK exported nothing".
+   * The collector README's laptop block runs the sidecar that makes the URL
+   * real; this README is the npm package page and is what a stranger reads
+   * first and possibly only, so it must not assume that block silently
+   * (flanj-io/sdk#35).
+   *
+   * Locked here the same way the Node floor is: this is the SDK half of a
+   * two-repo pair, and a test can only hold this half.
+   */
+  it('sends the reader to the collector run block, not the repo root, for the run command', () => {
+    const quickStart = readme.slice(readme.indexOf('## Quick start'), readme.indexOf('### Configuration'));
+    expect(
+      quickStart,
+      'Quick start needs the collector README anchor, not a bare repo link'
+    ).toContain('https://github.com/flanj-io/collector#run-it-on-a-laptop');
+    // A repo-root link elsewhere (the feature list naming the consumer of the
+    // wire convention) is fine — it is not telling anyone how to run anything.
+    expect(
+      quickStart.includes('](https://github.com/flanj-io/collector)'),
+      'a bare repo-root link in Quick start leaves the reader to find the run command themselves'
+    ).toBe(false);
+  });
+
+  it('says the UI needs the collector run block sidecar before it gives a UI URL', () => {
+    const verify = readme.slice(readme.indexOf('**Verify**'), readme.indexOf('### Configuration'));
+    expect(verify, 'no Verify section found').not.toHaveLength(0);
+    expect(verify.toLowerCase()).toContain('sidecar');
+    expect(verify).toContain('http://127.0.0.1:5335');
+  });
+
   it('says which module systems are supported', () => {
     expect(lower).toContain('esm');
     expect(lower).toContain('cjs');
