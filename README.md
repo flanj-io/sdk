@@ -6,7 +6,10 @@ sensitive data at the source**, and exports them (over OTLP) to a Flanj collecto
 
 ## Quick start
 
-Needs Node `^20.16.0 || >=22.3.0` and a running [Flanj collector](https://github.com/flanj-io/collector).
+Needs Node `^20.16.0 || >=22.3.0` and a running Flanj collector, started with the collector README's
+[Run it on a laptop](https://github.com/flanj-io/collector#run-it-on-a-laptop) block. Use that command as
+written: the collector's UI binds **container loopback** by design, so it is reached through the small
+sidecar that block includes, and a plain `docker run -p 5335:5335` publishes nothing.
 The SDK patches core `node:http` through `process.getBuiltinModule`, which landed in Node 20.16.0 and 22.3.0;
 on anything older `start()` throws one line naming the requirement rather than capturing nothing.
 
@@ -23,13 +26,19 @@ node -r @flanj/sdk/register app.js
 That is the whole integration — no source change. The preload prints one line naming the endpoint and
 integration id, then every `node:http`/`node:https` call is captured, redacted and exported.
 
-**Verify** — after your app has made at least one call:
+**Verify** — after your app has made at least one call, and assuming the collector was started with the
+[Run it on a laptop](https://github.com/flanj-io/collector#run-it-on-a-laptop) command **including its UI
+sidecar**:
 
 ```bash
 curl -s http://127.0.0.1:5335/api/health
 ```
 
 then open <http://127.0.0.1:5335> and look at the **Traffic** tab: your call should be there, redacted.
+
+If that `curl` answers `Failed to connect`, the SDK is not what failed — the collector's UI is loopback-only
+inside its container and nothing is forwarding to it. Re-run the collector with that block's sidecar. Ingest
+on `:4318` is a separate, ordinary published port and works either way.
 
 ### Configuration
 
