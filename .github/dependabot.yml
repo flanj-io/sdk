@@ -1,19 +1,34 @@
 version: 2
+
+# Grouping is an Actions-minutes decision as much as a review one: every Dependabot PR is a full
+# CI run, and ungrouped weekly bumps were opening one PR (one pipeline) per dependency. Minor and
+# patch updates ride together; MAJORS stay ungrouped on purpose — a major deserves its own run
+# and its own review.
 updates:
   - package-ecosystem: "npm"
     directory: "/"
     schedule:
       interval: "weekly"
     open-pull-requests-limit: 10
+    commit-message:
+      prefix: "chore(deps)"
     groups:
+      # Kept as its own group: the OTel packages are a coupled set and must move together.
       opentelemetry:
         patterns:
           - "@opentelemetry/*"
-    commit-message:
-      prefix: "chore(deps)"
+      dev-minor-patch:
+        dependency-type: "development"
+        update-types: ["minor", "patch"]
+      prod-minor-patch:
+        dependency-type: "production"
+        update-types: ["minor", "patch"]
   - package-ecosystem: "github-actions"
     directory: "/"
     schedule:
       interval: "weekly"
     commit-message:
       prefix: "chore(ci)"
+    groups:
+      actions:
+        patterns: ["*"]

@@ -12,6 +12,14 @@ on:
 permissions:
   contents: read
 
+# Actions-minutes budget: without this, pushing three times to a branch runs three full
+# pipelines to completion — nothing supersedes anything. Cancel only on pull_request: a
+# push to main is the promotion signal that dispatches the integration gate, and killing
+# one mid-flight would drop that dispatch.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
   dco:
     runs-on: ubuntu-latest
