@@ -1,0 +1,16 @@
+# This repo is not built from its own Dockerfile — it reaches a build as a NAMED BuildKit context.
+# The e2e harness passes it as `sdk` (`additional_contexts: sdk: ${FLANJ_WORKSPACE}/sdk`) and
+# graph/org-app/Dockerfile does `COPY --from=sdk / ./` before `yarn install && yarn build`, so the
+# WHOLE of this directory is transferred on every lane. Without this file there was no ignore list
+# at all: BuildKit logged `[org-app context sdk] load .dockerignore` and found nothing.
+#
+# Every session works in a `.claude/worktrees/<slug>` worktree (the workspace CLAUDE.md makes that
+# mandatory) and they accumulate — 1.5 GB of the 1.65 GB context here on 2026-09-12, each carrying
+# its own node_modules. None of it is reachable from the build: the org-app image copies the
+# context root and then installs from the lockfile.
+.claude/
+.worktrees/
+
+# Build inputs only; `yarn build` (tsc -b) regenerates everything else.
+.git/
+.DS_Store
