@@ -86,12 +86,39 @@ jobs:
     if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     steps:
+      # THIS REPO'S CI IS FREE — it is public. The gate this dispatch fires is not: it runs in the
+      # PRIVATE e2e repo and costs ~19 minutes of its Actions budget, which measured 2026-09-12 was
+      # 75% of the whole org's private spend. So the dispatch, and only the dispatch, asks whether
+      # this merge could possibly change the answer. Everything above still runs on every push.
+      #
+      # It FAILS OPEN: a force-push, a brand-new branch or an API hiccup leaves the file list unknown
+      # and dispatches anyway, because a gate that did not run is a worse outcome than one that did
+      # not need to.
       - name: Dispatch integration gate
         env:
           TOKEN: ${{ secrets.E2E_DISPATCH_TOKEN }}   # PAT with repo scope on flanj-io/e2e
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+          BEFORE: ${{ github.event.before }}
           HEAD_SHA: ${{ github.sha }}
         run: |
           if [ -z "$TOKEN" ]; then echo "E2E_DISPATCH_TOKEN not set; skipping dispatch"; exit 0; fi
+
+          # What this push changed, or "" when that cannot be determined.
+          files=""
+          if [ -n "$BEFORE" ] && [ "$BEFORE" != "0000000000000000000000000000000000000000" ]; then
+            files=$(gh api "repos/$REPO/compare/$BEFORE...$HEAD_SHA" --jq '.files[].filename' 2>/dev/null || true)
+          fi
+          # INERT paths, as an explicit short list rather than a clever pattern. Note what is NOT in
+          # it: any CONTRACTS*.md. A contracts document is the wire format's source of truth in this
+          # org and is vendored here from e2e, so a change to one always earns a gate run.
+          inert='^(README|CHANGELOG|CONTRIBUTING|SECURITY|CODE_OF_CONDUCT|LICENSE|NOTICE)|^docs/'
+          if [ -n "$files" ] && ! printf '%s\n' "$files" | grep -qvE "$inert"; then
+            echo "every changed file is inert — not spending the private e2e repo's budget on a gate run:"
+            printf '%s\n' "$files" | sed 's/^/  /'
+            exit 0
+          fi
+
           curl -fsS -X POST \
             -H "Authorization: Bearer $TOKEN" \
             -H "Accept: application/vnd.github+json" \
