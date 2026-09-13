@@ -8,7 +8,7 @@
     "url": "git+https://github.com/flanj-io/sdk.git",
     "directory": "packages/redaction-patterns"
   },
-  "homepage": "https://github.com/flanj-io/sdk/tree/main/packages/redaction-patterns#readme",
+  "homepage": "https://flanj.io",
   "bugs": "https://github.com/flanj-io/sdk/issues",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",

@@ -13,7 +13,7 @@ body:
     id: proposal
     attributes:
       label: Proposed solution
-      description: What you'd like to see. Alternatives you've considered are welcome too.
+      description: What you would like to see. Alternatives you considered are welcome too.
   - type: textarea
     id: context
     attributes:

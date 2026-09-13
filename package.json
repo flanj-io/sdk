@@ -7,7 +7,7 @@
     "type": "git",
     "url": "git+https://github.com/flanj-io/sdk.git"
   },
-  "homepage": "https://github.com/flanj-io/sdk#readme",
+  "homepage": "https://flanj.io",
   "bugs": "https://github.com/flanj-io/sdk/issues",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",

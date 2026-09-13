@@ -2,7 +2,7 @@
 
 This document is the engineering reference for the Flanj **redaction floor**: the mandatory PAN/PII/secret
 redaction applied to **every captured body** — inbound and outbound, any edge classification — **at source,
-before anything is stored or transmitted**. It is the highest-consequence code in the product.
+before anything is stored or transmitted**. It is the security property everything else in Flanj rests on.
 
 The floor exists twice, in two languages, and must behave identically:
 
@@ -200,4 +200,4 @@ both language suites on both entry points.
 ## 6. Reporting a redaction gap
 
 A body that reaches storage or the wire with raw PAN/PII is a security issue. Report it privately per
-[SECURITY.md](./SECURITY.md) — please include the (synthetic!) payload shape; never a real card number.
+[SECURITY.md](./SECURITY.md) — include the synthetic payload shape; never a real card number.

@@ -1,25 +1,37 @@
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/flanj-io/sdk/main/docs/brand/flanj-lockup-dark.svg">
+  <img alt="Flanj" height="48" src="https://raw.githubusercontent.com/flanj-io/sdk/main/docs/brand/flanj-lockup.svg">
+</picture>
+
 # @flanj/redaction-patterns
 
-The **Flanj redaction floor** — PAN/PII/secret redaction applied **at source** before any HTTP body is
-stored or transmitted. Apache-2.0. Zero external calls, by construction and by test.
+Your integrations break when the other side changes. Flanj catches it, with proof both teams can act on.
 
-It is built as **composed, hardened validators behind our own swappable interface**: our code locates
+[![License: Apache-2.0](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](https://github.com/flanj-io/sdk/blob/main/LICENSE)
+[![npm: @flanj/redaction-patterns](https://img.shields.io/npm/v/@flanj/redaction-patterns.svg)](https://www.npmjs.com/package/@flanj/redaction-patterns)
+[![ci](https://github.com/flanj-io/sdk/actions/workflows/ci.yml/badge.svg)](https://github.com/flanj-io/sdk/actions/workflows/ci.yml)
+
+The Flanj redaction floor: card-number, personal-data and secret redaction applied at source, before any
+HTTP body is stored or transmitted. Apache-2.0. Zero external calls, by construction and by test.
+
+It is built as composed, hardened validators behind a swappable interface of its own: this package locates
 candidates, recurses arbitrary nested structures, decodes base64, anchors and tokenizes; vetted validators
-(`validator` for Luhn/email/IBAN, `libphonenumber-js` for phone) make every redact decision. No regex is the
-detector; no third-party engine owns the pipeline. The design is documented in
-[`REDACTION.md`](../../REDACTION.md).
+(`validator` for Luhn, email and IBAN, `libphonenumber-js` for phone) make every redact decision. No regex is
+the detector; no third-party engine owns the pipeline. The design is documented in
+[`REDACTION.md`](https://github.com/flanj-io/sdk/blob/main/REDACTION.md).
 
-This package is one of **two conforming implementations** of the same contract — the Go collector
-(`internal/redact`) is the other — and both are held to the same golden files, vendored here from the canonical
+This package is one of two conforming implementations of the same contract; the Go collector
+(`internal/redact`) is the other. Both are held to the same golden files, vendored here from the canonical
 `e2e/contracts/v1`:
 
-- [`contracts/redaction-vectors.json`](../../contracts/redaction-vectors.json) — scalar-level vectors;
-- [`contracts/redaction-fixtures.json`](../../contracts/redaction-fixtures.json) — the structured,
-  cross-language **parity** battery (nested/undocumented fields, arrays, PAN-as-number, base64, inbound bodies,
-  truncated/malformed/form bodies, negatives, poisoned-spec enhancer cases).
+- [`contracts/redaction-vectors.json`](https://github.com/flanj-io/sdk/blob/main/contracts/redaction-vectors.json) — scalar-level vectors;
+- [`contracts/redaction-fixtures.json`](https://github.com/flanj-io/sdk/blob/main/contracts/redaction-fixtures.json) — the structured,
+  cross-language parity battery (nested and undocumented fields, arrays, card number as a number, base64,
+  inbound bodies, truncated, malformed and form bodies, negatives, poisoned-spec enhancer cases).
 
-**The fixture files, not this code, are the source of truth.** The `@flanj/sdk` redacts with this package at
-the call site; the control plane reuses it for reply-box DLP.
+The fixture files, not this code, are the source of truth. `@flanj/sdk` redacts with this package at the
+call site, in your process, before a body is exported; the Flanj control plane reuses it as data-loss
+prevention on human free text.
 
 ## Install
 
@@ -33,7 +45,7 @@ yarn add @flanj/redaction-patterns
 import { redact, redactDetailed, createRedactor, enhance, redactHeaders } from '@flanj/redaction-patterns';
 
 // Text entry point — what captured bodies go through. Only fired scalars are rewritten;
-// JSON formatting, key order and untouched literals are preserved byte-for-byte.
+// JSON formatting, key order and untouched literals are preserved byte for byte.
 redact('card 4111 1111 1111 1111 on file');
 // -> 'card ⟦REDACTED:PAN⟧ on file'
 
@@ -41,11 +53,11 @@ redactDetailed('{"charge":{"source":{"card_number":"4242 4242 4242 4242","last4"
 // -> { text: '{"charge":{"source":{"card_number":"⟦REDACTED:PAN⟧","last4":"4242"},"meta":{"backup":"⟦REDACTED:PAN⟧","order_id":"4111111111111112"}}}',
 //      patterns: ['PAN'] }          // undocumented nested field caught; non-Luhn order_id and last4 survive
 
-// Structural entry point — recurse an already-parsed value; returns a redacted clone + hits.
+// Structural entry point — recurse an already-parsed value; returns a redacted clone plus hits.
 createRedactor().redact({ payload: 'eyJjYXJkIjoiNDExMTExMTExMTExMTExMSIsImFtb3VudCI6MTIwMH0=', cvv: 123 });
 // -> { redacted: { payload: '⟦REDACTED:PAN⟧', cvv: '⟦REDACTED:CVV⟧' }, hits: ['PAN', 'CVV'] }   // base64 decode-then-scan
 
-// Schema-aware enhancer — ADD-only above the floor.
+// Schema-aware enhancer — add-only above the floor.
 enhance({ national_id: 'AB123456C', card: '⟦REDACTED:PAN⟧' }, [{ path: 'national_id', type: 'SSN' }]);
 // -> { redacted: { national_id: '⟦REDACTED:SSN⟧', card: '⟦REDACTED:PAN⟧' }, hits: ['SSN'] }
 
@@ -64,19 +76,19 @@ interface Redactor {
 createRedactor({ recognizers?: Recognizer[]; includeIp?: boolean }): Redactor
 ```
 
-`fields` records every **whole-value** redaction — the RFC 6901 path, the pattern, and the ORIGINAL value's
+`fields` records every whole-value redaction: the RFC 6901 path, the pattern, and the original value's
 non-reversible properties (type, length in code points, character-class flags; see `src/props.ts`). Downstream,
 drift detection uses them to validate the decidable spec constraints (type, min/maxLength) of redacted fields.
 Span-in-text redactions, redacted keys, form pairs and non-JSON text emit no records.
 
-A `Recognizer` returns the **confirmed** sensitive spans inside one scalar; the `Redactor` owns traversal, the
+A `Recognizer` returns the confirmed sensitive spans inside one scalar; the `Redactor` owns traversal, the
 token format, base64 and idempotency. Engine choice is per recognizer: swap one without touching the rest.
 
 ## The floor (all fire by default)
 
 | id | Matches | Decided by | Token |
 |---|---|---|---|
-| `PAN` | 13–19 digit runs (separators stripped) **passing Luhn**, anchored | `validator.isLuhnNumber` | `⟦REDACTED:PAN⟧` |
+| `PAN` | 13–19 digit runs (separators stripped) passing Luhn, anchored | `validator.isLuhnNumber` | `⟦REDACTED:PAN⟧` |
 | `EMAIL` | email-shaped candidates | `validator.isEmail` | `⟦REDACTED:EMAIL⟧` |
 | `IBAN` | ISO-13616, electronic or print format | `validator.isIBAN` (registry + mod-97) | `⟦REDACTED:IBAN⟧` |
 | `SSN` | US SSN `###-##-####` (format; no checksum exists) | — | `⟦REDACTED:SSN⟧` |
@@ -85,24 +97,24 @@ token format, base64 and idempotency. Engine choice is per recognizer: swap one 
 | `TOKEN` | Bearer tokens, JWTs (header validated), `sk_`/`pk_`-style keys | format | `⟦REDACTED:TOKEN⟧` |
 | `IP` *(optional)* | IPv4 / IPv6 (`includeIp: true`) | `validator.isIP` | `⟦REDACTED:IP⟧` |
 
-Plus, owned by the wrapper: **deep traversal** (keys too; PAN-as-number; CVV-under-key), **base64
-decode-then-scan** (whole encoded run → token), **normalization** (detect on digits, redact the original span;
-finds a PAN next to other separated digit groups), **form-urlencoded** decode-then-scan, **truncated/malformed
-JSON** handled as residue (every byte is scanned by some path).
+Plus, owned by the wrapper: deep traversal (keys too; card number as a number; CVV under a key), base64
+decode-then-scan (the whole encoded run becomes the token), normalization (detect on digits, redact the
+original span; finds a card number next to other separated digit groups), form-urlencoded decode-then-scan,
+and truncated or malformed JSON handled as residue (every byte is scanned by some path).
 
-Token delimiters are `U+27E6`/`U+27E7` (`⟦ ⟧`) — regex-stable, JSON/text-safe, and make emitted tokens inert
-to re-scanning.
+Token delimiters are `U+27E6`/`U+27E7` (`⟦ ⟧`): regex-stable, JSON- and text-safe, and they make emitted
+tokens inert to re-scanning.
 
 ## Invariants (enforced by `test/`)
 
 1. **Add-only.** Redaction only replaces sensitive spans; it never un-redacts. The schema-aware enhancer may add
-   above this floor, never subtract (`never-subtract` law asserted over every fixture × every spec).
-2. **Idempotent.** `redact(redact(x)) === redact(x)`; a `⟦REDACTED:…⟧` token is a fixed point — the
+   above this floor, never subtract (the `never-subtract` law is asserted over every fixture and every spec).
+2. **Idempotent.** `redact(redact(x)) === redact(x)`; a `⟦REDACTED:…⟧` token is a fixed point, so the
    collector's defense-in-depth pass never double-wraps the SDK's output.
 3. **Luhn-gated, anchored PAN.** A 16-digit non-Luhn number (an order id) is left intact; a Luhn-valid run glued
-   inside an identifier is not a candidate; a valid PAN in any format is redacted.
+   inside an identifier is not a candidate; a valid card number in any format is redacted.
 4. **Contextual CVV.** A bare 3–4 digit number is never redacted.
-5. **Zero I/O.** Lint-banned (`no-restricted-imports` on every network/DNS/process/fs primitive) and
+5. **Zero I/O.** Lint-banned (`no-restricted-imports` on every network, DNS, process and filesystem primitive) and
    sentinel-tested (`test/no-network.spec.ts`).
 6. **Parity.** The Go collector produces identical results on the shared fixtures.
 
@@ -112,7 +124,12 @@ to re-scanning.
 yarn workspace @flanj/redaction-patterns test
 ```
 
-`test/vectors.spec.ts` and `test/fixtures.spec.ts` iterate **every** case in the vendored golden files (both
+`test/vectors.spec.ts` and `test/fixtures.spec.ts` iterate every case in the vendored golden files (both
 entry points, idempotency, enhancer, never-subtract); `test/recognizers.spec.ts` pins behaviour not covered by the
 contract; `test/no-network.spec.ts` is the zero-external-calls sentinel. Do not change a wire behaviour here
 without first changing the canonical contract in `e2e/contracts/v1` and re-vendoring.
+
+## License
+
+[Apache-2.0](https://github.com/flanj-io/sdk/blob/main/LICENSE). Contributions require a DCO sign-off; see
+[CONTRIBUTING.md](https://github.com/flanj-io/sdk/blob/main/CONTRIBUTING.md).
