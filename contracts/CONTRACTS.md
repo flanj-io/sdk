@@ -291,6 +291,50 @@ The two flaggable MCP kinds also carry the additive **optional** `snapshot_obser
 
 `definition_change` findings also carry the additive **optional** `snapshot_observed_from` (ISO date-time): the **previous** snapshot's observation time — the structured sibling of `snapshot_observed_at` (which stays the **after** snapshot), so readers never parse the `detail` prose for the before-time; absent on other kinds and on findings from older collectors (readers must tolerate its absence).
 
+**`definition_change` rule ids (the definition-diff classifier's table — direction-aware since 2026-09-13).**
+`rule` is the classifier's stable id; the drift signature hangs off it, so one field can never carry two rows for
+one change. `expected` / `actual` are the before / after **fragments**. The class maps to `severity` as above
+(BREAKING → `breaking`, NON_BREAKING → `info`, DESCRIPTION → `warning`). The single implementation is the
+collector's public `contract/diff` package; nothing re-implements a rule.
+
+| `rule` | side | when | class |
+|---|---|---|---|
+| `operation-removed` / `operation-added` | tool | a tool left / arrived | BREAKING / NON_BREAKING |
+| `operation-renamed` | tool | a removed tool and an added one share an identical `inputSchema` that declares ≥1 property; `expected` = old name, `actual` = new name | BREAKING |
+| `description-changed` | tool | wording only | DESCRIPTION |
+| `input-required-property-added` / `input-optional-property-added` | input | a new argument callers must / may send | BREAKING / NON_BREAKING |
+| `input-required-property-removed` | input | an argument callers were required to send is gone | BREAKING |
+| `input-optional-property-removed` | input | an argument callers could send is gone. BREAKING when the **new** schema declares `additionalProperties: false` (a caller still sending it now fails validation); otherwise NON_BREAKING (the value is tolerated and simply has no declared effect). `detail` states which. | BREAKING / NON_BREAKING |
+| `input-property-renamed` / `output-property-renamed` | both | a removed property with a **same-typed** twin added under a name that normalises to the same key (camelCase / snake_case / kebab-case fold together: `branchId` = `branch_id` = `branch-id`) — ONE row, never a removal plus an addition; `expected` = `{name, schema}` of the old, `actual` of the new, `field_path` = the OLD path. Output side: only a REQUIRED removed property pairs (an optional output removal is not a classified change, so its twin stays an optional addition). | BREAKING |
+| `input-type-widened` | input | the type set gained members (`string` → `["string","null"]`; `integer` → `number`): every argument sent today still validates | NON_BREAKING |
+| `input-type-narrowed` | input | the type set lost members (`["integer","string"]` → `integer`; `number` → `integer`): a caller sending the dropped type now fails | BREAKING |
+| `input-type-changed` | input | the type set was replaced (`integer` → `string`) | BREAKING |
+| `output-property-type-widened` | output | the type set gained members (`number` → `["number","string"]`): the consumer may receive a type it never handled | BREAKING |
+| `output-property-type-narrowed` | output | the type set lost members (`["null","string"]` → `string`, or → `["null"]`) | BREAKING |
+| `output-property-type-changed` | output | the type set was replaced (`number` → `string`) | BREAKING |
+| `input-enum-value-removed` / `output-enum-value-removed` | both | values left the enum and none arrived; `expected` = `{"enum": [removed…]}`, `actual` = `{"enum": []}` | BREAKING |
+| `input-enum-value-added` / `output-enum-value-added` | both | values arrived and none left; `expected` = `{"enum": []}`, `actual` = `{"enum": [added…]}` | NON_BREAKING |
+| `input-enum-value-replaced` / `output-enum-value-replaced` | both | values left AND arrived in one revision (`["city","region"]` → `["city","state"]`): ONE row, `expected` = the removed, `actual` = the added | BREAKING |
+| `output-required-property-removed` | output | a value consumers were promised is gone | BREAKING |
+| `output-optional-property-added` | output | a new value consumers may receive | NON_BREAKING |
+| `output-schema-removed` / `output-schema-declared` | output | the output contract as a whole left / arrived | BREAKING / NON_BREAKING |
+
+Type sets are compared as sets (union order is not semantic) under JSON Schema's one subtype relation — every
+`integer` is a `number` — and two sets that accept the same values (`["number","integer"]` vs `["number"]`) are
+no change. Optional OUTPUT property removals stay unclassified (a value consumers were never promised). Adding or
+dropping the `enum` keyword itself is outside the table.
+
+*Why every output type cell is BREAKING while only input widening is additive.* Input widening is Postel's law:
+whatever a caller sends today still validates. Output widening is its mirror image: the consumer's parser may now
+meet a type it never handled. Output **narrowing** follows the posture this contract already froze for REST
+version-diffs, where `response-property-enum-value-removed` is promoted to `breaking` because *a value the
+consumer's code may branch on has silently disappeared* — that sentence applies to a type member verbatim.
+`["null","string"]` → `["string"]` turns the consumer's null branch into dead code; `["null","string"]` →
+`["null"]` makes the field's data disappear; the classifier cannot tell the harmless case from the severe one
+without a business judgement it is not allowed to make (technical adherence only), so the direction is recorded
+under its own id and the class stays conservative. A reader that wants to triage the two differently has the
+id to do it with.
+
 The evidence rule (v0.5 spec §6, **amended qfix2-2026-08-26**) is enforced **server-side in the collector
 relay**, not only by UI absence: `POST /api/flag` for a `stale_client` finding returns
 `403 {"error":"not_flaggable"}`, and such findings never reach the CP. `stale_client` is consumer-side —
