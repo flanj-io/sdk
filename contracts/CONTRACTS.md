@@ -391,9 +391,14 @@ Only the endpoints the **collector** calls are specified here: the collector is 
 the client side of these. The control plane's own surface (thread pages, sessions, identity, notifications,
 DLP) is a private contract maintained alongside the control plane and is not part of this document.
 
-**Model:** the collector **Connects** once per deployment (`register` with the install-time `cp_deploy_token`
-→ a per-deployment **collector key**, persisted in the collector's store, never logged, never per-pod) and the
-contact confirms their email with one click. Creating or sharing a thread requires the collector key **and** a
+**Model:** the collector **Connects** once per deployment (`register` → a per-deployment **collector key**,
+persisted in the collector's store, never logged, never per-pod) and the contact confirms their email with one
+click. *(2026-09-14)* **Connect needs no pre-issued token**: a NEW collector registers with no credential at
+all — the contact's confirmation click is the consent — and `cp_deploy_token` is optional (an operator or
+per-account token, when one is used, is still accepted exactly as before). **The key is the collector's
+permanent identity; its `collector_name` is a label, unique within the contact's workspace and changeable.**
+A reconnect after a restart is the same call with the same name and the stored key; a rename is that call with
+a new name. Creating or sharing a thread requires the collector key **and** a
 confirmed contact (`412 {"error":"not_connected"|"contact_unconfirmed"}`); viewing local data never does. Every
 thread records the key that created it; thread-scoped mutations need that key (`403 wrong_origin` otherwise).
 Thread state is `open | closed` (reopenable); `turn` labels are derived. Errors are JSON `{ "error", "message" }`.
@@ -402,15 +407,32 @@ OpenAPI-style summary; JSON Schema for the flag request body:
 [`v1/cp-flag-request.schema.json`](./v1/cp-flag-request.schema.json) (`invitee_email` optional, ignored;
 `finding` optional; `call` optional when `message` is non-empty or the kind is `definition_change` — §4).
 
-### `POST /api/v1/collectors/register`  (Bearer `cp_deploy_token`)
-`{ "consumer_display_name", "contact_email", "contact_display_name"?, "local_ui_url"? }` → `201` (or `200` on the
-idempotent replay with the same deploy token + contact) `{ "collector_id", "collector_public_id", "collector_key"
-(returned once), "contact_status": "pending"|"confirmed" }`. The CP emails the contact a one-click confirmation;
-`local_ui_url` is display-only (the CP never calls the collector).
+### `POST /api/v1/collectors/register`  (no credential for a NEW collector · Bearer `cp_deploy_token` · Bearer collector key)
+`{ "consumer_display_name", "contact_email", "collector_name", "contact_display_name"?, "local_ui_url"? }` → `201`
+(or `200` on the idempotent replay / reconnect / rename) `{ "collector_id", "collector_public_id", "collector_key"
+(returned once), "collector_name", "collector_name_derived", "contact_status": "pending"|"confirmed" }`. The CP
+emails the contact a one-click confirmation that names the collector; `local_ui_url` is display-only (the CP never
+calls the collector) and is what that mail — and the workspace's Collectors view — shows as the collector's address.
+
+*(2026-09-14)* **Which credential the call carries decides what it may do.** With NONE it is a NEW collector, and
+only that: it never reads, renames or re-mails an existing one — a `collector_name` already held in the contact's
+workspace answers `409 collector_name_taken`, never an update. With the collector's own KEY it is the record the key
+names: the same name is a reconnect (no error, no duplicate; the same email = the resend it always was), a
+different name is a RENAME (the record is updated and nothing else about it changes — no mail), a different email
+is a new pending contact. With a deploy token the pre-2026-09-14 semantics are unchanged (the replay key is the
+contact email). **`collector_name` is REQUIRED from a collector that knows the field** — the Connect panel will
+not send without one — and tolerated absent from an older collector, which cannot know it: the CP then derives
+one from the org name (`<org>`, `<org> 2`, …) and answers `collector_name_derived: true`. Unique within the
+workspace, compared casefolded with punctuation collapsed; ≤80 characters after cleaning; a SENT blank is `400`. A
+name — the collector's or the org's — that reads as a link or an email address is `400 invalid_name` (both are
+printed in the confirmation mail), and `local_ui_url` must be ONE absolute http(s) address with no credentials
+(`400 bad_request`). An anonymous caller is bounded per IP and per recipient address (the CP's own contract states
+the numbers); a refused call creates nothing and mails nothing.
 
 ### `GET /api/v1/collectors/me`  (Bearer collector key)
-`{ "collector_id", "collector_public_id", "consumer_display_name", "contact_email", "contact_display_name",
-"contact_status", "registered_at", "confirmed_at" }` — the local UI polls this for the Connect panel.
+`{ "collector_id", "collector_public_id", "collector_name", "consumer_display_name", "contact_email",
+"contact_display_name", "contact_status", "registered_at", "confirmed_at" }` — the local UI polls this for the
+Connect panel; `collector_name` is the stored name after any rename, so the panel shows what the workspace sees.
 
 ### `POST /api/v1/flags`  (Bearer collector key)
 Headers: `X-Flanj-Collector-Version`, `X-Flanj-Schema-Version`.
@@ -642,6 +664,13 @@ covers older SDKs in the compatibility window that emit no fields).
 
 ## 8. Collector runtime config (frozen keys)
 
+**Removed 2026-09-14 — `integration_id`, `self_integration_id`.** The collector's identity is its
+`collector_name`, given in the Connect panel (mandatory, unique within the contact's workspace,
+changeable — CONTRACTS-CP §5.21), not a config key; the Overview headline names the collector, and
+a call's or finding's `integration` (§3/§4) is the SDK's `flanj.integration` attribute, which never
+came from this key. Self-spec findings are labelled `self`. A config that still carries either key
+boots with a one-line warning naming it; the value is ignored.
+
 **Removed 2026-08-31 — `spec_path`, `spec_v2_path`, `peer_host`.** Provider
 OpenAPI contracts are no longer configured: they are **uploaded in the collector
 UI**, bound to exactly one provider host, stored locally, and read by the drift
@@ -654,14 +683,12 @@ is deliberately unaffected: one document per deployment, not one per vendor.
 
 | Key | Meaning |
 |---|---|
-| `integration_id` | the integration being observed, e.g. `acme-payments` |
-| `provider_display_name` *(optional)* | fallback provider name sent ON A FLAG, so the thread names the provider. Defaults to a humanized `integration_id`. **No longer names an edge** (2026-08-31): that tier needed a config→edge linkage supplied by the config spec's `peer_host`, and contracts are uploaded now — the `contract` tier names edges from the uploaded document's `info.title`, keyed by the bound host's registrable domain. |
+| `provider_display_name` *(optional)* | fallback provider name sent ON A FLAG, so the thread names the provider. Defaults to a humanized form of the call's (or finding's) `integration`. **No longer names an edge** (2026-08-31): that tier needed a config→edge linkage supplied by the config spec's `peer_host`, and contracts are uploaded now — the `contract` tier names edges from the uploaded document's `info.title`, keyed by the bound host's registrable domain. |
 | `consumer_display_name` *(optional)* | human name of this consumer org, e.g. `Acme Consumer Ltd`; sent on the flag. |
 | `self_spec_path` *(optional)* | the OpenAPI spec THIS org publishes as a provider; validates INBOUND (server-direction) responses against the org's own contract |
-| `self_integration_id` *(optional)* | labels self-spec findings (default `self`); must differ from `integration_id` |
 | `cp_base_url` | control-plane base URL the COLLECTOR's own requests go to (register/me, flags, thread routes, the syncs). May be in-network — a docker service name, a k8s Service, a VPC-private ingress — because only the collector has to reach it; see `cp_public_url` for the browser's side |
 | `cp_public_url` *(optional, flanjui — 2026-09-07)* | the control-plane origin the OPERATOR'S BROWSER can open: the base of the local UI's one link out, `dashboard_url` on the collector's `GET /api/connect` (emitted only while Connected; the collector composes the `/d` path). A link built from an in-network `cp_base_url` is dead off-host — the launch-week defect. Unset: the link falls back to `cp_base_url` only when its host is not obviously non-public (loopback / private IP / single-label / `.local` `.internal` `.svc` `.cluster.local` `.test` `.example`-style suffixes), otherwise `dashboard_url` is omitted and the UI keeps the pill a Settings button. Validated at boot: absolute `http(s)` URL, no credentials. Never logged. The `/api/connect` shape is unchanged — `dashboard_url` was already optional; only its presence rule narrowed |
-| `cp_deploy_token` | static Bearer token (the only outbound auth) |
+| `cp_deploy_token` *(optional since 2026-09-14)* | a deploy token for Connect — an operator's or a per-account one. **Not needed**: with it unset a new collector registers with no credential and the contact's confirmation click is the consent; the per-deployment collector key the CP returns is what authorizes every later call either way. Set it only when an operator wants registrations partitioned by a token they hold |
 | `body_cap_bytes` | capture cap, default `16384` |
 | `backend` | store backend: `sqlite` (default — embedded, one pod per db file) or `postgres` (shared external DB; multiple collector pods may write to one database) |
 | `db_path` | sqlite file path, required iff `backend=sqlite`; MUST be on a persistent volume. With `backend=postgres` it is the OPTIONAL one-shot migration source: if the file exists at start, pinned calls + findings + edges are imported and the file is renamed `<db_path>.migrated`; import failure aborts start |
