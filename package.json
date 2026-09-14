@@ -14,6 +14,7 @@
   "files": [
     "./dist",
     "!./dist/**/*.spec.*",
+    "!./dist/**/*.map",
     "./README.md",
     "./REDACTION.md",
     "./LICENSE"

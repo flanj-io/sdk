@@ -89,6 +89,24 @@ describe('yarn pack — the published tarball', () => {
     expect(packed.filter((file) => file.includes('.spec.'))).toEqual([]);
   });
 
+  it('ships no source maps, and no file that points at one', () => {
+    // sdk#33. Sources are deliberately not published (above), so every map
+    // could only point at a `../src/*.ts` that is not in the tarball: Go to
+    // Definition lands on a missing file instead of the `.d.ts`, and
+    // `--enable-source-maps` prints stack frames for paths that do not exist.
+    // Maps are off in tsconfig.base.json; this holds that decision. Shipping
+    // `src/` to make them resolve is the alternative, and it would change the
+    // assertion above on purpose, not this one by accident.
+    expect(packed.filter((file) => file.endsWith('.map'))).toEqual([]);
+
+    const emitted = packed.filter((file) => file.endsWith('.js') || file.endsWith('.d.ts'));
+    expect(emitted, 'nothing to scan — the filter matched no emitted files').toContain('dist/index.js');
+    const pointing = emitted.filter((file) =>
+      readFileSync(resolve(repoRoot, file), 'utf8').includes('sourceMappingURL')
+    );
+    expect(pointing, 'shipped files carrying a sourceMappingURL comment').toEqual([]);
+  });
+
   it('ships the docs a consumer needs and nothing else at the root', () => {
     const rootFiles = packed.filter((file) => !file.includes('/'));
     expect(rootFiles.sort()).toEqual(['LICENSE', 'README.md', 'REDACTION.md', 'package.json']);

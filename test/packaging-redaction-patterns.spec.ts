@@ -110,6 +110,21 @@ describe('yarn pack — the published @flanj/redaction-patterns tarball', () => 
     expect(packed.filter((file) => file.includes('.spec.'))).toEqual([]);
   });
 
+  it('ships no source maps, and no file that points at one', () => {
+    // sdk#33 — see the same assertion in packaging.spec.ts. It matters more
+    // here: "read the code that decides what gets redacted" is what a
+    // compliance reviewer tries first, and a map sends them to a `src/` this
+    // tarball does not carry instead of the `.d.ts` it does.
+    expect(packed.filter((file) => file.endsWith('.map'))).toEqual([]);
+
+    const emitted = packed.filter((file) => file.endsWith('.js') || file.endsWith('.d.ts'));
+    expect(emitted, 'nothing to scan — the filter matched no emitted files').toContain('dist/index.js');
+    const pointing = emitted.filter((file) =>
+      readFileSync(resolve(packageRoot, file), 'utf8').includes('sourceMappingURL')
+    );
+    expect(pointing, 'shipped files carrying a sourceMappingURL comment').toEqual([]);
+  });
+
   it('ships the licence it claims, and nothing else at the root', () => {
     const rootFiles = packed.filter((file) => !file.includes('/'));
     expect(rootFiles.sort()).toEqual(['LICENSE', 'README.md', 'package.json']);
