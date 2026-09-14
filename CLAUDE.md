@@ -87,7 +87,8 @@ test/integration/                  # real in-process http calls end-to-end (clie
                                    # REAL children — the latter proves OTel's http spans survive both orders)
 test/fixtures/                     # child scripts the integration specs spawn: plain-CJS (register-flush),
                                    # esm-named-import/, otel-coexistence/ (OTel HttpInstrumentation + Flanj)
-test/packaging.spec.ts             # asserts the REAL `yarn pack` file list (dist entries in; src/test/contracts out)
+test/packaging.spec.ts             # asserts the REAL `yarn pack` file list (dist entries in; src/test/contracts out;
+                                   # no source maps — sources are not shipped, so a map could not resolve: sdk#33)
 test/readme.spec.ts                # asserts the README's first-run floor incl. the Not-captured list (fetch/undici)
 scripts/smoke-pack.sh              # a stranger's first run: pack -> npm install the tarball -> require ./register
 contracts/                         # vendored from the canonical e2e/contracts (do not hand-edit; sync) — see contracts/README.md

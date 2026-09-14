@@ -27,5 +27,15 @@ npm install --no-audit --no-fund --loglevel=error \
 test -f node_modules/@flanj/sdk/dist/index.d.ts   || { echo "SMOKE FAIL: dist/index.d.ts missing"; exit 1; }
 test -f node_modules/@flanj/sdk/dist/register.d.ts || { echo "SMOKE FAIL: dist/register.d.ts missing"; exit 1; }
 
+# No source maps (sdk#33). Sources are not published, so a map — or a comment
+# pointing at one — sends Go to Definition to a src/ this install does not have.
+# Checked on the INSTALLED bytes; the pack specs can only read the listing and dist/.
+if [ -n "$(find node_modules/@flanj -name '*.map' -print -quit)" ]; then
+  echo "SMOKE FAIL: a source map was published"; exit 1
+fi
+if grep -rq sourceMappingURL node_modules/@flanj; then
+  echo "SMOKE FAIL: a published file carries a sourceMappingURL"; exit 1
+fi
+
 cp "$repo_root/scripts/smoke-app.cjs" .
 node smoke-app.cjs
