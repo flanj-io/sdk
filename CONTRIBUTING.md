@@ -1,6 +1,6 @@
-# Contributing to `@flanj/sdk`
+# Contributing to the Flanj SDK
 
-Thanks for your interest in contributing. This repository is licensed under **Apache-2.0**.
+Thanks for your interest in contributing. This repository is licensed under Apache-2.0.
 
 ## Developer Certificate of Origin (DCO)
 
@@ -18,15 +18,17 @@ The easiest way is `git commit -s`. PRs with unsigned commits will not be merged
 
 ## Ground rules
 
-- Keep this package **pristinely Apache-2.0** — legal and compliance teams at regulated organizations inspect it. Do not add code under
-  copyleft or source-available licenses, and do not depend on packages that are not Apache/MIT/BSD/ISC.
-- **Redaction is the security bar.** Any change touching capture or redaction must keep the redaction
-  golden-vector suite green (`contracts/redaction-vectors.json`) and must never let a raw body reach an
-  attribute, the store, or the wire before redaction.
+- Keep this package Apache-2.0 throughout; legal and compliance teams at regulated organizations inspect
+  it. Do not add code under copyleft or source-available licenses, and do not depend on packages that are
+  not Apache, MIT, BSD or ISC.
+- **Redaction is the security bar.** Capture is out of band and redaction runs at the source, in the
+  user's process. Any change touching capture or redaction must keep the redaction golden-vector suite
+  green (`contracts/redaction-vectors.json`) and must never let a raw body reach an attribute, the store,
+  or the wire before redaction.
 - Follow the contract in `contracts/` (vendored from the canonical source). Wire-format changes go through
   the contract first, not here.
 
 ## Workflow
 
 1. Branch, write tests first (lead with redaction), implement, `yarn test`.
-2. `git commit -s`, open a PR. CI runs lint + unit + redaction-vector + OTLP contract tests.
+2. `git commit -s`, open a PR. CI runs lint, unit, redaction-vector and OTLP contract tests.

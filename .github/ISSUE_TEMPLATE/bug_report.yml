@@ -1,13 +1,13 @@
 name: Bug report
-description: Something isn't working as expected
+description: Something is not working as expected
 labels: ["bug"]
 body:
   - type: markdown
     attributes:
       value: |
-        Thanks for reporting a bug. **Do not include real cardholder data, PANs, secrets, or PII**
-        in this issue — redact any payloads. Suspected redaction bypasses are security issues: please
-        report those privately (see `SECURITY.md`), not here.
+        Thanks for reporting a bug. Do not include real card numbers, secrets or personal data
+        in this issue; redact any payloads. A suspected redaction bypass is a security issue:
+        report it privately (see `SECURITY.md`), not here.
   - type: textarea
     id: what-happened
     attributes:
@@ -29,7 +29,7 @@ body:
     id: version
     attributes:
       label: Version / commit
-      placeholder: "e.g. v0, or a commit SHA"
+      placeholder: "0.1.0, or a commit SHA"
     validations:
       required: true
   - type: textarea
