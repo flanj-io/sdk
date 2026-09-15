@@ -447,8 +447,9 @@ Headers: `X-Flanj-Collector-Version`, `X-Flanj-Schema-Version`.
                                              //   provider on the thread page) | "call_pick" (the operator chose
                                              //   the call while looking at it — starts revealed). Unknown values
                                              //   read as "finding" (tolerant). Collectors need not send it.
-  "allowed_domains": ["acme.com"],          // OPTIONAL, additive (2026-09-14): who may OPEN the thread — email domains,
-                                             //   or null for anyone holding the link. See "Who may open a thread" below.
+  "allowed_domains": ["acme.com"],          // OPTIONAL, additive (2026-09-14): who may OPEN the thread — email domains …
+  "allowed_emails": null,                   //   … OR specific addresses. At most one of the two is a list; both null means
+                                             //   anyone holding the link. See "Who may open a thread" below.
   "provider_host": "api.acme.test",         // OPTIONAL, additive (v1p4-2026-09-08): the edge's observed host, for a
                                              //   thread with NO call. The domain is the anchor, so a message-only
                                              //   thread names the edge it was started from and the thread page can
@@ -461,8 +462,10 @@ Headers: `X-Flanj-Collector-Version`, `X-Flanj-Schema-Version`.
   "thread_url": "https://<peek-origin>/t/<thread_public_id>#k=<token>",   // the Thread link the consumer copies
   "peek_url": "<deprecated alias of thread_url>", "magic_token": "<deprecated alias>", "state": "open", "status": "created" }
 // 400 finding_has_no_call  — `call` missing, `message` empty, and the kind is not call-less by nature
-// 400 allowed_domains_empty | invalid_domain — `allowed_domains` is a list with nothing usable in it, or an
-//                            entry that is not a bare domain
+// 400 allowed_domains_empty | invalid_domain | allowed_emails_empty | invalid_email — a list with nothing usable
+//                            in it, or an entry that is not a bare domain / one plain address (or not a string)
+// 400 access_conflict      — `allowed_domains` and `allowed_emails` are both lists
+// 400 bad_request          — `allowed_domains` / `allowed_emails` is neither a list nor null, or has more than 20 entries
 // 403 not_flaggable        — a consumer-local kind (`stale_client`), with or without a message
 // 412 not_connected | contact_unconfirmed
 ```
@@ -470,117 +473,31 @@ Headers: `X-Flanj-Collector-Version`, `X-Flanj-Schema-Version`.
 lives ONLY in the URL fragment; expiry slides on every reply (30d, 90d hard cap, 30d after close). The CP sends no
 email on flag — the consumer pastes the link where the two teams already talk.
 
-**Who may open a thread — `allowed_domains`** *(additive, 2026-09-14)*. The Thread link is still the
-capability: without it nobody reaches the thread. What changes is what the link alone shows. When the flag
-carries a list of email domains, a reader who opens the link sees only the two organisation names and a
-request to confirm an address at one of those domains (or a subdomain of one); the call, the finding and
-the conversation are withheld until they confirm, and a confirmed address anywhere else is refused with a
-sentence that names the allowed domains. `null` means anyone holding the link, which is how every thread
-behaved before the field existed.
+**Who may open a thread — `allowed_emails` / `allowed_domains`** *(additive, 2026-09-14)*. The Thread link is
+still the capability: without it nobody reaches the thread. What changes is what the link alone shows. A thread is
+open in one of three ways, chosen when it is created:
 
-- **An absent field reads as `null`.** A collector shipped before this field could not have asked its
-  operator, so its threads stay open to the link. That is the compatibility default, not a recommendation.
-- **A collector that knows the field always sends it**, and `null` then records the operator's explicit
-  "Anyone with the link" choice. The collector's own relay refuses a create that says neither.
-- Entries are trimmed and lower-cased, and a leading `@` and a trailing `.` are dropped; at most 20.
-  A list with nothing usable left is `400 allowed_domains_empty`; an entry with a scheme, path, port or
-  `@` in it is `400 invalid_domain`.
-- The side that shared the thread keeps all of it regardless of the list.
-
-### Thread routes  (Bearer collector key; `403 wrong_origin` unless the key created the thread)
-| Route | Body | Response |
+| Open to | Fields | Who opens it |
 |---|---|---|
-| `POST /api/v1/threads/{threadId}/peek-links` | `{ "revoke_existing"?: bool, "card_endpoint_detail"?: bool }` | `201 { "thread_url", "peek_url" (alias), "magic_token" (alias), "expires_at", "revoked": n }` — Replace thread link |
-| `POST /api/v1/threads/{threadId}/peek-links/revoke` | — | `200 { "revoked": n }` (respondent tokens + sessions; owner access untouched) |
-| `POST /api/v1/threads/{threadId}/close` · `/reopen` | — | `200 { "state", "closed_at", "reopened_at" }` |
-| `POST /api/v1/threads/{threadId}/handoff` | — | `201 { "owner_url": "https://<peek-origin>/o/<public_id>#o=<handoff>", "expires_at" }` — 10-min single-use, opened in the browser; never stored, never logged |
-| `GET /api/v1/threads/{threadId}/summary` | — | `{ "id", "thread_public_id", "state", "closed_at", "reopened_at", "turn": "waiting_on_provider"\|"provider_replied"\|"fix_reported"\|"replied_while_closed", "provider_display_name", "endpoint", "evidence_count", "opened_count", "knock_count", "message_count", "last_reply_at", "fixed_claim": {"display_name","at"}\|null, "link": {"status": "active"\|"replaced"\|"expired", "expires_at"}, "archived" }` — the local UI's Threads list polls this (state only; the conversation is read on the CP) |
+| specific people | `allowed_emails: ["dana@acme.com"]`, `allowed_domains: null` | a reader who confirms one of those exact addresses |
+| a domain | `allowed_domains: ["acme.com"]`, `allowed_emails: null` | a reader who confirms an address at one of those domains, or a subdomain of one |
+| anyone with the link | both `null` | anyone holding the link — how every thread behaved before the fields existed |
 
-### `POST /api/v1/findings`  (Bearer collector key) — *(slice2-2026-08-28)*
+On the first two, a reader who opens the link sees only the two organisation names and a request to confirm their
+address; the call, the finding and the conversation are withheld until they do, and a confirmed address the thread
+does not allow is refused with one sentence. On a domain thread that sentence names the domains; on a thread open to
+specific people it names nobody.
 
-Shape-only finding sync from the collector's background ticker (`finding_sync`, §8 — on by default).
-Headers: `X-Flanj-Collector-Version`, `X-Flanj-Schema-Version`.
-
-```jsonc
-// request — SHAPE ONLY. `expected` / `actual` / `detail` are NEVER sent (they carry observed
-// values, which stay in the collector); a payload carrying them anyway has them stripped
-// server-side, defense in depth.
-{ "findings": [ {
-    "finding_id": "f_0191…",            // the local finding id (the CP's deep-link key back into this UI)
-    "signature": "acme-payments|POST /v1/charges|live-vs-spec|type-mismatch|amount",
-    "kind": "live-vs-spec", "severity": "breaking",    // kind/rule: the §4 finding vocabulary; severity breaking | warning | info
-    "integration": "acme-payments", "endpoint": "POST /v1/charges",
-    "field_path": "amount",             // optional
-    "rule": "type-mismatch",
-    "occurrence_count": 12,
-    "first_seen": "…", "last_seen": "…", "detected_at": "…",
-    "snapshot_observed_at": "…", "snapshot_observed_from": "…"   // optional
-} ] }
-// response 200 { "received": n, "stored": n }
-```
-
-- Max **200** items per request; more → `400` (validation). An EMPTY array is a valid no-op. A batch
-  with ANY invalid row is refused whole (`400`) — nothing from it is stored.
-- Per-field length caps (characters): `finding_id` ≤128 · `signature` ≤1024 · `kind` ≤64 ·
-  `severity` ≤32 · `integration` ≤256 · `endpoint` ≤256 · `field_path` ≤256 · `rule` ≤128 · the
-  timestamp fields ≤64. Required strings are non-empty; `occurrence_count` is an integer ≥0.
-- Local client notices (kind `stale_client`) are not synced — they are consumer-side only, like the
-  flag relay (§4).
-- Auth: collector key required — **no confirmed-contact requirement** (this is telemetry about the
-  collector's own data, the same install-time anchor as edge registration); the deploy token names
-  no single collector and is refused with `403 collector_key_required`; missing/invalid bearer `401`.
-- The CP upserts by `(collector, signature)` — re-syncing the same finding updates its counters and
-  timestamps, never duplicates. Send the current `ListFindings` page each tick; the CP is idempotent.
-
-### `POST /api/v1/edges/sync`  (Bearer collector key) — *(v1p2-2026-09-09)*
-
-**Edge registration.** Each unique **external** edge the collector has discovered is registered
-BEFORE any finding exists, from the same background ticker (`edge_sync`, §8 — on by default), so the
-owner's dashboard can show the integration graph rather than only the places something has broken.
-Headers: `X-Flanj-Collector-Version`, `X-Flanj-Schema-Version`.
-
-```jsonc
-// request — the COMPLETE allow-list. Four fields per edge, and no others exist.
-{ "edges": [ {
-    "registrable_domain": "acme.test",   // eTLD+1, computed LOCALLY via the public-suffix list;
-                                         //   an IP-literal peer registers the literal
-    "direction": "outbound",             // "outbound" (this org is the CONSUMER on the edge) |
-                                         //   "inbound" (this org is the PROVIDER). The edge-ORIENTATION
-                                         //   vocabulary, not the §2 call-direction words client/server
-    "first_seen": "…", "last_seen": "…"
-} ] }
-// response 200 { "received": n, "stored": n }
-```
-
-- **Internal edges never leave.** The §2 external/internal classification that keeps internal
-  same-team edges off `GET /api/edges` keeps them off this wire too: an internal edge — RFC1918 /
-  loopback / link-local / ULA peers, `.svc.cluster.local` / `.internal` / `.local` names, single-label
-  hostnames — appears in NO sync payload, ever, and neither does the SDK's `local-process` class. The
-  collector asserts this on the marshalled bytes, not on the struct.
-- **The peer host never leaves either** — only the registrable domain. `api.acme.test` and
-  `api-eu.acme.test:8443` register as ONE row, `acme.test`, spanning the earliest `first_seen` and the
-  latest `last_seen` of the hosts it folds. Which subdomain and port an org answers on is the
-  deployment's business; which organisation it talks to is the fact being registered.
-- **No volume aggregates.** `call_count` / `drift_count` / rpm are not fields here and will not be
-  added until something needs them.
-- Max **200** edges per request; more → `400` (validation). An EMPTY array is a valid no-op. A batch
-  with ANY invalid row is refused whole (`400`) — nothing from it is stored. Over the cap the
-  collector sends a STABLE subset (earliest-seen first), not a different slice each tick.
-- Per-field length caps (characters): `registrable_domain` ≤253 · `direction` ≤16 · `first_seen` /
-  `last_seen` ≤64. All four are required and non-empty; `direction` is exactly `outbound` | `inbound`.
-- Auth: collector key required — **no confirmed-contact requirement** (the same install-time anchor
-  as the findings sync); the deploy token names no single collector and is refused with
-  `403 collector_key_required`; missing/invalid bearer `401`. **Gated on Connect**: a collector that
-  never Connected holds no key and registers nothing.
-- The CP upserts by `(collector, registrable_domain, direction)` — re-registering the same edge
-  refreshes `last_seen` in place, never duplicates. Send the current external edge set each tick;
-  the CP is idempotent, and the collector keeps no "already registered" bookkeeping to drift.
-- **Disclosed and switchable.** The collector's Connect panel states this flow before the operator
-  Connects, and `edge_sync: false` (§8) disables it without touching the findings sync. This is a
-  DIFFERENT path from the directory pull below: the directory `GET` sends nothing about this
-  collector, and that promise is unchanged — registration is a separate, disclosed, switchable POST.
-
----
+- **Both fields absent read as anyone with the link.** A collector shipped before them could not have asked its
+  operator, so its threads stay open to the link. That is the compatibility default, not a recommendation.
+- **A collector that knows the fields always sends both**, the unchosen one as `null`, so `null` records the
+  operator's explicit choice. The collector's own relay refuses a create that carries neither (`400 missing_fields`).
+- At most one of the two may be a list (`400 access_conflict`). Entries are trimmed and lower-cased — a domain also
+  loses a leading `@` and a trailing `.`, and an address written `Name <addr>` is read as the address — and duplicates
+  fold; at most 20 (`400 bad_request`, as is a value that is neither a list nor null). An empty list is
+  `400 allowed_emails_empty` / `allowed_domains_empty`; an entry that is not one plain address / a bare domain is
+  `400 invalid_email` / `invalid_domain`.
+- The side that shared the thread keeps all of it regardless of the choice.
 
 ## 6. Redaction contract (the security floor)
 
