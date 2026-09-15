@@ -447,6 +447,8 @@ Headers: `X-Flanj-Collector-Version`, `X-Flanj-Schema-Version`.
                                              //   provider on the thread page) | "call_pick" (the operator chose
                                              //   the call while looking at it — starts revealed). Unknown values
                                              //   read as "finding" (tolerant). Collectors need not send it.
+  "allowed_domains": ["acme.com"],          // OPTIONAL, additive (2026-09-14): who may OPEN the thread — email domains,
+                                             //   or null for anyone holding the link. See "Who may open a thread" below.
   "provider_host": "api.acme.test",         // OPTIONAL, additive (v1p4-2026-09-08): the edge's observed host, for a
                                              //   thread with NO call. The domain is the anchor, so a message-only
                                              //   thread names the edge it was started from and the thread page can
@@ -459,12 +461,31 @@ Headers: `X-Flanj-Collector-Version`, `X-Flanj-Schema-Version`.
   "thread_url": "https://<peek-origin>/t/<thread_public_id>#k=<token>",   // the Thread link the consumer copies
   "peek_url": "<deprecated alias of thread_url>", "magic_token": "<deprecated alias>", "state": "open", "status": "created" }
 // 400 finding_has_no_call  — `call` missing, `message` empty, and the kind is not call-less by nature
+// 400 allowed_domains_empty | invalid_domain — `allowed_domains` is a list with nothing usable in it, or an
+//                            entry that is not a bare domain
 // 403 not_flaggable        — a consumer-local kind (`stale_client`), with or without a message
 // 412 not_connected | contact_unconfirmed
 ```
 `thread_public_id` is random/opaque/≥128-bit/URL-safe; the bearer `<token>` (≥128-bit CSPRNG, stored hashed)
 lives ONLY in the URL fragment; expiry slides on every reply (30d, 90d hard cap, 30d after close). The CP sends no
 email on flag — the consumer pastes the link where the two teams already talk.
+
+**Who may open a thread — `allowed_domains`** *(additive, 2026-09-14)*. The Thread link is still the
+capability: without it nobody reaches the thread. What changes is what the link alone shows. When the flag
+carries a list of email domains, a reader who opens the link sees only the two organisation names and a
+request to confirm an address at one of those domains (or a subdomain of one); the call, the finding and
+the conversation are withheld until they confirm, and a confirmed address anywhere else is refused with a
+sentence that names the allowed domains. `null` means anyone holding the link, which is how every thread
+behaved before the field existed.
+
+- **An absent field reads as `null`.** A collector shipped before this field could not have asked its
+  operator, so its threads stay open to the link. That is the compatibility default, not a recommendation.
+- **A collector that knows the field always sends it**, and `null` then records the operator's explicit
+  "Anyone with the link" choice. The collector's own relay refuses a create that says neither.
+- Entries are trimmed and lower-cased, and a leading `@` and a trailing `.` are dropped; at most 20.
+  A list with nothing usable left is `400 allowed_domains_empty`; an entry with a scheme, path, port or
+  `@` in it is `400 invalid_domain`.
+- The side that shared the thread keeps all of it regardless of the list.
 
 ### Thread routes  (Bearer collector key; `403 wrong_origin` unless the key created the thread)
 | Route | Body | Response |
