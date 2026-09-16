@@ -5,7 +5,8 @@
 
 # @flanj/sdk
 
-Your integrations break when the other side changes. Flanj catches it, with proof both teams can act on.
+Nothing threw. Nothing 500'd. The response was 200 OK and a field was renamed. Your integration
+didn't break — it started being wrong, and every tool that waits for an error is blind to it.
 
 [![License: Apache-2.0](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
 [![npm: @flanj/sdk](https://img.shields.io/npm/v/@flanj/sdk.svg)](https://www.npmjs.com/package/@flanj/sdk)
@@ -179,9 +180,40 @@ personal data and secrets are redacted before anything is stored or leaves your 
 - **MCP client instrumentation** (`instrumentMcpClient`) wraps the MCP `Client` (both `@modelcontextprotocol` package lines, optional peers, byte-identical pass-through): `tools/list` snapshots become the server's self-delivering contract and `tools/call` bodies are captured and redacted like any other call.
 - Emits a stable `flanj.*` OTLP convention consumed by the [collector](https://github.com/flanj-io/collector).
 
+### MCP clients: the contract arrives with the traffic
+
+REST drift detection needs a spec somebody published and kept accurate. MCP servers publish their
+contract on every single call — `tools/list` **is** the spec. So `instrumentMcpClient` gives the
+collector a baseline from the first call your agent makes, for every MCP server it touches, with
+nothing to configure and nothing to upload: the observed `tools/list` is forwarded as a contract
+snapshot, versioned by content hash, and every later `tools/call` is checked against it.
+
+That is not a convenience difference. "Nobody publishes an accurate OpenAPI spec" is the strongest
+practical objection to the REST half of this, and it does not apply to MCP at all — which matters
+most for agents, the most drift-fragile API consumers anyone has built: an agent reads a tool's
+description to decide what to do, so a description that changes under it changes what it does, and
+nothing anywhere logs an error.
+
+The wrapper is out of band like every other capture path here: it wraps `Client` from both
+`@modelcontextprotocol` package lines as optional peers, passes results through byte-identical, and
+never delays or rewrites a call.
+
+
 **Supported:** REST/HTTP integrations — live request and response validated against the provider's OpenAPI document.
 **Supported:** MCP tools — tool-definition drift and result-vs-`outputSchema` mismatch, flagged to the server operator with evidence.
 **Roadmap:** webhooks (received-webhook contract drift; missing-webhook detection under design).
+
+**Languages.** Node / TypeScript — **supported**: this package, HTTP egress and ingress plus the MCP
+client. Python — **early**, MCP client only, with no HTTP body capture; there is no `node:http` choke
+point to port, and for an agent shop with no REST integration to instrument, MCP-only is a complete
+product rather than a partial SDK. A language is called *supported* only once the whole loop runs on
+it end to end in our own e2e harness, with that lane's assertions green — until then it says early,
+here and everywhere else.
+
+**Where this stops, said out loud.** Global `fetch`/undici is **not** captured (see *What is
+captured*). A REST provider needs a spec somebody published; an MCP server needs none. A call the
+collector cannot check against a contract is captured and reported as **not validated**, never as
+conforming.
 
 Also publishes [`@flanj/redaction-patterns`](packages/redaction-patterns/README.md), the standalone redaction floor.
 
