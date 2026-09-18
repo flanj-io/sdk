@@ -5,19 +5,20 @@ personal-data and secret redaction applied to **every captured body** — inboun
 classification — **at source, before anything is stored or transmitted**. It is the security property
 everything else in Flanj rests on.
 
-The floor exists twice, in two languages, and must behave identically:
+The floor exists in three languages and must behave identically in all of them:
 
 | Where | Language | Package | Role |
 |---|---|---|---|
 | SDK (this repo) | TypeScript | `@flanj/redaction-patterns` | redacts at the call site, before export |
 | Control plane | TypeScript | `@flanj/redaction-patterns` | DLP on human free-text (reply box) |
 | Collector | Go | `internal/redact` | defense-in-depth re-scan of every ingested body |
+| SDK for Python | Python | `flanj.redaction` ([sdk-py](https://github.com/flanj-io/sdk-py/blob/main/REDACTION.md)) | redacts at the call site, before export |
 
 ---
 
 ## 1. Strategy: composed hardened validators behind our own swappable interface
 
-A library evaluation found that **no drop-in redaction engine qualifies** for the floor in either language
+A library evaluation found that **no drop-in redaction engine qualifies** for the floor in any of these languages
 (Luhn-validated PAN across formats + deep structured recursion + base64 decode-then-scan + broad PII + zero
 external calls). The ones that recurse are regex-only and over-redact; the ones that validate are string-only;
 the ones with network paths are disqualified outright.
@@ -50,7 +51,7 @@ contract ("13–19 digit runs passing Luhn") and make cross-language parity depe
 sync forever. Luhn is a fixed function; over-redaction of the rare Luhn-colliding identifier is the safe failure
 direction. Brand identification, if ever wanted in hits, is an annotation — never the gate.
 
-### The interface (one shape, both languages)
+### The interface (one shape, every language)
 
 ```ts
 interface Recognizer { id: PatternId; find(value: string, ctx: { key?: string }): Span[] }  // confirmed spans in ONE scalar
@@ -117,7 +118,7 @@ that fired, in place**:
   if it changed.
 - **anything else** (XML, plain text, a URL path, a whole-body base64 blob): one scalar.
 
-Because only fired scalars are rewritten, the TS and Go text paths emit **the same bytes** for the same input.
+Because only fired scalars are rewritten, the TypeScript, Go and Python text paths emit **the same bytes** for the same input.
 
 ---
 
@@ -128,13 +129,13 @@ Two fixture files, canonical in `e2e/contracts/v1/` and vendored here under `con
 
 | File | What it pins | Run by |
 |---|---|---|
-| `redaction-vectors.json` | scalar/recognizer-level golden vectors (text in → text out + fired patterns) | TS package suite, CP suite, Go suite |
-| `redaction-fixtures.json` | the structured battery: many PAN formats, PANs in arrays / nested / undocumented fields / keys / as numbers, base64 (std, url-safe, whole-body, embedded), inbound request bodies (high PII density, batches, form-encoded), truncated and malformed bodies, the negatives that must survive, idempotency, and the poisoned-spec enhancer cases | TS package suite, CP suite, Go suite |
+| `redaction-vectors.json` | scalar/recognizer-level golden vectors (text in → text out + fired patterns) | TS package suite, CP suite, Go suite, Python suite |
+| `redaction-fixtures.json` | the structured battery: many PAN formats, PANs in arrays / nested / undocumented fields / keys / as numbers, base64 (std, url-safe, whole-body, embedded), inbound request bodies (high PII density, batches, form-encoded), truncated and malformed bodies, the negatives that must survive, idempotency, and the poisoned-spec enhancer cases | TS package suite, CP suite, Go suite, Python suite |
 
-For every `json` case both suites assert **both entry points** — structural `redact(value)` and the text path
+For every `json` case every suite asserts **both entry points** — structural `redact(value)` and the text path
 over the serialized body, parsed back — by **deep equality**, the parity oracle (serializer differences in key
 order / number formatting can neither mask nor fake a redaction difference). `text` cases must match
-**byte-for-byte**. Every case must be idempotent. The TS and Go suites run the identical file, so the same PAN
+**byte-for-byte**. Every case must be idempotent. The TypeScript, Go and Python suites run the identical file, so the same PAN
 redacts identically in both, and a divergence fails CI in whichever repo drifted.
 
 Known divergence *class* (pinned down by the fixtures, not eliminated): the email and IBAN validators are
@@ -158,7 +159,7 @@ dot-separated, `[]` = every array element; `type` a floor pattern id), and it ma
   and there is no operation by which it could un-redact anything;
 - unresolvable paths are ignored; containers are never replaced; unknown types are ignored.
 
-The **never-subtract law** — every floor token survives, unchanged, at its path — is asserted by both language
+The **never-subtract law** — every floor token survives, unchanged, at its path — is asserted by every language
 suites over the cross product of every fixture × every spec in the file (plus a hostile spec that points at every
 floor-redacted field with the wrong type). The fixture file's `poisoned-spec-*` cases show a spec that omits the
 PAN field, points at the wrong field, mislabels the card field, and names nonexistent paths: the floor's PAN
@@ -187,7 +188,7 @@ while undecidable constraints (`pattern`/`format`/`enum`) and token values witho
 (which also covers older SDKs in the compatibility window). Span-in-text redactions, redacted keys, form pairs
 and non-JSON text emit no records: their host strings are corrupted by the token bytes, so no judgement is
 safe. Property expectations are pinned per-case in the fixture battery (`fields`), asserted byte-identically by
-both language suites on both entry points.
+every language suite on both entry points.
 
 ## 5. Invariants (all enforced by tests)
 
@@ -196,7 +197,7 @@ both language suites on both entry points.
 3. **Redact before store/emit** — the SDK drops the raw buffer the moment the redacted string exists; no raw
    body is ever set as an attribute, stored or transmitted, even transiently.
 4. **Zero external calls** — the floor is a pure function of its input (lint + sentinel + net audit).
-5. **Parity** — the same body redacts identically in TS and Go (shared fixtures, deep-equal / byte-exact).
+5. **Parity** — the same body redacts identically in TypeScript, Go and Python (shared fixtures, deep-equal / byte-exact).
 
 ## 6. Reporting a redaction gap
 
