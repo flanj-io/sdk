@@ -1,13 +1,14 @@
 # Flanj — Concepts (engineering overview)
 
-*This is a technical overview for contributors to the public `sdk` / `collector` repos. It intentionally
+*This is a technical overview for contributors to the public `sdk`, `sdk-py` and `collector` repos. It intentionally
 contains only the engineering model — not product strategy.*
 
 ## What Flanj does
 
 Flanj is an integration-reliability tool. It captures the real request/response traffic between a
-service and a third-party API it depends on, and validates that live traffic against the provider's
-published OpenAPI spec. When the live traffic diverges from the spec (a field changes type, an
+service or agent and a third-party API or MCP server it depends on, and validates that live traffic
+against the other side's contract: a REST provider's published OpenAPI spec, or the `tools/list` an MCP
+server hands its client. When the live traffic diverges from the contract (a field changes type, an
 enum gains an undocumented value, a webhook stops arriving), that **drift** is surfaced with the exact
 evidence — the redacted call that proves it.
 
@@ -21,9 +22,11 @@ evidence — the redacted call that proves it.
 
 ## The components in these public repos
 
-- **`sdk`** — a thin OpenTelemetry (JS) distribution that adds HTTP **request/response body capture** and
-  **redaction-at-source**. OTel auto-instrumentation gives spans/metadata but not bodies; the bodies are the
+- **`sdk`** — a thin OpenTelemetry (JS) distribution that adds HTTP **request/response body capture**, MCP
+  client capture, and **redaction-at-source**. OTel auto-instrumentation gives spans/metadata but not bodies; the bodies are the
   non-redundant evidence. Redaction happens here, at the call site, **before** anything is stored or sent.
+- **`sdk-py`** — the Python SDK: MCP client capture only, with the same redaction floor and the same OTLP
+  record convention. HTTP body capture is the one thing it does not do.
 - **`collector`** — an OpenTelemetry Collector distribution (built with `ocb`): receives the SDK's OTLP,
   applies defense-in-depth redaction, runs drift detection near the source, stores redacted calls in a
   local store (a rolling window; embedded by default, or a customer-provided Postgres so multiple
@@ -36,7 +39,7 @@ evidence — the redacted call that proves it.
    (Luhn-gated PAN, email, IBAN, phone) behind our own interface, with deep traversal of nested bodies and
    base64 decode-then-scan; local, zero external calls — is mandatory and runs before a body is ever attached
    to a span/log or written to disk. This is defense in depth — the collector re-applies the identical floor
-   in Go, idempotently, and a shared fixture suite keeps the two byte-for-byte in parity. See `REDACTION.md`.
+   in Go, idempotently, and a shared fixture suite keeps TypeScript, Go and Python byte-for-byte in parity. See `REDACTION.md`.
 2. **Raw calls never leave the local environment.** Only a *referenced* (redacted) call is promoted to the
    control plane, and only when a human flags it.
 3. **Outbound-only collector.** No inbound surface; the collector only pushes to the control plane.
