@@ -198,6 +198,11 @@ The wrapper is out of band like every other capture path here: it wraps `Client`
 `@modelcontextprotocol` package lines as optional peers, passes results through byte-identical, and
 never delays or rewrites a call.
 
+Leave `integration` unset and each MCP server gets its own, derived from its host (or, over stdio, the
+name it reports), so two servers never share a baseline. A server your agent launched over stdio also
+records **how it was launched** (`npx @stripe/mcp@0.2.1 …`), shown on its contract card: the command
+and arguments only, each redacted, never the environment or working directory.
+
 
 **Supported:** REST/HTTP integrations — live request and response validated against the provider's OpenAPI document.
 **Supported:** MCP tools — tool-definition drift and result-vs-`outputSchema` mismatch, flagged to the server operator with evidence.
