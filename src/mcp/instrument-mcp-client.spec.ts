@@ -144,6 +144,31 @@ describe('instrumentMcpClient — 1.x line: pass-through (never changes a call o
     expect(calls[0]!.responseBody).toBe('');
   });
 
+  // CONTRACTS §2 flanj.mcp.error.code (2026-09-17): a REJECTED request carries
+  // the server's JSON-RPC code, so the collector can tell -32602 on arguments
+  // that used to work (input_rejection) from any other failure.
+  it('callTool: a JSON-RPC rejection records its error code; the error still propagates untouched', async () => {
+    const { client, calls } = harness1x();
+    const rejected = Object.assign(new Error('MCP error -32602: Invalid params'), { code: -32602 });
+    client.failNext = rejected;
+    await expect(client.callTool({ name: 'get_balance', arguments: { account_id: 'a' } })).rejects.toBe(rejected);
+    expect(calls).toHaveLength(1);
+    expect(calls[0]!.mcp.isError).toBe(true);
+    expect(calls[0]!.mcp.errorCode).toBe(-32602);
+  });
+
+  it('callTool: no error code on a result with isError, nor on a rejection that carries none', async () => {
+    const { client, calls } = harness1x();
+    client.nextResult = { content: [{ type: 'text', text: 'no funds' }], isError: true };
+    await client.callTool({ name: 'get_balance', arguments: {} });
+    client.failNext = new Error('socket hang up');
+    await expect(client.callTool({ name: 'get_balance', arguments: {} })).rejects.toThrow('socket hang up');
+    client.failNext = Object.assign(new Error('weird'), { code: 'ECONNRESET' });
+    await expect(client.callTool({ name: 'get_balance', arguments: {} })).rejects.toThrow('weird');
+    expect(calls).toHaveLength(3);
+    for (const c of calls) expect(c.mcp.errorCode).toBeUndefined();
+  });
+
   it('a throwing capture sink never disturbs the app', async () => {
     const client = new MockClient1x();
     instrumentMcpClient(client, {

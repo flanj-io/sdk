@@ -282,7 +282,14 @@ export function instrumentMcpClient<T extends McpClientLike>(client: T, options:
     options.onSnapshot?.(snap);
   };
 
-  const captureCall = (toolName: string, args: unknown, result: unknown, isError: boolean, startedAt: number): void => {
+  const captureCall = (
+    toolName: string,
+    args: unknown,
+    result: unknown,
+    isError: boolean,
+    startedAt: number,
+    errorCode?: number
+  ): void => {
     try {
       const e = edge();
       sinkCall(
@@ -295,6 +302,7 @@ export function instrumentMcpClient<T extends McpClientLike>(client: T, options:
           args,
           result,
           isError,
+          errorCode,
           serverName: e.server.name,
           serverVersion: e.server.version,
           protocolVersion: e.server.protocolVersion,
@@ -406,8 +414,9 @@ export function instrumentMcpClient<T extends McpClientLike>(client: T, options:
           return res;
         },
         (err) => {
-          // The call happened and failed: record it (no response body), rethrow untouched.
-          captureCall(toolName, toolArgs, undefined, true, startedAt);
+          // The call happened and failed: record it (no response body) with the
+          // JSON-RPC code when the rejection carries one, rethrow untouched.
+          captureCall(toolName, toolArgs, undefined, true, startedAt, jsonRpcCodeOf(err));
           throw err;
         }
       );
@@ -461,6 +470,20 @@ function parseCallToolArgs(args: unknown[]): { toolName: string; toolArgs: unkno
     return { toolName: typeof p.name === 'string' ? p.name : 'unknown-tool', toolArgs: p.arguments };
   }
   return { toolName: 'unknown-tool', toolArgs: undefined };
+}
+
+/**
+ * The JSON-RPC error code of a rejected call — the MCP client throws an
+ * `McpError` carrying the server's `error.code`. Only an integer is read; any
+ * other rejection (a transport failure, a timeout) records no code.
+ */
+function jsonRpcCodeOf(err: unknown): number | undefined {
+  try {
+    const code = (err as { code?: unknown } | null)?.code;
+    return typeof code === 'number' && Number.isInteger(code) ? code : undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 function isErrorResult(result: unknown): boolean {

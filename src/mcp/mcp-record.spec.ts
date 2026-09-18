@@ -113,6 +113,15 @@ describe('buildMcpCallAttributes vs golden-otlp-mcp-call.json', () => {
     expect(attrs['flanj.mcp.is_error']).toBe(false);
   });
 
+  it('flanj.mcp.error.code: absent on a returned result, present only on a rejected request', () => {
+    // The golden call returned a result, so its key set (asserted above) has
+    // no error code — the attribute is never defaulted.
+    expect('flanj.mcp.error.code' in attrs).toBe(false);
+    const rejected = buildMcpCallAttributes(assembleMcpCall({ ...callInput, result: undefined, isError: true, errorCode: -32602 }));
+    expect(rejected['flanj.mcp.error.code']).toBe(-32602);
+    expect(rejected['flanj.mcp.is_error']).toBe(true);
+  });
+
   it('never emits the raw PAN anywhere', () => {
     expect(JSON.stringify(attrs)).not.toContain('4242424242424242');
   });
