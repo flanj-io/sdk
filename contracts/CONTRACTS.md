@@ -102,6 +102,7 @@ peer classified `internal` stays metadata-only as ever. Additive attributes:
 | `flanj.mcp.tool.name` | string | the called tool — the operation id downstream detection matches against the contract (`Operation.id` / `Match.toolName`). |
 | `flanj.mcp.is_error` | bool | the CallToolResult's `isError` (also `true` when the call itself rejected). Feeds the error-rate metric; never a finding on its own. |
 | `flanj.mcp.error.code` *(optional, additive 2026-09-17)* | int | the JSON-RPC `error.code` when the `tools/call` **request itself** was rejected — set only then, never for a result with `isError`. `-32602` (invalid params) on arguments whose shape previously succeeded is the `input_rejection` finding (§4). Absent on SDKs older than the field; readers must tolerate its absence. **Emitted by the Node SDK; the Python SDK (Early) does not emit it yet** — its capture predates the field — so `input_rejection` cannot fire on a Python client until it does. |
+| `flanj.mcp.via_dispatch` *(optional, additive 2026-09-18; set by the collector, never an SDK)* | string | the discovery **dispatcher** a `tools/call` went through, stamped by the drift processor when it re-attributed the call to the inner tool it named (§4, *Servers behind discovery meta-tools*): `flanj.mcp.tool.name` and `flanj.http.route` then name that inner tool, and the request body stays the literal dispatcher call. Stored on the call as `via_dispatch`; absent on every call that was not re-attributed. |
 | `flanj.mcp.server.name` *(optional)* | string | `serverInfo.name`. Read from the `_meta` of the result (`io.modelcontextprotocol/serverInfo`, revision 2026-07-28), falling back to the client's `initialize`-derived accessors on an older server. |
 | `flanj.mcp.server.version` *(optional)* | string | `serverInfo.version`, same source and precedence. |
 | `flanj.mcp.protocol.version` *(optional)* | string | the MCP protocol version, when surfaced. |
@@ -255,8 +256,9 @@ JSON Schema: [`v1/finding.schema.json`](./v1/finding.schema.json). Sample: [`v1/
                                              //   boundary (R-C, 2026-09-17): not flaggable on any kind
   "via_dispatch": null,                      // R-E, additive+optional: the dispatcher tool a call went
                                              //   through, when detection attributed it to the INNER tool
-  "source": null,                            // additive+optional, definition_change: "tools_list" (absent =
-                                             //   this) | "search_result" (defs a discovery meta-tool returned)
+  "source": null,                            // additive+optional: "tools_list" (absent = this) | "search_result"
+                                             //   (defs a discovery meta-tool returned) | "toolset_enable" (a
+                                             //   session's listing right after a toolset was enabled)
   "completeness": null,                      // additive+optional: "complete" | "partial" (a search result is
                                              //   partial by nature — never a source of removals)
   "integration": "acme-payments",
@@ -315,9 +317,22 @@ the agent already received (baked adapters for known patterns plus the operator'
 `source: "search_result"`, `completeness: "partial"`: a tool re-observed with a different definition is a
 `definition_change` on that tool; absence from a later result is never a removal. A dispatcher call is judged as
 its inner tool **only** when the inner name exactly matches a tool the same server returned in a search result
-this collector recorded; its findings are keyed to the inner tool and carry `via_dispatch`. Any other name stays on
-the dispatcher — nothing is inferred from the shape of a call. The stored call is the literal dispatcher call, whose
-request body names the inner tool.
+this collector recorded; its findings are keyed to the inner tool and carry `via_dispatch`, and so is the **stored
+call** (2026-09-18): `mcp_tool_name` and `route` name the inner tool and `via_dispatch` names the dispatcher, while its
+request body stays the literal dispatcher call so a provider can reproduce it exactly. Any other name stays on the
+dispatcher — nothing is inferred from the shape of a call.
+
+The tools a search returned are also a **contract row of their own** (a `spec_infos` row, listed in the local UI): integration
+`<integration>:search`, format `mcp`, source `search_result` — partial by definition — written when the learned
+catalog changes and seeded back on restart and to tiered fronts, exactly like an observed `tools/list`. A tool
+that the complete listing does not declare but the partial catalog does (a searched tool called directly) is
+judged against that definition and is never a `stale_client`.
+
+**Toolset enable** (adapters' `enable_tools`, baked: `enable_toolset`). A `tools/list` observed within two minutes
+after a successful enable call on the same edge is that **session's** catalog, not the server's: tools the baseline
+also lists are compared like any re-observation (findings carry `source: "toolset_enable"`, `completeness:
+"partial"`), tools only it lists join the partial catalog, the baseline is not replaced, and nothing is reported
+removed — so the next session's plain listing is not read as the toolset's removal.
 
 The two flaggable MCP kinds also carry the additive **optional** `snapshot_observed_at` (ISO date-time): the `tools/list` observation backing the finding — the **current** snapshot's `ObservedAt` for `output_mismatch`, the **after** snapshot's for `definition_change`; absent on other kinds and on findings from older collectors (readers must tolerate its absence).
 
@@ -346,8 +361,8 @@ carry no severity, `reported` is false, and they must never reach a published co
 | `operation-removed` | tool | a tool left | `catalog` | **BREAKING** |
 | `operation-added` | tool | a tool arrived | `catalog` | *additive — not reported* |
 | `operation-renamed` | tool | a removed tool and an added one share an identical `inputSchema` that declares ≥1 property; `expected` = old name, `actual` = new name | `catalog` | **BREAKING** |
-| `catalog-moved-behind-meta-tools` | tool | a server's catalog moved behind discovery meta-tools. **ONE event for the move, never one removal per hidden tool.** Not emitted by `contract/diff` (it is a property of *how* a catalog was obtained, which only the snapshot/expansion layer knows); the id lives in the classifier's table so the vocabulary has one home. | `catalog` | **INFO** |
-| `description-changed` | tool | wording only. **At most ONE per tool per day**, and diffs that are whitespace-, case- or punctuation-only are ignored entirely (`diff.TrivialWordingChange`). The per-day cap is applied by whatever aggregates a day's comparisons — `contract/diff` sees one pair of revisions and has no notion of a day. | `wording` | **WARNING** |
+| `catalog-moved-behind-meta-tools` | tool | a server's catalog moved behind discovery meta-tools. **ONE event for the move, never one removal per hidden tool.** Not emitted by `contract/diff` (it is a property of *how* a catalog was obtained, which only the snapshot/expansion layer knows); the id lives in the classifier's table so the vocabulary has one home. The watch emits it from its expansion layer; the collector from its `tools/list` comparison, when a listing that is **only** discovery meta-tools (at least one search or dispatcher among them) follows one that listed tools it now hides — the hidden tools' removals are not reported, and only a tool both listings carry can have changed. | `catalog` | **INFO** |
+| `description-changed` | tool | wording only. **At most ONE per tool per day**, and diffs that are whitespace-, case- or punctuation-only are ignored entirely (`diff.TrivialWordingChange`). The per-day cap is applied by whatever aggregates a day's comparisons — `contract/diff` sees one pair of revisions and has no notion of a day. In the collector it holds by construction: a tool's description change has ONE signature, so every later edit bumps that finding rather than adding one. | `wording` | **WARNING** |
 | `input-required-property-added` | input | a new argument callers **must** send — the one input cell above INFO | `input` | **WARNING** |
 | `input-optional-property-added` | input | a new argument callers may send | `input` | *additive — not reported* |
 | `input-required-property-removed` | input | an argument callers were required to send is gone | `input` | **INFO** |
