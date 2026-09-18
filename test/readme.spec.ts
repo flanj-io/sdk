@@ -21,6 +21,18 @@ const pkg = JSON.parse(readFileSync(resolve(__dirname, '../package.json'), 'utf8
 };
 
 describe('README — first-run essentials', () => {
+  // Copy ruling (Idan, 2026-09-17): the "Nothing threw. Nothing 500'd…" lead is RETIRED on every
+  // surface — it restated one point three times, spoke REST on an MCP product and buried its one new
+  // idea. The README opens with the ruled lines instead, and no variant of the old one may return.
+  it('opens with the ruled lead, and the retired "Nothing threw" line appears nowhere', () => {
+    expect(readme).toContain("**Your integration didn't break. It started being wrong.**");
+    expect(readme).toContain("Every call succeeded. That's why nothing caught it.");
+    const lower = readme.toLowerCase();
+    for (const retired of ['nothing threw', "500'd", 'nothing 500', '200 ok and a field', 'a field was renamed']) {
+      expect(lower, retired).not.toContain(retired);
+    }
+  });
+
   it('opens with a Quick start, before the deep material', () => {
     const quickStart = readme.indexOf('## Quick start');
     expect(quickStart).toBeGreaterThan(-1);
