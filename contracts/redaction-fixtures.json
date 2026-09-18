@@ -1658,8 +1658,8 @@
       "kind": "json",
       "direction": "any",
       "input": {
-        "secret": "sk_live_51HabcDEfGhIjkLmNoPqRsTuV",
-        "test": "sk_test_4eC39HqLyjWDarjtT1zdp7dc",
+        "secret": "sk_live_FAKEfixtureKEY0001",
+        "test": "sk_test_FAKEfixtureKEY0002",
         "pub": "pk_live_abcdef123456"
       },
       "expected": {
@@ -1690,7 +1690,7 @@
           "pattern": "TOKEN",
           "props": {
             "type": "string",
-            "length": 33,
+            "length": 26,
             "containsLowerCase": true,
             "containsUpperCase": true,
             "containsDigits": true,
@@ -1704,7 +1704,7 @@
           "pattern": "TOKEN",
           "props": {
             "type": "string",
-            "length": 32,
+            "length": 26,
             "containsLowerCase": true,
             "containsUpperCase": true,
             "containsDigits": true,
