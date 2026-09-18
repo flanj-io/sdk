@@ -16,6 +16,8 @@ export interface AssembleContractSnapshotInput {
    * when the server published them.
    */
   cache?: CatalogCacheHints;
+  /** stdio only: the encoded launch command (`launchCommandAttribute`). */
+  serverCommand?: string;
 }
 
 /**
@@ -65,6 +67,7 @@ export function assembleContractSnapshot(input: AssembleContractSnapshotInput): 
   if (input.server.protocolVersion !== undefined) snap.protocolVersion = input.server.protocolVersion;
   if (input.cache?.ttlMs !== undefined) snap.catalogTtlMs = input.cache.ttlMs;
   if (input.cache?.cacheScope !== undefined) snap.catalogCacheScope = input.cache.cacheScope;
+  if (input.serverCommand !== undefined) snap.serverCommand = input.serverCommand;
   return snap;
 }
 

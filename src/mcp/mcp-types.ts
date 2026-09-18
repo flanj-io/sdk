@@ -108,6 +108,11 @@ export interface McpContractSnapshot {
    */
   catalogTtlMs?: number;
   catalogCacheScope?: string;
+  /**
+   * stdio servers only: `flanj.mcp.server.command`, how the server was launched
+   * (see `launch-command.ts`). Never the environment or working directory.
+   */
+  serverCommand?: string;
   toolCount: number;
   redactionApplied: boolean;
   redactionPatterns: PatternId[];

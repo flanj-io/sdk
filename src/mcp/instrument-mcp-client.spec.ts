@@ -1,5 +1,6 @@
 import { describe, it, expect, vi } from 'vitest';
 import { instrumentMcpClient } from './instrument-mcp-client';
+import { buildContractSnapshotAttributes } from './mcp-record';
 import type { McpCapturedCall, McpContractSnapshot } from './mcp-types';
 
 /**
@@ -558,5 +559,80 @@ describe('instrumentMcpClient — protocol revision 2026-07-28 (no handshake)', 
     const result = client.nextResult;
     const got = await client.callTool({ name: 'get_balance', arguments: {} });
     expect(got).toBe(result);
+  });
+});
+
+/**
+ * `flanj.mcp.server.command` on a stdio snapshot, and one integration per server
+ * when none is configured (both CONTRACTS §2).
+ */
+describe('instrumentMcpClient — launch command and per-server integration', () => {
+  const stdioTransport = (serverParams?: unknown) => ({
+    sent: [] as JsonRpcMessage[],
+    send(msg: JsonRpcMessage): Promise<void> {
+      this.sent.push(msg);
+      return Promise.resolve();
+    },
+    ...(serverParams === undefined ? {} : { _serverParams: serverParams })
+  });
+
+  async function snapshotOf(client: MockClient1x): Promise<McpContractSnapshot> {
+    const snapshots: McpContractSnapshot[] = [];
+    instrumentMcpClient(client, { integration: 'acme-payments', onSnapshot: (s) => snapshots.push(s) });
+    await client.listTools();
+    await client.listTools({ cursor: 'c1' });
+    expect(snapshots).toHaveLength(1);
+    return snapshots[0]!;
+  }
+
+  it('a stdio snapshot records how the server was launched, never its env or cwd', async () => {
+    const client = new MockClient1x();
+    client.transport = stdioTransport({
+      command: 'npx',
+      args: ['-y', '@acme/payments-mcp@3.2.0'],
+      env: { ACME_KEY: 'sk_live_FAKEfixtureKEY0001' },
+      cwd: '/srv/acme'
+    }) as unknown as MockClient1x['transport'];
+    const snap = await snapshotOf(client);
+    expect(snap.edgeClass).toBe('local-process');
+    expect(snap.serverCommand).toBe('["npx","-y","@acme/payments-mcp@3.2.0"]');
+    expect(buildContractSnapshotAttributes(snap)['flanj.mcp.server.command']).toBe(snap.serverCommand);
+  });
+
+  it('a URL-addressed snapshot carries no command', async () => {
+    const snap = await snapshotOf(new MockClient1x());
+    expect(snap.serverKind).toBe('streamable-http');
+    expect(snap.serverCommand).toBeUndefined();
+    expect(buildContractSnapshotAttributes(snap)).not.toHaveProperty('flanj.mcp.server.command');
+  });
+
+  it('with no integration configured, each server gets its own, the collector’s way', async () => {
+    const calls: McpCapturedCall[] = [];
+    const http = new MockClient1x();
+    const stdio = new MockClient1x();
+    stdio.transport = stdioTransport() as unknown as MockClient1x['transport'];
+    instrumentMcpClient(http, { onCapture: (c) => calls.push(c) });
+    instrumentMcpClient(stdio, { onCapture: (c) => calls.push(c) });
+    await http.callTool({ name: 'get_balance' });
+    await stdio.callTool({ name: 'get_balance' });
+    expect(calls.map((c) => c.integration)).toEqual(['mcp-acme-test', 'acme-payments-mcp']);
+  });
+
+  it('a server name with nothing to slug falls back to unknown-integration, never an empty id', async () => {
+    const calls: McpCapturedCall[] = [];
+    const client = new MockClient1x();
+    client.transport = stdioTransport() as unknown as MockClient1x['transport'];
+    client.getServerVersion = () => ({ name: '天气', version: '1.0.0' });
+    instrumentMcpClient(client, { onCapture: (c) => calls.push(c) });
+    await client.callTool({ name: 'get_balance' });
+    expect(calls[0]!.integration).toBe('unknown-integration');
+  });
+
+  it('a configured integration always wins', async () => {
+    const calls: McpCapturedCall[] = [];
+    const client = new MockClient1x();
+    instrumentMcpClient(client, { integration: 'acme-payments', onCapture: (c) => calls.push(c) });
+    await client.callTool({ name: 'get_balance' });
+    expect(calls[0]!.integration).toBe('acme-payments');
   });
 });

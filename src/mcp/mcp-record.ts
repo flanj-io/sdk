@@ -59,6 +59,7 @@ export function buildContractSnapshotAttributes(snap: McpContractSnapshot): LogA
   // legitimately be up to `ttlMs` behind the server.
   if (snap.catalogTtlMs !== undefined) attrs['flanj.mcp.catalog.ttl_ms'] = snap.catalogTtlMs;
   if (snap.catalogCacheScope !== undefined) attrs['flanj.mcp.catalog.cache_scope'] = snap.catalogCacheScope;
+  if (snap.serverCommand !== undefined) attrs['flanj.mcp.server.command'] = snap.serverCommand;
   return attrs;
 }
 
