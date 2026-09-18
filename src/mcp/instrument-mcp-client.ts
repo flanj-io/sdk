@@ -472,14 +472,38 @@ function parseCallToolArgs(args: unknown[]): { toolName: string; toolArgs: unkno
   return { toolName: 'unknown-tool', toolArgs: undefined };
 }
 
+/** The protocol-error classes of the two MCP SDK lines: 1.x `McpError`, 2.x `ProtocolError`. */
+const PROTOCOL_ERROR_NAMES = new Set(['McpError', 'ProtocolError']);
+
 /**
- * The JSON-RPC error code of a rejected call — the MCP client throws an
- * `McpError` carrying the server's `error.code`. Only an integer is read; any
- * other rejection (a transport failure, a timeout) records no code.
+ * Whether a rejection is the MCP SDK's PROTOCOL error — the server answered with
+ * a JSON-RPC error — rather than a transport failure. Read by name along the class
+ * chain (the MCP SDK is feature-detected, never imported here), so a 2.x subclass
+ * such as `InvalidParamsError extends ProtocolError` counts.
+ */
+function isProtocolError(err: unknown): boolean {
+  if (err === null || typeof err !== 'object') return false;
+  if (PROTOCOL_ERROR_NAMES.has(String((err as { name?: unknown }).name))) return true;
+  let proto: unknown = Object.getPrototypeOf(err);
+  for (let depth = 0; proto && depth < 8; depth++) {
+    const ctor = (proto as { constructor?: { name?: unknown } }).constructor;
+    if (ctor && PROTOCOL_ERROR_NAMES.has(String(ctor.name))) return true;
+    proto = Object.getPrototypeOf(proto);
+  }
+  return false;
+}
+
+/**
+ * The JSON-RPC error code of a rejected call — the server's `error.code`, read
+ * only off a protocol error (above) and only when it is an integer. A transport
+ * error is never read: the streamable-HTTP transport's `StreamableHTTPError`
+ * (1.x) and `SdkHttpError` (2.x) carry the HTTP STATUS on a `.code` property,
+ * which is not a JSON-RPC code. Any other rejection records no code.
  */
 function jsonRpcCodeOf(err: unknown): number | undefined {
   try {
-    const code = (err as { code?: unknown } | null)?.code;
+    if (!isProtocolError(err)) return undefined;
+    const code = (err as { code?: unknown }).code;
     return typeof code === 'number' && Number.isInteger(code) ? code : undefined;
   } catch {
     return undefined;
