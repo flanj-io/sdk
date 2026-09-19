@@ -31,6 +31,14 @@ export interface McpCallMeta {
   toolName: string;
   /** The MCP result's `isError` flag (also true when the call rejected). */
   isError: boolean;
+  /**
+   * The JSON-RPC `error.code` when the tools/call REQUEST itself was rejected
+   * (CONTRACTS §2 `flanj.mcp.error.code`, additive 2026-09-17). Undefined when
+   * the call returned a result — including a result with `isError` — or the
+   * rejection carried no integer code. The collector reads -32602 on arguments
+   * that previously succeeded as an `input_rejection`.
+   */
+  errorCode?: number;
   serverKind: McpServerKind;
   serverName?: string;
   serverVersion?: string;

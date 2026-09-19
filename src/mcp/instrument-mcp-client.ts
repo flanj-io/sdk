@@ -291,7 +291,14 @@ export function instrumentMcpClient<T extends McpClientLike>(client: T, options:
     options.onSnapshot?.(snap);
   };
 
-  const captureCall = (toolName: string, args: unknown, result: unknown, isError: boolean, startedAt: number): void => {
+  const captureCall = (
+    toolName: string,
+    args: unknown,
+    result: unknown,
+    isError: boolean,
+    startedAt: number,
+    errorCode?: number
+  ): void => {
     try {
       const e = edge();
       sinkCall(
@@ -304,6 +311,7 @@ export function instrumentMcpClient<T extends McpClientLike>(client: T, options:
           args,
           result,
           isError,
+          errorCode,
           serverName: e.server.name,
           serverVersion: e.server.version,
           protocolVersion: e.server.protocolVersion,
@@ -416,8 +424,9 @@ export function instrumentMcpClient<T extends McpClientLike>(client: T, options:
           return res;
         },
         (err) => {
-          // The call happened and failed: record it (no response body), rethrow untouched.
-          captureCall(toolName, toolArgs, undefined, true, startedAt);
+          // The call happened and failed: record it (no response body) with the
+          // JSON-RPC code when the rejection carries one, rethrow untouched.
+          captureCall(toolName, toolArgs, undefined, true, startedAt, jsonRpcCodeOf(err));
           throw err;
         }
       );
@@ -471,6 +480,44 @@ function parseCallToolArgs(args: unknown[]): { toolName: string; toolArgs: unkno
     return { toolName: typeof p.name === 'string' ? p.name : 'unknown-tool', toolArgs: p.arguments };
   }
   return { toolName: 'unknown-tool', toolArgs: undefined };
+}
+
+/** The protocol-error classes of the two MCP SDK lines: 1.x `McpError`, 2.x `ProtocolError`. */
+const PROTOCOL_ERROR_NAMES = new Set(['McpError', 'ProtocolError']);
+
+/**
+ * Whether a rejection is the MCP SDK's PROTOCOL error — the server answered with
+ * a JSON-RPC error — rather than a transport failure. Read by name along the class
+ * chain (the MCP SDK is feature-detected, never imported here), so a 2.x subclass
+ * such as `InvalidParamsError extends ProtocolError` counts.
+ */
+function isProtocolError(err: unknown): boolean {
+  if (err === null || typeof err !== 'object') return false;
+  if (PROTOCOL_ERROR_NAMES.has(String((err as { name?: unknown }).name))) return true;
+  let proto: unknown = Object.getPrototypeOf(err);
+  for (let depth = 0; proto && depth < 8; depth++) {
+    const ctor = (proto as { constructor?: { name?: unknown } }).constructor;
+    if (ctor && PROTOCOL_ERROR_NAMES.has(String(ctor.name))) return true;
+    proto = Object.getPrototypeOf(proto);
+  }
+  return false;
+}
+
+/**
+ * The JSON-RPC error code of a rejected call — the server's `error.code`, read
+ * only off a protocol error (above) and only when it is an integer. A transport
+ * error is never read: the streamable-HTTP transport's `StreamableHTTPError`
+ * (1.x) and `SdkHttpError` (2.x) carry the HTTP STATUS on a `.code` property,
+ * which is not a JSON-RPC code. Any other rejection records no code.
+ */
+function jsonRpcCodeOf(err: unknown): number | undefined {
+  try {
+    if (!isProtocolError(err)) return undefined;
+    const code = (err as { code?: unknown }).code;
+    return typeof code === 'number' && Number.isInteger(code) ? code : undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 function isErrorResult(result: unknown): boolean {

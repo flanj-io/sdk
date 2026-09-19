@@ -19,6 +19,8 @@ export interface AssembleMcpCallInput {
    */
   result: unknown;
   isError: boolean;
+  /** JSON-RPC error code of a rejected call (see McpCallMeta.errorCode). */
+  errorCode?: number;
   serverName?: string;
   serverVersion?: string;
   protocolVersion?: string;
@@ -91,6 +93,7 @@ export function assembleMcpCall(input: AssembleMcpCallInput): McpCapturedCall {
     isError: input.isError,
     serverKind: input.serverKind
   };
+  if (input.errorCode !== undefined) mcp.errorCode = input.errorCode;
   if (input.serverName !== undefined) mcp.serverName = input.serverName;
   if (input.serverVersion !== undefined) mcp.serverVersion = input.serverVersion;
   if (input.protocolVersion !== undefined) mcp.protocolVersion = input.protocolVersion;

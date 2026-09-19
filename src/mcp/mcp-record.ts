@@ -18,6 +18,8 @@ export function buildMcpCallAttributes(call: McpCapturedCall): LogAttributes {
   attrs['flanj.transport'] = 'mcp';
   attrs['flanj.mcp.tool.name'] = call.mcp.toolName;
   attrs['flanj.mcp.is_error'] = call.mcp.isError;
+  // Only on a REJECTED request, never defaulted (CONTRACTS §2, 2026-09-17).
+  if (call.mcp.errorCode !== undefined) attrs['flanj.mcp.error.code'] = call.mcp.errorCode;
   if (call.mcp.serverName !== undefined) attrs['flanj.mcp.server.name'] = call.mcp.serverName;
   if (call.mcp.serverVersion !== undefined) attrs['flanj.mcp.server.version'] = call.mcp.serverVersion;
   if (call.mcp.protocolVersion !== undefined) attrs['flanj.mcp.protocol.version'] = call.mcp.protocolVersion;

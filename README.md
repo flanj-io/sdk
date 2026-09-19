@@ -5,8 +5,9 @@
 
 # @flanj/sdk
 
-Nothing threw. Nothing 500'd. The response was 200 OK and a field was renamed. Your integration
-didn't break — it started being wrong, and every tool that waits for an error is blind to it.
+**Your integration didn't break. It started being wrong.**
+
+Every call succeeded. That's why nothing caught it.
 
 [![License: Apache-2.0](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
 [![npm: @flanj/sdk](https://img.shields.io/npm/v/@flanj/sdk.svg)](https://www.npmjs.com/package/@flanj/sdk)

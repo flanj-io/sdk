@@ -114,6 +114,8 @@ peer classified `internal` stays metadata-only as ever. Additive attributes:
 | `flanj.transport` | string | `"mcp"`. Absent on HTTP records (absent = HTTP). |
 | `flanj.mcp.tool.name` | string | the called tool — the operation id downstream detection matches against the contract (`Operation.id` / `Match.toolName`). |
 | `flanj.mcp.is_error` | bool | the CallToolResult's `isError` (also `true` when the call itself rejected). Feeds the error-rate metric; never a finding on its own. |
+| `flanj.mcp.error.code` *(optional, additive 2026-09-17)* | int | the JSON-RPC `error.code` when the `tools/call` **request itself** was rejected — set only then, never for a result with `isError`. `-32602` (invalid params) on arguments whose shape previously succeeded is the `input_rejection` finding (§4). Absent on SDKs older than the field; readers must tolerate its absence. **Emitted by both SDKs, read only off a protocol error** (`McpError` / `ProtocolError` and its subclasses — a transport error's HTTP status on the same `.code` is never a JSON-RPC code). |
+| `flanj.mcp.via_dispatch` *(optional, additive 2026-09-18; set by the collector, never an SDK)* | string | the discovery **dispatcher** a `tools/call` went through, stamped by the drift processor when it re-attributed the call to the inner tool it named (§4, *Servers behind discovery meta-tools*): `flanj.mcp.tool.name` and `flanj.http.route` then name that inner tool, and the request body stays the literal dispatcher call. Stored on the call as `via_dispatch`; absent on every call that was not re-attributed. |
 | `flanj.mcp.server.name` *(optional)* | string | `serverInfo.name`. Read from the `_meta` of the result (`io.modelcontextprotocol/serverInfo`, revision 2026-07-28), falling back to the client's `initialize`-derived accessors on an older server. |
 | `flanj.mcp.server.version` *(optional)* | string | `serverInfo.version`, same source and precedence. |
 | `flanj.mcp.protocol.version` *(optional)* | string | the MCP protocol version, when surfaced. |
@@ -260,7 +262,19 @@ JSON Schema: [`v1/finding.schema.json`](./v1/finding.schema.json). Sample: [`v1/
   "schema_version": 1,
   "id": "0191e8c4-…",
   "kind": "live-vs-spec",                    // | "version-diff"
-  "severity": "breaking",                    // breaking | warning | info
+  "change_kind": null,                       // R-A, additive+optional: WHAT moved —
+                                             // wording | input | output | catalog | value | observed_failure.
+                                             // Set on MCP findings only; absent on the HTTP kinds and on
+                                             // findings from older collectors.
+  "severity": "breaking",                    // breaking | warning | info — info NEVER crosses the org
+                                             //   boundary (R-C, 2026-09-17): not flaggable on any kind
+  "via_dispatch": null,                      // R-E, additive+optional: the dispatcher tool a call went
+                                             //   through, when detection attributed it to the INNER tool
+  "source": null,                            // additive+optional: "tools_list" (absent = this) | "search_result"
+                                             //   (defs a discovery meta-tool returned) | "toolset_enable" (a
+                                             //   session's listing right after a toolset was enabled)
+  "completeness": null,                      // additive+optional: "complete" | "partial" (a search result is
+                                             //   partial by nature — never a source of removals)
   "integration": "acme-payments",
   "endpoint": "POST /v1/charges",
   "field_path": "amount",
@@ -298,48 +312,107 @@ the §2 MCP call / `contract_snapshot` records — same `Finding` shape, same pe
 | `kind` | Evidence | Cross-org flaggable? |
 |---|---|---|
 | `output_mismatch` | a `tools/call` `structuredContent` violates the tool's declared `outputSchema` (same JSON Schema validator + token-aware redaction rules as `live-vs-spec`; captured props of whole-value redactions decide type/length constraints). A tool with **no** `outputSchema` never produces one. `source_call_id` = a representative call carrying the MCP correlation keys. | **Yes** (severity `breaking`) |
-| `definition_change` | two consecutive observed `tools/list` snapshots differ; one finding per (edge, tool, `rule`, `field_path`) from the definition-diff classifier. `expected`/`actual` = before/after schema **fragments**; `spec_version_from`/`to` = abbreviated snapshot content hashes; both snapshot timestamps in `detail`; `source_call_id` = null. | **Yes — every class**: BREAKING (severity `breaking`), NON_BREAKING (`info`) and, since **qfix2-2026-08-26**, DESCRIPTION (`rule` = `description-changed`, severity `warning`). Never automatic: a human presses the flag control on the row. |
-| `stale_client` | the consumer's agent called a tool absent from the **current** `tools/list` (`rule` = `tool-not-listed`) or with arguments violating the **current** `inputSchema`. Consumer-side; severity `warning`. | **No — local only, ever.** No flag control anywhere. |
+| `definition_change` | two consecutive observed `tools/list` snapshots differ; one finding per (edge, tool, `rule`, `field_path`) from the definition-diff classifier. `expected`/`actual` = before/after schema **fragments**; `spec_version_from`/`to` = abbreviated snapshot content hashes; both snapshot timestamps in `detail`; `source_call_id` = null. `change_kind` is `wording` \| `input` \| `output` \| `catalog`. | **Yes for `warning` and `breaking`** — and never automatic: a human presses the flag control on the row. **`info` is local only** (R-C, 2026-09-17): the UI shows it, the Flag control is unavailable on it, and the CP rejects a flag whose finding severity is `info`. Wording changes stay flaggable (they are `warning`), as they have been since qfix2-2026-08-26. |
+| `stale_client` | the consumer's agent called a tool absent from the **current** `tools/list` (`rule` = `tool-not-listed`) or with arguments violating the **current** `inputSchema`. Consumer-side. `change_kind` `observed_failure`, severity **`breaking`** (R-B, 2026-09-17: the call the agent just made fails; it was `warning`). | **No — local only, ever**, at any severity. No flag control anywhere. |
+| `input_rejection` *(2026-09-17)* | a `tools/call` was rejected with JSON-RPC **`-32602`** (`flanj.mcp.error.code`) on arguments whose **shape** (top-level keys and JSON types) previously **succeeded** on the same tool. A `-32602` on a never-accepted shape is the caller's own problem and is not reported. `rule` = `arguments-previously-accepted-rejected`; `change_kind` `observed_failure`; severity `breaking`; `source_call_id` = the rejected call. Provider-side. | **Yes.** |
+| `value_change` *(2026-09-17)* | a field of the tool's OBSERVED responses held one value **format** for 5 consecutive responses and then another in the same family for 3 in a row: timestamp (ISO-8601 / date / epoch seconds / epoch milliseconds), ID (UUID / prefixed / numeric), enum casing (UPPER_CASE / lower_case), number representation (integer / decimal — the units story). A field whose format never settles, or that carries free text, never fires. `rule` = `value-format-changed`; `expected` / `actual` = the old / new format; `change_kind` `value`; severity `warning`. Needs no declared schema. | **Yes.** |
+
+**`change_kind` by kind** (R-A): `definition_change` → `wording` \| `input` \| `output` \| `catalog` (from the rule
+table below); `output_mismatch` → `output`; `value_change` → `value`; `stale_client` and `input_rejection` →
+`observed_failure`. Absent on `live-vs-spec` / `version-diff`, whose vocabulary R-A does not describe.
+
+**INFO stays local** (R-C, Idan 2026-09-17), on **every** kind: the local UI shows an `info` finding with no Flag
+control, the collector's relay answers `403 not_flaggable`, and the control plane answers `400 info_not_flaggable`
+to a flag whose `finding.severity` is `info`. Only `warning` and `breaking` become a thread.
+
+**Servers behind discovery meta-tools** (R-E, 2026-09-17). Detection reads tool definitions out of search RESULTS
+the agent already received (baked adapters for known patterns plus the operator's
+`flanjdrift.mcp_meta_adapters`; the collector never probes). Those definitions are a per-tool contract with
+`source: "search_result"`, `completeness: "partial"`: a tool re-observed with a different definition is a
+`definition_change` on that tool; absence from a later result is never a removal. A dispatcher call is judged as
+its inner tool **only** when the inner name exactly matches a tool the same server returned in a search result
+this collector recorded; its findings are keyed to the inner tool and carry `via_dispatch`, and so is the **stored
+call** (2026-09-18): `mcp_tool_name` and `route` name the inner tool and `via_dispatch` names the dispatcher, while its
+request body stays the literal dispatcher call so a provider can reproduce it exactly. Any other name stays on the
+dispatcher — nothing is inferred from the shape of a call.
+
+The tools a search returned are also a **contract row of their own** (a `spec_infos` row, listed in the local UI): integration
+`<integration>:search`, format `mcp`, source `search_result` — partial by definition — written when the learned
+catalog changes and seeded back on restart and to tiered fronts, exactly like an observed `tools/list`. A tool
+that the complete listing does not declare but the partial catalog does (a searched tool called directly) is
+judged against that definition and is never a `stale_client`.
+
+**Toolset enable** (adapters' `enable_tools`, baked: `enable_toolset`). A `tools/list` observed within two minutes
+after a successful enable call on the same edge is that **session's** catalog, not the server's: tools the baseline
+also lists are compared like any re-observation (findings carry `source: "toolset_enable"`, `completeness:
+"partial"`), tools only it lists join the partial catalog, the baseline is not replaced, and nothing is reported
+removed — so the next session's plain listing is not read as the toolset's removal.
 
 The two flaggable MCP kinds also carry the additive **optional** `snapshot_observed_at` (ISO date-time): the `tools/list` observation backing the finding — the **current** snapshot's `ObservedAt` for `output_mismatch`, the **after** snapshot's for `definition_change`; absent on other kinds and on findings from older collectors (readers must tolerate its absence).
 
 `definition_change` findings also carry the additive **optional** `snapshot_observed_from` (ISO date-time): the **previous** snapshot's observation time — the structured sibling of `snapshot_observed_at` (which stays the **after** snapshot), so readers never parse the `detail` prose for the before-time; absent on other kinds and on findings from older collectors (readers must tolerate its absence).
 
-**`definition_change` rule ids (the definition-diff classifier's table — direction-aware since 2026-09-13).**
+**`definition_change` rule ids (the definition-diff classifier's table — direction-aware since 2026-09-13;
+two-axis since 2026-09-17).**
 `rule` is the classifier's stable id; the drift signature hangs off it, so one field can never carry two rows for
-one change. `expected` / `actual` are the before / after **fragments**. The class maps to `severity` as above
-(BREAKING → `breaking`, NON_BREAKING → `info`, DESCRIPTION → `warning`). The single implementation is the
+one change. `expected` / `actual` are the before / after **fragments**. The single implementation is the
 collector's public `contract/diff` package; nothing re-implements a rule.
 
-| `rule` | side | when | class |
-|---|---|---|---|
-| `operation-removed` / `operation-added` | tool | a tool left / arrived | BREAKING / NON_BREAKING |
-| `operation-renamed` | tool | a removed tool and an added one share an identical `inputSchema` that declares ≥1 property; `expected` = old name, `actual` = new name | BREAKING |
-| `description-changed` | tool | wording only | DESCRIPTION |
-| `input-required-property-added` / `input-optional-property-added` | input | a new argument callers must / may send | BREAKING / NON_BREAKING |
-| `input-required-property-removed` | input | an argument callers were required to send is gone | BREAKING |
-| `input-optional-property-removed` | input | an argument callers could send is gone. BREAKING when the **new** schema declares `additionalProperties: false` (a caller still sending it now fails validation); otherwise NON_BREAKING (the value is tolerated and simply has no declared effect). `detail` states which. | BREAKING / NON_BREAKING |
-| `input-property-renamed` / `output-property-renamed` | both | a removed property with a **same-typed** twin added under a name that normalises to the same key (camelCase / snake_case / kebab-case fold together: `branchId` = `branch_id` = `branch-id`) — ONE row, never a removal plus an addition; `expected` = `{name, schema}` of the old, `actual` of the new, `field_path` = the OLD path. Output side: only a REQUIRED removed property pairs (an optional output removal is not a classified change, so its twin stays an optional addition). | BREAKING |
-| `input-type-widened` | input | the type set gained members (`string` → `["string","null"]`; `integer` → `number`): every argument sent today still validates | NON_BREAKING |
-| `input-type-narrowed` | input | the type set lost members (`["integer","string"]` → `integer`; `number` → `integer`): a caller sending the dropped type now fails | BREAKING |
-| `input-type-changed` | input | the type set was replaced (`integer` → `string`) | BREAKING |
-| `output-property-type-widened` | output | the type set gained members (`number` → `["number","string"]`): the consumer may receive a type it never handled | BREAKING |
-| `output-property-type-narrowed` | output | the type set lost members (`["null","string"]` → `string`, or → `["null"]`) | BREAKING |
-| `output-property-type-changed` | output | the type set was replaced (`number` → `string`) | BREAKING |
-| `input-enum-value-removed` / `output-enum-value-removed` | both | values left the enum and none arrived; `expected` = `{"enum": [removed…]}`, `actual` = `{"enum": []}` | BREAKING |
-| `input-enum-value-added` / `output-enum-value-added` | both | values arrived and none left; `expected` = `{"enum": []}`, `actual` = `{"enum": [added…]}` | NON_BREAKING |
-| `input-enum-value-replaced` / `output-enum-value-replaced` | both | values left AND arrived in one revision (`["city","region"]` → `["city","state"]`): ONE row, `expected` = the removed, `actual` = the added | BREAKING |
-| `output-required-property-removed` | output | a value consumers were promised is gone | BREAKING |
-| `output-optional-property-added` | output | a new value consumers may receive | NON_BREAKING |
-| `output-schema-removed` / `output-schema-declared` | output | the output contract as a whole left / arrived | BREAKING / NON_BREAKING |
+Every row carries **two independent fields** (ruling R-A, Idan 2026-09-17): a **kind** — what moved — and a
+**severity** — how much it matters. They replace the single `class` label (BREAKING / NON_BREAKING /
+DESCRIPTION), which mixed the two: "DESCRIPTION" named a kind while "BREAKING" named a severity, so a reader
+could not ask one question without answering the other. **A kind never implies a severity** (`input` spans INFO
+and WARNING; `output` spans WARNING and BREAKING; `catalog` spans INFO and BREAKING), and severity comes from
+this table and nowhere else. The classifier emits `INFO` / `WARNING` / `BREAKING`; the wire's `severity` is the
+lower-case `info` / `warning` / `breaking`, mapped at exactly one point (`internal/drift.severityOf`).
+
+**Additive changes are not reported** — a new tool, a new optional param, a widened input type, a newly declared
+output schema. They are real, and `contract/diff` still returns them so a caller can see the whole diff, but they
+carry no severity, `reported` is false, and they must never reach a published count.
+
+| `rule` | side | when | kind | severity |
+|---|---|---|---|---|
+| `operation-removed` | tool | a tool left | `catalog` | **BREAKING** |
+| `operation-added` | tool | a tool arrived | `catalog` | *additive — not reported* |
+| `operation-renamed` | tool | a removed tool and an added one share an identical `inputSchema` that declares ≥1 property; `expected` = old name, `actual` = new name | `catalog` | **BREAKING** |
+| `catalog-moved-behind-meta-tools` | tool | a server's catalog moved behind discovery meta-tools. **ONE event for the move, never one removal per hidden tool.** Not emitted by `contract/diff` (it is a property of *how* a catalog was obtained, which only the snapshot/expansion layer knows); the id lives in the classifier's table so the vocabulary has one home. The watch emits it from its expansion layer; the collector from its `tools/list` comparison, when a listing that is **only** discovery meta-tools (at least one search or dispatcher among them) follows one that listed tools it now hides — the hidden tools' removals are not reported, and only a tool both listings carry can have changed. | `catalog` | **INFO** |
+| `description-changed` | tool | wording only. **At most ONE per tool per day**, and diffs that are whitespace-, case- or punctuation-only are ignored entirely (`diff.TrivialWordingChange`). The per-day cap is applied by whatever aggregates a day's comparisons — `contract/diff` sees one pair of revisions and has no notion of a day. In the collector it holds by construction: a tool's description change has ONE signature, so every later edit bumps that finding rather than adding one. | `wording` | **WARNING** |
+| `input-required-property-added` | input | a new argument callers **must** send — the one input cell above INFO | `input` | **WARNING** |
+| `input-optional-property-added` | input | a new argument callers may send | `input` | *additive — not reported* |
+| `input-required-property-removed` | input | an argument callers were required to send is gone | `input` | **INFO** |
+| `input-optional-property-removed` | input | an argument callers could send is gone. `detail` still states the consequence — whether the **new** schema declares `additionalProperties: false` (a caller still sending it now fails validation) or tolerates the stray argument — but the severity is the same either way. | `input` | **INFO** |
+| `input-property-renamed` | input | a removed property with a **same-typed** twin added under a name that normalises to the same key (camelCase / snake_case / kebab-case fold together: `branchId` = `branch_id` = `branch-id`) — ONE row, never a removal plus an addition; `expected` = `{name, schema}` of the old, `actual` of the new, `field_path` = the OLD path. `detail` = `renamed <old> → <new>`. | `input` | **INFO** (ruled: the same parameter under a new spelling, even when the new name is required) |
+| `output-property-renamed` | output | as above, on the declared response, when the removed property was **required** | `output` | **BREAKING** |
+| `output-optional-property-renamed` | output | as above, when the removed property was **optional** — ONE row, never an `output-optional-property-removed` plus an unreported addition (Idan, 2026-09-17: "reuse the input rename pairing") | `output` | **WARNING** — the grade of that property being removed, which is what it is to a consumer still reading the old name |
+| `input-type-widened` | input | the type set gained members (`string` → `["string","null"]`; `integer` → `number`): every argument sent today still validates | `input` | *additive — not reported* |
+| `input-type-narrowed` | input | the type set lost members (`["integer","string"]` → `integer`; `number` → `integer`): a caller sending the dropped type now fails | `input` | **INFO** |
+| `input-type-changed` | input | the type set was replaced (`integer` → `string`) | `input` | **INFO** |
+| `output-property-type-widened` | output | the type set gained members (`number` → `["number","string"]`): the consumer may receive a type it never handled | `output` | **BREAKING** |
+| `output-property-type-narrowed` | output | the type set lost members (`["null","string"]` → `string`, or → `["null"]`) | `output` | **BREAKING** |
+| `output-property-type-changed` | output | the type set was replaced (`number` → `string`) | `output` | **BREAKING** |
+| `input-enum-value-removed` | input | values left the enum and none arrived; `expected` = `{"enum": [removed…]}`, `actual` = `{"enum": []}` | `input` | **INFO** |
+| `output-enum-value-removed` | output | as above, on the declared response | `output` | **BREAKING** |
+| `input-enum-value-added` | input | values arrived and none left; a caller's existing value still validates | `input` | *additive — not reported* |
+| `output-enum-value-added` | output | values arrived and none left; `expected` = `{"enum": []}`, `actual` = `{"enum": [added…]}`. A consumer may now receive a value it has no branch for — worth telling them; nothing they already handle stopped being valid. (Idan, 2026-09-17; it was NON_BREAKING here while the classifier's prose claimed every output cell was breaking.) | `output` | **WARNING** |
+| `input-enum-value-replaced` | input | values left AND arrived in one revision: ONE row, `expected` = the removed, `actual` = the added | `input` | **INFO** |
+| `output-enum-value-replaced` | output | as above (`["city","region"]` → `["city","state"]`) — follows the REMOVED half, the worse one | `output` | **BREAKING** |
+| `output-required-property-removed` | output | a value consumers were promised is gone | `output` | **BREAKING** |
+| `output-optional-property-removed` | output | a declared value consumers were **not** promised is gone. **New with R-B**: this cell used to emit nothing at all, so a provider could stop declaring a field consumers were reading and the diff stayed silent. | `output` | **WARNING** |
+| `output-optional-property-added` | output | a new value consumers may receive | `output` | *additive — not reported* |
+| `output-schema-removed` | output | the output contract as a whole left — every declared field at once | `output` | **BREAKING** |
+| `output-schema-declared` | output | the output contract as a whole arrived: a surface that was never declared promises more, not less | `output` | *additive — not reported* |
 
 Type sets are compared as sets (union order is not semantic) under JSON Schema's one subtype relation — every
 `integer` is a `number` — and two sets that accept the same values (`["number","integer"]` vs `["number"]`) are
-no change. Optional OUTPUT property removals stay unclassified (a value consumers were never promised). Adding or
-dropping the `enum` keyword itself is outside the table.
+no change. Adding or dropping the `enum` keyword itself is outside the table.
 
-*Why every output type cell is BREAKING while only input widening is additive.* Input widening is Postel's law:
-whatever a caller sends today still validates. Output widening is its mirror image: the consumer's parser may now
+*Why the whole INPUT family is INFO.* A caller controls their own arguments. When a provider moves the input
+surface, that is information the caller acts on in their own code — not a promise broken to them — so the rule id
+and the `detail` carry what changed and the severity stays INFO. The one exception is a new **required**
+parameter (WARNING): the caller's existing, previously-valid call now fails until they change it. Input widening
+is Postel's law and is not reported at all: whatever a caller sends today still validates.
+
+*Why every output TYPE cell is BREAKING.* Output widening is its mirror image: the consumer's parser may now
 meet a type it never handled. Output **narrowing** follows the posture this contract already froze for REST
 version-diffs, where `response-property-enum-value-removed` is promoted to `breaking` because *a value the
 consumer's code may branch on has silently disappeared* — that sentence applies to a type member verbatim.
@@ -481,6 +554,8 @@ Headers: `X-Flanj-Collector-Version`, `X-Flanj-Schema-Version`.
 // 400 access_conflict      — `allowed_domains` and `allowed_emails` are both lists
 // 400 bad_request          — `allowed_domains` / `allowed_emails` is neither a list nor null, or has more than 20 entries
 // 403 not_flaggable        — a consumer-local kind (`stale_client`), with or without a message
+// 400 info_not_flaggable   — `finding.severity` is `info` (R-C, 2026-09-17): INFO never crosses the org
+//                            boundary, on any kind; the CP's standard one-sentence error body
 // 412 not_connected | contact_unconfirmed
 ```
 `thread_public_id` is random/opaque/≥128-bit/URL-safe; the bearer `<token>` (≥128-bit CSPRNG, stored hashed)
