@@ -37,6 +37,12 @@ HTTP call** — and, since v0.5 (Step B), one per completed **MCP tool call** pl
 record per observed `tools/list` (the MCP blocks below). The SDK redacts at source **before** the record
 is constructed; raw bodies never reach OTLP.
 
+**Resource attributes** *(2026-09-19)* — set once per OTLP `Resource` and shared by every record under
+it; not `flanj.*` keys. `service.name` is the emitting service, which on a call record is the CALLER.
+Both SDKs set it from their service-name option, else `OTEL_SERVICE_NAME`, else `"flanj-consumer"`.
+The collector reads it off each call record's resource into the stored call's `service_name` (§3), for
+local display and filtering only. Every other resource attribute is ignored.
+
 Log record `body` is empty; all data is in **attributes**. Attribute keys (carrier-agnostic — identical
 if ever moved to a span event):
 
@@ -250,6 +256,13 @@ Three **store-owned, read-API-only** fields ride on the STORED call (`GET /api/c
 
 The collector UI's contract chip reads `validated`, never the contract list: a call with no verdict
 is `not checked`, never CONFORMING.
+
+One more stored field is **local-only** — unlike the three above, the flag relay strips it from the
+call it sends, so it never reaches the CP:
+
+| Field | Type | Meaning |
+|---|---|---|
+| `service_name` *(2026-09-19)* | string | The caller's `service.name`, from the record's OTLP resource (§2). It names this org's own services — internal topology — so it stays on the collector: shown on the Overview MCP lines and as a Traffic filter. Omitted when the resource carried none. |
 
 ---
 
