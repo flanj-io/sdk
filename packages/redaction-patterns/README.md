@@ -22,7 +22,7 @@ the detector; no third-party engine owns the pipeline. The design is documented 
 
 This package is one of two conforming implementations of the same contract; the Go collector
 (`internal/redact`) is the other. Both are held to the same golden files, vendored here from the canonical
-`e2e/contracts/v1`:
+contract:
 
 - [`contracts/redaction-vectors.json`](https://github.com/flanj-io/sdk/blob/main/contracts/redaction-vectors.json) — scalar-level vectors;
 - [`contracts/redaction-fixtures.json`](https://github.com/flanj-io/sdk/blob/main/contracts/redaction-fixtures.json) — the structured,
@@ -127,7 +127,7 @@ yarn workspace @flanj/redaction-patterns test
 `test/vectors.spec.ts` and `test/fixtures.spec.ts` iterate every case in the vendored golden files (both
 entry points, idempotency, enhancer, never-subtract); `test/recognizers.spec.ts` pins behaviour not covered by the
 contract; `test/no-network.spec.ts` is the zero-external-calls sentinel. Do not change a wire behaviour here
-without first changing the canonical contract in `e2e/contracts/v1` and re-vendoring.
+without first changing the canonical contract and re-vendoring.
 
 ## License
 

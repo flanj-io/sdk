@@ -4,8 +4,8 @@ import { buildContractSnapshotAttributes } from './mcp-record';
 import type { McpCapturedCall, McpContractSnapshot } from './mcp-types';
 
 /**
- * The §9 proof battery: BOTH package lines against a mock Client. The wrapper
- * never changes a call or a result (§3 "Inline anything" is a non-goal) —
+ * The proof battery: BOTH package lines against a mock Client. The wrapper
+ * never changes a call or a result —
  * byte-identical pass-through including thrown errors — while emitting one
  * snapshot per COMPLETE listTools and one redacted call record per callTool,
  * with honestly-labeled client-generated correlation ids.
@@ -416,7 +416,7 @@ describe('instrumentMcpClient — stdio edge identity', () => {
     expect(calls[0]!.edgeClass).toBe('local-process');
     expect(calls[0]!.peerHost).toBe('acme-payments-mcp');
     expect(calls[0]!.mcp.serverKind).toBe('stdio');
-    // local-process still captures + redacts bodies (spec §4.B).
+    // local-process still captures + redacts bodies.
     expect(calls[0]!.requestBody).toBe('{"card_number":"⟦REDACTED:PAN⟧"}');
   });
 });

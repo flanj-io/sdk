@@ -3,7 +3,7 @@ import { assembleMcpCall, type AssembleMcpCallInput } from './assemble-mcp-call'
 import { buildMcpCallAttributes } from './mcp-record';
 
 /**
- * Redaction-before-emit sentinels for the MCP bodies (the spec §4.B floor
+ * Redaction-before-emit sentinels for the MCP bodies (the floor
  * cases, mirrored here at the assembler level on top of the shared
  * cross-language fixture battery): PAN in args, PAN nested in
  * structuredContent, PAN inside stringified JSON in content[] text, base64

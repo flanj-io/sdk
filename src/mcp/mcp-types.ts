@@ -2,7 +2,7 @@ import type { PatternId } from '@flanj/redaction-patterns';
 import type { CapturedCall } from '../instrumentation/captured-call';
 
 /**
- * How the MCP server is reached, as far as the CLIENT can tell (v0.5 spec §4.B).
+ * How the MCP server is reached, as far as the CLIENT can tell (v0.5).
  * The SDK instruments the Client, never a transport — this is derived from the
  * client's own transport reference / config, not from sniffing.
  */
@@ -91,7 +91,7 @@ export interface McpCapturedCall extends CapturedCall {
 
 /**
  * One complete observed `tools/list` — the self-delivering contract snapshot
- * (v0.5 spec §4.C). `snapshotJson` is the floor-REDACTED canonical JSON the
+ * (v0.5). `snapshotJson` is the floor-REDACTED canonical JSON the
  * collector's Step C loader decodes:
  * `{"tools":[ToolDef…],"serverInfo"?,"protocolVersion"?,"capabilities"?}` with
  * ToolDef wire keys `name/description/inputSchema/outputSchema/annotations`

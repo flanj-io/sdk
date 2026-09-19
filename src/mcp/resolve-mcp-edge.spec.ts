@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { integrationForHost, resolveMcpEdge, UNKNOWN_MCP_SERVER } from './resolve-mcp-edge';
 
-describe('resolveMcpEdge — MCP edge identity (spec §4.B)', () => {
+describe('resolveMcpEdge — MCP edge identity', () => {
   it('streamable HTTP: endpoint URL host is the edge key, classified by the shared heuristic', () => {
     expect(resolveMcpEdge({ endpoint: 'https://mcp.acme.test/mcp', serverName: 'acme-payments-mcp' })).toEqual({
       peerHost: 'mcp.acme.test',

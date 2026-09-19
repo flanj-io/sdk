@@ -4,7 +4,7 @@ const CTOR_PATCHED = Symbol.for('flanj.mcp.ctorPatched');
 
 /**
  * Patch a Client CONSTRUCTOR so every instance self-instruments on first use
- * (the auto-patch path of v0.5 spec §4.B). The prototype's `callTool` /
+ * (the auto-patch path). The prototype's `callTool` /
  * `listTools` are shadowed by trampolines that, once per instance, pin the
  * ORIGINAL prototype methods onto the instance and run
  * {@link instrumentMcpClient} over them — after which the instance behaves
