@@ -508,11 +508,20 @@ OpenAPI-style summary; JSON Schema for the flag request body:
 `finding` optional; `call` optional when `message` is non-empty or the kind is `definition_change` — §4).
 
 ### `POST /api/v1/collectors/register`  (no credential for a NEW collector · Bearer `cp_deploy_token` · Bearer collector key)
-`{ "consumer_display_name", "contact_email", "collector_name", "contact_display_name"?, "local_ui_url"? }` → `201`
+`{ "contact_email", "collector_name", "contact_display_name"?, "local_ui_url"?, "consumer_display_name"? }` → `201`
 (or `200` on the idempotent replay / reconnect / rename) `{ "collector_id", "collector_public_id", "collector_key"
 (returned once), "collector_name", "collector_name_derived", "contact_status": "pending"|"confirmed" }`. The CP
 emails the contact a one-click confirmation that names the collector; `local_ui_url` is display-only (the CP never
 calls the collector) and is what that mail — and the workspace's Collectors view — shows as the collector's address.
+
+*(2026-09-19)* **The collector no longer names its organization.** A workspace — every collector whose contact is
+one person — has ONE display name, the name other organizations see on its threads and in the mail Flanj sends
+them. The first collector of a workspace names it: the contact is asked for it on the confirmation page the mailed
+link opens, never on the collector, and a later collector joins the named workspace without being asked. The
+collector reads the name back from `GET …/me` (`workspace_display_name`) and keeps its own copy, so it can show it
+while the control plane is unreachable. `consumer_display_name` is therefore **deprecated**: optional, and it names
+nothing. The control plane still accepts it from an older collector, where it only seeds a derived
+`collector_name` when none is sent.
 
 *(2026-09-14)* **Which credential the call carries decides what it may do.** With NONE it is a NEW collector, and
 only that: it never reads, renames or re-mails an existing one — a `collector_name` already held in the contact's
@@ -522,7 +531,8 @@ different name is a RENAME (the record is updated and nothing else about it chan
 is a new pending contact. With a deploy token the pre-2026-09-14 semantics are unchanged (the replay key is the
 contact email). **`collector_name` is REQUIRED from a collector that knows the field** — the Connect panel will
 not send without one — and tolerated absent from an older collector, which cannot know it: the CP then derives
-one from the org name (`<org>`, `<org> 2`, …) and answers `collector_name_derived: true`. Unique within the
+one from the org name it sent (`<org>`, `<org> 2`, …; `Collector` when it sent none) and answers
+`collector_name_derived: true`. Unique within the
 workspace, compared casefolded with punctuation collapsed; ≤80 characters after cleaning; a SENT blank is `400`. A
 name — the collector's or the org's — that reads as a link or an email address is `400 invalid_name` (both are
 printed in the confirmation mail), and `local_ui_url` must be ONE absolute http(s) address with no credentials
@@ -530,20 +540,24 @@ printed in the confirmation mail), and `local_ui_url` must be ONE absolute http(
 the numbers); a refused call creates nothing and mails nothing.
 
 ### `GET /api/v1/collectors/me`  (Bearer collector key)
-`{ "collector_id", "collector_public_id", "collector_name", "consumer_display_name", "contact_email",
-"contact_display_name", "contact_status", "registered_at", "confirmed_at" }` — the local UI polls this for the
-Connect panel; `collector_name` is the stored name after any rename, so the panel shows what the workspace sees.
+`{ "collector_id", "collector_public_id", "collector_name", "workspace_display_name", "consumer_display_name",
+"contact_email", "contact_display_name", "contact_status", "registered_at", "confirmed_at" }` — the local UI polls
+this for the Connect panel; `collector_name` is the stored name after any rename, so the panel shows what the
+workspace sees. `workspace_display_name` *(additive, 2026-09-19)* is the workspace's display name — `null` until a
+contact has confirmed — and what the collector shows as its organization; it may change (the workspace renames
+itself), so a collector re-reads it rather than keeping the first value forever. `consumer_display_name` is
+deprecated: whatever an older collector sent at register, or `""`.
 
 ### `POST /api/v1/flags`  (Bearer collector key)
 Headers: `X-Flanj-Collector-Version`, `X-Flanj-Schema-Version`.
 ```jsonc
 // request
 { "idempotency_key": "flag_0191…",           // re-flag returns the existing thread
-  "consumer_display_name": "Acme Consumer Ltd", // REQUIRED on the wire, but IGNORED for naming since 2026-09-19:
+  "consumer_display_name": "Acme Consumer Ltd", // DEPRECATED 2026-09-19 — OPTIONAL, and IGNORED for naming:
                                              //   the control plane names the sender from the flagging
-                                             //   workspace's display name (set in the dashboard, one per
-                                             //   workspace across all its collectors). Still sent, so a
-                                             //   control plane that predates this keeps accepting the flag.
+                                             //   workspace's display name (one per workspace across all its
+                                             //   collectors). A collector may send its copy of that name,
+                                             //   or omit the field.
   "provider_display_name": "Acme Payments",  // DEPRECATED 2026-09-19 — OPTIONAL, accepted and IGNORED.
                                              //   Collectors no longer send it. The control plane names the
                                              //   provider itself: the workspace that has proved ownership
@@ -733,7 +747,7 @@ is deliberately unaffected: one document per deployment, not one per vendor.
 | Key | Meaning |
 |---|---|
 | `provider_display_name` *(optional, deprecated 2026-09-19)* | **Accepted and ignored.** It was the fallback provider name sent on a flag; the collector no longer sends any provider name, because the control plane names the provider from verified domain ownership (see `POST /api/v1/flags`, §5). Kept as a key only so an existing config keeps loading. It stopped naming an edge on 2026-08-31: the `contract` tier names edges from the uploaded document's `info.title`, keyed by the bound host's registrable domain. |
-| `consumer_display_name` *(optional)* | human name of this consumer org, e.g. `Acme Consumer Ltd`. Sent at Connect, where the control plane uses it as the default name of the workspace the collector joins, and on the flag, where it is ignored for naming since 2026-09-19 (the workspace's display name names the sender). |
+| `consumer_display_name` *(optional, deprecated 2026-09-19)* | **Accepted and ignored.** It was the org name sent at Connect and on a flag. A workspace is now named by its contact when its first collector's contact is confirmed, and the collector reads that name from `GET /api/v1/collectors/me` (§5). Kept as a key only so an existing config keeps loading. |
 | `self_spec_path` *(optional)* | the OpenAPI spec THIS org publishes as a provider; validates INBOUND (server-direction) responses against the org's own contract |
 | `cp_base_url` | control-plane base URL the COLLECTOR's own requests go to (register/me, flags, thread routes, the syncs). May be in-network — a docker service name, a k8s Service, a VPC-private ingress — because only the collector has to reach it; see `cp_public_url` for the browser's side |
 | `cp_public_url` *(optional, flanjui — 2026-09-07)* | the control-plane origin the OPERATOR'S BROWSER can open: the base of the local UI's one link out, `dashboard_url` on the collector's `GET /api/connect` (emitted only while Connected; the collector composes the `/d` path). A link built from an in-network `cp_base_url` is dead off-host — an early defect. Unset: the link falls back to `cp_base_url` only when its host is not obviously non-public (loopback / private IP / single-label / `.local` `.internal` `.svc` `.cluster.local` `.test` `.example`-style suffixes), otherwise `dashboard_url` is omitted and the UI keeps the pill a Settings button. Validated at boot: absolute `http(s)` URL, no credentials. Never logged. The `/api/connect` shape is unchanged — `dashboard_url` was already optional; only its presence rule narrowed |
