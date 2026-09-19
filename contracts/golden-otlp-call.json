@@ -27,7 +27,6 @@
                 { "key": "flanj.peer.host", "value": { "stringValue": "api.acme.test" } },
                 { "key": "flanj.edge.class", "value": { "stringValue": "external" } },
                 { "key": "flanj.capture.bodies", "value": { "boolValue": true } },
-                { "key": "flanj.integration", "value": { "stringValue": "acme-payments" } },
                 { "key": "flanj.http.method", "value": { "stringValue": "POST" } },
                 { "key": "flanj.http.route", "value": { "stringValue": "/v1/charges" } },
                 { "key": "flanj.http.target", "value": { "stringValue": "/v1/charges" } },
