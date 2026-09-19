@@ -63,7 +63,7 @@ describe('resolveIngressPeer — behind a trusted proxy', () => {
     expect(resolve('127.0.0.1', ' , ,', LOOPBACK)).toBe('127.0.0.1');
   });
 
-  it('keeps a hostname hop verbatim (a proxy that forwards a name, e.g. the e2e consumers)', () => {
+  it('keeps a hostname hop verbatim (a proxy that forwards a name)', () => {
     expect(resolve('127.0.0.1', 'api.consumer-a.test', LOOPBACK)).toBe('api.consumer-a.test');
     expect(resolve('127.0.0.1', '10.0.0.1, api.consumer-a.test', LOOPBACK)).toBe('api.consumer-a.test');
   });

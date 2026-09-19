@@ -117,7 +117,7 @@ function serializeArgs(args: unknown): string {
 }
 
 /**
- * Response body per spec §4.B: `structuredContent` when present (JSON), else the
+ * Response body: `structuredContent` when present (JSON), else the
  * `content[]` text items joined with newlines (text — the floor's text path
  * still parses-then-traverses it when it IS JSON, so a PAN nested in
  * stringified JSON is caught structurally, not by a regex).

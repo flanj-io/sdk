@@ -91,7 +91,7 @@ test/packaging.spec.ts             # asserts the REAL `yarn pack` file list (dis
                                    # no source maps — sources are not shipped, so a map could not resolve: sdk#33)
 test/readme.spec.ts                # asserts the README's first-run floor incl. the Not-captured list (fetch/undici)
 scripts/smoke-pack.sh              # a stranger's first run: pack -> npm install the tarball -> require ./register
-contracts/                         # vendored from the canonical e2e/contracts (do not hand-edit; sync) — see contracts/README.md
+contracts/                         # vendored from the canonical contract (do not hand-edit; re-vendor) — see contracts/README.md
 REDACTION.md                       # the floor's design: composed validators, owned responsibilities, parity, never-subtract
 ```
 
@@ -118,7 +118,7 @@ REDACTION.md                       # the floor's design: composed validators, ow
 Wire formats are pinned in `contracts/` (vendored; schema_version **1**). The redaction floor is governed by
 `contracts/redaction-vectors.json` AND `contracts/redaction-fixtures.json` (the cross-language parity battery the
 Go collector also runs) — **lead with those suites**; they are security-critical. Never change a wire format or a
-redaction behaviour here; change it in the canonical contract first, re-vendor to sdk/collector/control-plane,
+redaction behaviour here; change it in the canonical contract first, re-vendor to the SDK, collector and control plane,
 and keep all three suites green. The floor must never do I/O (ESLint bans every network/process/fs import in
 `packages/redaction-patterns/src/**`; `test/no-network.spec.ts` is the runtime sentinel). Do not hand-roll regex
 detection: locate candidates, let the composed validators decide (see `REDACTION.md`). When the package changes,
@@ -131,5 +131,15 @@ colocated `*.spec.ts`, Arrange-Act-Assert. `git commit -s` (DCO enforced — see
 
 ## Docs
 
-`docs/CONCEPTS.md` (sanitized, public-safe engineering overview). Deeper local context lives in
+`docs/CONCEPTS.md` (engineering overview). Deeper local context lives in
 `src/instrumentation/CLAUDE.md` and `packages/redaction-patterns/README.md`.
+
+## This repo is public — write for a stranger
+
+Everything here, and everything written about it on GitHub (PR titles and descriptions, issues, comments),
+is read by people outside the project. Do not point them at things they cannot open: no non-public
+repositories or their PRs, no non-public design, planning or strategy documents, no labels for decisions
+taken elsewhere, and no attribution of a decision to a person. Say the rule and the reason in place, in the
+comment or doc that needs it. Cite only what a stranger can open: files in this repo, `contracts/CONTRACTS.md`,
+and other public repos and their PRs. A vendored file's header says "Vendored — do not edit here" and
+nothing more. A PR description stands alone: it links only to public repos.

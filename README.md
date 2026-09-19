@@ -213,7 +213,7 @@ and arguments only, each redacted, never the environment or working directory.
 client. Python — **early**, MCP client only, with no HTTP body capture; there is no `node:http` choke
 point to port, and for an agent shop with no REST integration to instrument, MCP-only is a complete
 product rather than a partial SDK. A language is called *supported* only once the whole loop runs on
-it end to end in our own e2e harness, with that lane's assertions green — until then it says early,
+it end to end in our own integration harness, with that suite's assertions green — until then it says early,
 here and everywhere else.
 
 **Where this stops, said out loud.** Global `fetch`/undici is **not** captured (see *What is
