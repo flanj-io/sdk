@@ -47,8 +47,8 @@ rests on. How it is designed is documented in [REDACTION.md](./REDACTION.md); th
   floor's own code only locates candidates, recurses nested structures, decodes base64, and
   anchors matches.
 - **Cross-language parity.** The collector re-applies the identical floor in Go as defense in
-  depth. A shared fixture suite (`contracts/redaction-fixtures.json`) is run by both the
-  TypeScript and Go test suites, so the same payload redacts identically in both.
+  depth. A shared fixture suite (`contracts/redaction-fixtures.json`) is run by the
+  TypeScript, Go and Python test suites, so the same payload redacts identically in all three.
 - **Add-only, idempotent.** Tokens (`⟦REDACTED:<TYPE>⟧`) are never un-redacted and never
   double-wrapped; schema-aware redaction can only add above the floor, never subtract.
 
@@ -56,6 +56,6 @@ rests on. How it is designed is documented in [REDACTION.md](./REDACTION.md); th
 
 **Any path by which a raw card number or personal data can reach storage or the wire unredacted
 is a security issue and is in scope**, including a payload shape the floor does not recognise, an
-encoding it does not decode, or a difference between the TypeScript and Go behaviour. Report it privately as above. A
+encoding it does not decode, or a difference between the TypeScript, Go and Python behaviour. Report it privately as above. A
 minimal, **synthetic** payload that reproduces the gap is the most useful thing you can include
 (use public test card numbers; never a real card number or real personal data).

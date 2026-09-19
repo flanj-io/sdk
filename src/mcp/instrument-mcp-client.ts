@@ -2,7 +2,8 @@ import type { Logger } from '@opentelemetry/api-logs';
 import { assembleContractSnapshot } from './assemble-contract-snapshot';
 import { assembleMcpCall } from './assemble-mcp-call';
 import { emitContractSnapshot, emitMcpCall } from './mcp-record';
-import { resolveMcpEdge } from './resolve-mcp-edge';
+import { stdioLaunchCommand } from './launch-command';
+import { integrationForHost, resolveMcpEdge, UNKNOWN_INTEGRATION } from './resolve-mcp-edge';
 import { catalogCacheHints, serverInfoFromMeta, type CatalogCacheHints } from './result-meta';
 import type { McpCapturedCall, McpContractSnapshot, McpServerIdentity, McpServerKind } from './mcp-types';
 
@@ -26,8 +27,12 @@ export interface McpClientLike {
 }
 
 export interface InstrumentMcpClientOptions {
-  /** Integration id emitted as `flanj.integration`, e.g. `acme-payments`. */
-  integration: string;
+  /**
+   * Integration id emitted as `flanj.integration`, e.g. `acme-payments`. When
+   * omitted, each MCP server gets its own, derived from its edge key by the
+   * collector's rule (`integrationForHost`) — so servers never share a baseline.
+   */
+  integration?: string;
   /** Streamable-HTTP endpoint URL — the edge key host. Detected from the transport when omitted. */
   endpoint?: string;
   /** Force the server kind; detected from the transport when omitted. */
@@ -187,6 +192,10 @@ export function instrumentMcpClient<T extends McpClientLike>(client: T, options:
     return id;
   };
 
+  /** The configured integration, else one per server derived from its edge key. */
+  const integrationFor = (peerHost: string): string =>
+    options.integration ? options.integration : integrationForHost(peerHost) || UNKNOWN_INTEGRATION;
+
   const edge = () => {
     const server = serverIdentity();
     return {
@@ -294,7 +303,7 @@ export function instrumentMcpClient<T extends McpClientLike>(client: T, options:
       const e = edge();
       sinkCall(
         assembleMcpCall({
-          integration: options.integration,
+          integration: integrationFor(e.peerHost),
           peerHost: e.peerHost,
           edgeClass: e.edgeClass,
           serverKind: e.serverKind,
@@ -322,13 +331,14 @@ export function instrumentMcpClient<T extends McpClientLike>(client: T, options:
       const e = edge();
       sinkSnapshot(
         assembleContractSnapshot({
-          integration: options.integration,
+          integration: integrationFor(e.peerHost),
           peerHost: e.peerHost,
           edgeClass: e.edgeClass,
           serverKind: e.serverKind,
           server: e.server,
           tools,
-          cache: state.catalogCache
+          cache: state.catalogCache,
+          serverCommand: e.serverKind === 'stdio' ? stdioLaunchCommand(c.transport) : undefined
         })
       );
     } catch {

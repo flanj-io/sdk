@@ -11,7 +11,7 @@ const CTOR_PATCHED = Symbol.for('flanj.mcp.ctorPatched');
  * exactly like an explicitly wrapped client. Returns false (and changes
  * nothing) when the value is not a Client-shaped constructor.
  */
-export function patchMcpClientConstructor(ctor: unknown, options: InstrumentMcpClientOptions): boolean {
+export function patchMcpClientConstructor(ctor: unknown, options: InstrumentMcpClientOptions = {}): boolean {
   if (typeof ctor !== 'function') return false;
   const proto = (ctor as { prototype?: unknown }).prototype as
     | (Record<PropertyKey, unknown> & McpClientLike)
@@ -61,7 +61,7 @@ export function patchMcpClientConstructor(ctor: unknown, options: InstrumentMcpC
  * `@modelcontextprotocol/client` (2.x). Both are OPTIONAL peers — a missing
  * package is silently skipped, never an error. Returns the module ids patched.
  */
-export async function registerMcpAutoInstrumentation(options: InstrumentMcpClientOptions): Promise<string[]> {
+export async function registerMcpAutoInstrumentation(options: InstrumentMcpClientOptions = {}): Promise<string[]> {
   const candidates: { id: string; pick: (m: Record<string, unknown>) => unknown }[] = [
     { id: '@modelcontextprotocol/sdk/client/index.js', pick: (m) => m.Client },
     { id: '@modelcontextprotocol/client', pick: (m) => m.Client ?? m.McpClient ?? m.default }

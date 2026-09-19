@@ -110,7 +110,7 @@
     {
       "id": "token-secret-key",
       "description": "Stripe-style secret key inline",
-      "input": "{\"key\":\"sk_live_51HabcDEfGhIjkLmNoPqRsTuV\"}",
+      "input": "{\"key\":\"sk_live_FAKEfixtureKEY0001\"}",
       "expected": "{\"key\":\"⟦REDACTED:TOKEN⟧\"}",
       "patterns": ["TOKEN"]
     },
