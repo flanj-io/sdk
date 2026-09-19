@@ -102,7 +102,7 @@ describe('start() on an unsupported runtime', () => {
    */
   it('fails loudly, before anything is registered or patched', () => {
     withoutBuiltinModuleAccess(() => {
-      expect(() => start({ integration: 'unsupported-node' })).toThrow(
+      expect(() => start({})).toThrow(
         new RegExp(`@flanj/sdk requires Node \\^20\\.16\\.0 \\|\\| >=22\\.3\\.0`)
       );
     });
@@ -111,7 +111,7 @@ describe('start() on an unsupported runtime', () => {
   it('leaves node:http unpatched when it refuses to start', () => {
     const before = http.request;
     withoutBuiltinModuleAccess(() => {
-      expect(() => start({ integration: 'unsupported-node' })).toThrow();
+      expect(() => start({})).toThrow();
     });
     expect(http.request).toBe(before);
   });

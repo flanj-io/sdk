@@ -23,7 +23,6 @@ for (const a of goldenRecord.attributes) {
 }
 
 const call: CapturedCall = {
-  integration: 'acme-payments',
   direction: 'client',
   peerHost: 'api.acme.test',
   edgeClass: 'external',

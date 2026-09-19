@@ -75,7 +75,6 @@ collector.listen(0, '127.0.0.1', () =>
     const child = spawn(process.execPath, ['-r', '@flanj/sdk/register', __filename, 'child'], {
       env: {
         ...process.env,
-        FLANJ_INTEGRATION_ID: 'smoke',
         // A BASE url on purpose: the SDK must normalize it to /v1/logs.
         FLANJ_OTLP_ENDPOINT: `http://127.0.0.1:${collector.address().port}`,
         TARGET_URL: `http://127.0.0.1:${provider.address().port}/v1/charges`

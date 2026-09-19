@@ -54,7 +54,7 @@ describe('start() → OTLP logs endpoint', () => {
     collector = await startCollector(200);
 
     // The natural wrong guess: a base URL, as the sibling FLANJ_STORE_ENDPOINT takes.
-    handle = start({ integration: 'acme-payments', otlpEndpoint: collector.base });
+    handle = start({ otlpEndpoint: collector.base });
     expect(handle.endpoint).toBe(`${collector.base}/v1/logs`);
 
     handle.loggerProvider.getLogger('test').emit({ body: 'a record' });

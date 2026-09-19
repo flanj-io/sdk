@@ -39,13 +39,13 @@ npm install @flanj/sdk        # or: yarn add @flanj/sdk
 ```
 
 ```bash
-FLANJ_INTEGRATION_ID=acme-shipping \
+OTEL_SERVICE_NAME=checkout \
 FLANJ_OTLP_ENDPOINT=http://localhost:4318/v1/logs \
 node -r @flanj/sdk/register app.js
 ```
 
 That is the whole integration; no source change. The preload prints one line naming the endpoint and
-integration id, then every `node:http`/`node:https` call is captured, redacted and exported.
+resolved service name, then every `node:http`/`node:https` call is captured, redacted and exported.
 
 **Verify** — after your app has made at least one call, and assuming the collector was started with the
 [Run it on a laptop](https://github.com/flanj-io/collector#run-it-on-a-laptop) command including its UI
@@ -65,9 +65,8 @@ on `:4318` is a separate, ordinary published port and works either way.
 
 | Variable | Default | Meaning |
 | --- | --- | --- |
-| `FLANJ_INTEGRATION_ID` | `unknown-integration` | Names the integration, emitted as `flanj.integration`. Set it. |
 | `FLANJ_OTLP_ENDPOINT` | `http://localhost:4318/v1/logs` | OTLP/HTTP **logs** endpoint, with the `/v1/logs` path. A bare base URL (`http://localhost:4318`) is normalized to it; any other path is used verbatim. |
-| `OTEL_SERVICE_NAME` | `flanj-consumer` | The `service.name` resource attribute. |
+| `OTEL_SERVICE_NAME` | the app's own name, else `flanj-sdk` | The `service.name` resource attribute — the only thing you configure to name your service. Order: the `serviceName` option to `start()`, then this variable, then the `name` in the nearest `package.json` walking up from your entry file (or, failing that, your working directory), then `flanj-sdk`. The collector derives each record's **integration** itself — from the peer host on outbound/MCP calls, from this service name on inbound ones — so there is nothing else to set. |
 | `FLANJ_BODY_CAP_BYTES` | `16384` | Per-body capture cap, in bytes. |
 | `FLANJ_IGNORE_URLS` | — | Comma-separated substrings; a matching URL is never captured. The exporter's own host is always ignored. |
 | `FLANJ_TRUSTED_PROXIES` | — | Comma-separated IPs / CIDR blocks of the reverse proxies or load balancers in front of your service (`10.0.0.5,fd00::5`). List the proxies themselves, not your whole network: every address in the set is skipped when walking the chain, so a caller inside it could still pick its own edge class. Inbound calls are classified by their **socket peer**; `X-Forwarded-For` is honoured only from these peers, and the caller is then the hop your proxy appended (the rightmost one that is not itself a trusted proxy), never the leftmost. Unset, the header is ignored, so **behind a proxy every inbound call classifies internal (metadata-only) until you set this**. An entry that is not an IP or CIDR fails `start()`. |
@@ -108,7 +107,7 @@ one-shot script and a pod's last batch both deliver. If you start the SDK yourse
 
 ```js
 const { start } = require('@flanj/sdk');
-const flanj = start({ integration: 'acme-shipping' });
+const flanj = start({ serviceName: 'checkout' });
 // ... your app ...
 await flanj.shutdown(); // or flanj.flush() — records are batched, so this is not optional
 ```
@@ -199,10 +198,10 @@ The wrapper is out of band like every other capture path here: it wraps `Client`
 `@modelcontextprotocol` package lines as optional peers, passes results through byte-identical, and
 never delays or rewrites a call.
 
-Leave `integration` unset and each MCP server gets its own, derived from its host (or, over stdio, the
-name it reports), so two servers never share a baseline. A server your agent launched over stdio also
-records **how it was launched** (`npx @stripe/mcp@0.2.1 …`), shown on its contract card: the command
-and arguments only, each redacted, never the environment or working directory.
+There is nothing to configure per server: the collector derives each MCP server's integration from its
+peer host (or, over stdio, the name it reports), so two servers never share a baseline. A server your
+agent launched over stdio also records **how it was launched** (`npx @stripe/mcp@0.2.1 …`), shown on its
+contract card: the command and arguments only, each redacted, never the environment or working directory.
 
 
 **Supported:** REST/HTTP integrations — live request and response validated against the provider's OpenAPI document.
@@ -231,6 +230,13 @@ License 2.0; the network layer that carries a flagged finding between the two te
 
 Pre-release (v0). See [docs/CONCEPTS.md](docs/CONCEPTS.md) for the engineering model and [CLAUDE.md](CLAUDE.md)
 for the repo map.
+
+**0.2.0: breaking.** The `integration` `start()` option and its environment variable are gone, with no
+shim and no warning. The collector now derives every record's integration itself — from the peer host on
+outbound and MCP calls, from the resource `service.name` on inbound ones — so the service name is the only
+thing you configure. Its default order also changed: the `serviceName` option, then `OTEL_SERVICE_NAME`,
+then your app's own name (from the nearest `package.json`), then `flanj-sdk` as a last resort (it used to
+be a different fixed placeholder).
 
 ## License
 

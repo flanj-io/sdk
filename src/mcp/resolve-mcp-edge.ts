@@ -29,27 +29,6 @@ export interface McpEdge {
 /** Fallback edge key when a stdio server has not surfaced a serverInfo.name yet. */
 export const UNKNOWN_MCP_SERVER = 'unknown-mcp-server';
 
-/** The integration id when none is configured and the edge key derives to nothing. */
-export const UNKNOWN_INTEGRATION = 'unknown-integration';
-
-/**
- * The collector's own rule for deriving an integration id from an edge key —
- * byte-identical to `integrationForHost` in the collector
- * (`extension/flanjui/contracts_upload.go`) and `integration_for_host` in the
- * Python SDK: ASCII letters lowercased, digits kept, every other character a
- * dash, runs of dashes collapsed, dashes trimmed.
- */
-export function integrationForHost(host: string): string {
-  let slug = '';
-  for (const ch of host) {
-    if ((ch >= 'a' && ch <= 'z') || (ch >= '0' && ch <= '9')) slug += ch;
-    else if (ch >= 'A' && ch <= 'Z') slug += ch.toLowerCase();
-    else slug += '-';
-  }
-  while (slug.includes('--')) slug = slug.replaceAll('--', '-');
-  return slug.replace(/^-+|-+$/g, '');
-}
-
 /**
  * Resolve the MCP edge identity from what the CLIENT exposes: an explicit
  * endpoint/kind from config, else the transport's own `url` property

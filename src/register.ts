@@ -12,7 +12,7 @@
  *   import '@flanj/sdk/register';   // ESM
  *   require('@flanj/sdk/register'); // CJS
  *
- * Reads: FLANJ_INTEGRATION_ID, FLANJ_OTLP_ENDPOINT (or OTEL_EXPORTER_OTLP_LOGS_ENDPOINT /
+ * Reads: FLANJ_OTLP_ENDPOINT (or OTEL_EXPORTER_OTLP_LOGS_ENDPOINT /
  * OTEL_EXPORTER_OTLP_ENDPOINT), OTEL_SERVICE_NAME, FLANJ_BODY_CAP_BYTES, FLANJ_IGNORE_URLS,
  * FLANJ_TRUSTED_PROXIES, FLANJ_FLUSH_TIMEOUT_MS, FLANJ_QUIET. The SDK always ignores its own OTLP
  * exporter host so a co-located collector can't cause a capture feedback loop.
@@ -34,6 +34,6 @@ flushOnExit(handle);
 if (process.env.FLANJ_QUIET !== '1') {
   process.stderr.write(
     `[flanj] ${SDK_NAME} ${SDK_VERSION} capturing http/https bodies -> ${handle.endpoint} ` +
-      `(integration=${handle.integration}). Set FLANJ_QUIET=1 to silence this line.\n`
+      `(service.name=${handle.serviceName}). Set FLANJ_QUIET=1 to silence this line.\n`
   );
 }

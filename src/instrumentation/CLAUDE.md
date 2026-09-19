@@ -206,7 +206,7 @@ down first.
 
 ## Config keys (map to CONTRACTS §8)
 
-`integration` → `flanj.integration`; `bodyCapBytes` → `body_cap_bytes` (default 16384);
+`bodyCapBytes` → `body_cap_bytes` (default 16384);
 `captureContentTypes` → the content-type gate; `headerAllowlist` → the header allowlist;
 `ignoreUrls` → URL patterns never captured (`start()` seeds it with its own OTLP export endpoint, so the SDK
 never captures its own export — `test/integration/ignore-self-export.spec.ts`); `trustedProxies` →
