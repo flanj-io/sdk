@@ -86,7 +86,7 @@ export function childEnv(receiver: OtlpReceiver, targetUrl: string): NodeJS.Proc
   return {
     ...process.env,
     TARGET_URL: targetUrl,
-    FLANJ_INTEGRATION_ID: 'acme-payments',
+    OTEL_SERVICE_NAME: 'acme-consumer',
     FLANJ_OTLP_ENDPOINT: receiver.base, // a BASE url — normalization is part of the path under test
     FLANJ_QUIET: '1'
   };

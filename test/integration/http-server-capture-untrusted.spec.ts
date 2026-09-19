@@ -30,7 +30,6 @@ const handlerBodies: Record<string, string> = {};
 beforeAll(async () => {
   delete process.env.FLANJ_TRUSTED_PROXIES;
   handle = start({
-    integration: 'acme-payments',
     serviceName: 'acme-provider',
     processor: new SimpleLogRecordProcessor({ exporter })
   });
@@ -122,7 +121,6 @@ describe('start() — an unparseable trusted proxy entry fails the boot', () => 
   it('throws at start(), naming the entry, rather than silently trusting nobody', () => {
     expect(() =>
       start({
-        integration: 'x',
         trustedProxies: ['proxy.internal'],
         processor: new SimpleLogRecordProcessor({ exporter })
       })

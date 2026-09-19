@@ -4,7 +4,6 @@ import type { McpContractSnapshot, McpServerIdentity, McpServerKind } from './mc
 
 /** Inputs for one COMPLETE observed `tools/list` (all pages). */
 export interface AssembleContractSnapshotInput {
-  integration: string;
   peerHost: string;
   edgeClass: 'external' | 'internal' | 'local-process';
   serverKind: McpServerKind;
@@ -53,7 +52,6 @@ export function assembleContractSnapshot(input: AssembleContractSnapshotInput): 
   const redaction = redactDetailed(JSON.stringify(payload));
 
   const snap: McpContractSnapshot = {
-    integration: input.integration,
     peerHost: input.peerHost,
     edgeClass: input.edgeClass,
     serverKind: input.serverKind,

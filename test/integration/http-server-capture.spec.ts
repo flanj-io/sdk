@@ -37,7 +37,6 @@ beforeAll(async () => {
   // and 192.168/16 deliberately are NOT, so a hop there is an untrusted caller.
   process.env.FLANJ_TRUSTED_PROXIES = '127.0.0.0/8, ::1, 172.16.0.0/12';
   handle = start({
-    integration: 'acme-payments',
     serviceName: 'acme-provider',
     processor: new SimpleLogRecordProcessor({ exporter })
   });

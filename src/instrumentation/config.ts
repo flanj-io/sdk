@@ -35,8 +35,6 @@ const STRUCTURED_SUFFIX_BASE: Readonly<Record<string, string>> = {
 };
 
 export interface HttpBodyCaptureConfig extends InstrumentationConfig {
-  /** Integration id emitted as `flanj.integration`, e.g. `acme-payments`. */
-  integration: string;
   /** Body capture cap in bytes. Default {@link DEFAULT_BODY_CAP_BYTES}. */
   bodyCapBytes?: number;
   /**

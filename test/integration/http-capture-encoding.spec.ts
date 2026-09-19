@@ -54,7 +54,6 @@ beforeAll(async () => {
   await new Promise<void>((r) => server.listen(0, '127.0.0.1', r));
 
   handle = start({
-    integration: 'acme-payments',
     serviceName: 'acme-consumer',
     processor: new SimpleLogRecordProcessor({ exporter })
   });

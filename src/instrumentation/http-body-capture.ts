@@ -182,7 +182,6 @@ export class HttpBodyCaptureInstrumentation extends FlanjInstrumentation<HttpBod
     const peerAddr = (res.socket as unknown as { remoteAddress?: string } | undefined)?.remoteAddress;
 
     return assembleCapturedCall({
-      integration: cfg.integration,
       direction: 'client',
       peerHost: info.host,
       peerAddr,

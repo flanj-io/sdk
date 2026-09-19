@@ -52,7 +52,6 @@ describe('README — first-run essentials', () => {
 
   it('documents the environment variables with their defaults', () => {
     for (const key of [
-      'FLANJ_INTEGRATION_ID',
       'FLANJ_OTLP_ENDPOINT',
       'OTEL_SERVICE_NAME',
       'FLANJ_BODY_CAP_BYTES',
@@ -61,7 +60,7 @@ describe('README — first-run essentials', () => {
     ]) {
       expect(readme, `${key} is not documented`).toContain(key);
     }
-    expect(readme).toContain('unknown-integration'); // the default that bites when unset
+    expect(readme).toContain('flanj-sdk'); // the default that bites when nothing else names the service
   });
 
   it('gives a verify step: the collector health route, then Traffic', () => {

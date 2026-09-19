@@ -15,7 +15,6 @@ export function buildLogAttributes(call: CapturedCall): LogAttributes {
     'flanj.peer.host': call.peerHost,
     'flanj.edge.class': call.edgeClass,
     'flanj.capture.bodies': call.captureBodies,
-    'flanj.integration': call.integration,
     'flanj.http.method': call.method,
     'flanj.http.route': call.route,
     'flanj.http.target': call.target,

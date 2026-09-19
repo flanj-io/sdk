@@ -60,7 +60,6 @@ beforeAll(async () => {
   await new Promise<void>((r) => server.listen(0, '127.0.0.1', r));
 
   handle = start({
-    integration: 'acme-payments',
     serviceName: 'acme-consumer',
     processor: new SimpleLogRecordProcessor({ exporter })
   });
@@ -143,7 +142,6 @@ describe('http body capture → OTLP log record', () => {
     expect(attrs['flanj.capture.version']).toBe('1');
     expect(attrs['flanj.record.type']).toBe('call');
     expect(attrs['flanj.direction']).toBe('client');
-    expect(attrs['flanj.integration']).toBe('acme-payments');
     expect(attrs['flanj.http.method']).toBe('POST');
     expect(attrs['flanj.http.route']).toBe('/v1/charges');
     expect(attrs['flanj.http.status_code']).toBe(200);

@@ -57,7 +57,6 @@ beforeAll(async () => {
     // The in-process server's socket peer is loopback; sdk#26 believes X-Forwarded-For
     // only from configured proxies, so loopback plays the trusted proxy here.
     trustedProxies: ['127.0.0.0/8', '::1'],
-    integration: 'acme-payments',
     serviceName: 'acme-consumer',
     processor: new SimpleLogRecordProcessor({ exporter })
   });
