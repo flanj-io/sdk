@@ -92,7 +92,6 @@ describe('dist/register.js — the zero-code entry delivers the last batch', () 
     const record = receiver.records[receiver.records.length - 1];
     const attributes = attributesOf(record);
     expect(attributes['flanj.record.type']).toBe('call');
-    expect(attributes['flanj.integration']).toBe('acme-payments');
     expect(attributes['flanj.http.method']).toBe('POST');
   });
 });

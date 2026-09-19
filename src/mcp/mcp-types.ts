@@ -98,7 +98,6 @@ export interface McpCapturedCall extends CapturedCall {
  * (collector `contract.ToolDef` / `ParseToolsList`).
  */
 export interface McpContractSnapshot {
-  integration: string;
   peerHost: string;
   edgeClass: 'external' | 'internal' | 'local-process';
   serverKind: McpServerKind;

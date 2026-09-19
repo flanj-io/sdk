@@ -48,7 +48,6 @@ export function buildContractSnapshotAttributes(snap: McpContractSnapshot): LogA
     'flanj.direction': 'client',
     'flanj.peer.host': snap.peerHost,
     'flanj.edge.class': snap.edgeClass,
-    'flanj.integration': snap.integration,
     'flanj.mcp.contract_snapshot': snap.snapshotJson,
     'flanj.mcp.tool.count': snap.toolCount,
     'flanj.redaction.applied': snap.redactionApplied,

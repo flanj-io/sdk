@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
-import { instrumentMcpClient } from './instrument-mcp-client';
+import { instrumentMcpClient, type McpClientLike } from './instrument-mcp-client';
 import { buildContractSnapshotAttributes } from './mcp-record';
 import type { McpCapturedCall, McpContractSnapshot } from './mcp-types';
 
@@ -99,7 +99,6 @@ function harness1x() {
   const snapshots: McpContractSnapshot[] = [];
   const client = new MockClient1x();
   instrumentMcpClient(client, {
-    integration: 'acme-payments',
     onCapture: (c) => calls.push(c),
     onSnapshot: (s) => snapshots.push(s)
   });
@@ -109,7 +108,7 @@ function harness1x() {
 describe('instrumentMcpClient — 1.x line: pass-through (never changes a call or a result)', () => {
   it('returns the same client instance and is idempotent', () => {
     const { client, calls } = harness1x();
-    const again = instrumentMcpClient(client, { integration: 'x', onCapture: (c) => calls.push(c) });
+    const again = instrumentMcpClient(client, { onCapture: (c) => calls.push(c) });
     expect(again).toBe(client);
     return client.callTool({ name: 'get_balance', arguments: {} }).then(() => {
       expect(calls).toHaveLength(1); // double-instrumenting must not double-capture
@@ -191,7 +190,6 @@ describe('instrumentMcpClient — 1.x line: pass-through (never changes a call o
   it('a throwing capture sink never disturbs the app', async () => {
     const client = new MockClient1x();
     instrumentMcpClient(client, {
-      integration: 'acme-payments',
       onCapture: () => {
         throw new Error('sink exploded');
       },
@@ -274,7 +272,7 @@ describe('instrumentMcpClient — 1.x line: capture', () => {
     const client = new MockClient1x();
     client.fallbackNotificationHandler = appHandler;
     const snapshots: McpContractSnapshot[] = [];
-    instrumentMcpClient(client, { integration: 'acme-payments', onSnapshot: (s) => snapshots.push(s) });
+    instrumentMcpClient(client, { onSnapshot: (s) => snapshots.push(s) });
 
     const note = { method: 'notifications/tools/list_changed' };
     await client.fallbackNotificationHandler!(note);
@@ -304,7 +302,6 @@ describe('instrumentMcpClient — 2.x line (feature-detected surface)', () => {
     const snapshots: McpContractSnapshot[] = [];
     const client = new MockClient2x();
     instrumentMcpClient(client, {
-      integration: 'globex-fx',
       endpoint: 'https://mcp.globex.test/mcp',
       onCapture: (c) => calls.push(c),
       onSnapshot: (s) => snapshots.push(s)
@@ -347,8 +344,8 @@ describe('instrumentMcpClient — two clients sharing ONE transport', () => {
     const clientB = new MockClient1x();
     clientB.transport = clientA.transport; // ONE shared transport
     clientB.nextId = 101; // distinct id ranges make any cross-attribution visible
-    instrumentMcpClient(clientA, { integration: 'acme-payments', onCapture: (c) => callsA.push(c) });
-    instrumentMcpClient(clientB, { integration: 'acme-payments', onCapture: (c) => callsB.push(c) });
+    instrumentMcpClient(clientA, { onCapture: (c) => callsA.push(c) });
+    instrumentMcpClient(clientB, { onCapture: (c) => callsB.push(c) });
     return { clientA, clientB, callsA, callsB, transport: clientA.transport };
   }
 
@@ -390,7 +387,7 @@ describe('instrumentMcpClient — interleaved paginated listTools chains', () =>
         return Promise.resolve(params?.cursor === undefined ? heads[headCalls++]! : byCursor[params.cursor]!);
       }
     };
-    instrumentMcpClient(client, { integration: 'acme-payments', onSnapshot: (s) => snapshots.push(s) });
+    instrumentMcpClient(client, { onSnapshot: (s) => snapshots.push(s) });
 
     // Interleave two chains: head A, head B (supersedes A), page A2 (stale), page B2 (in flight).
     const headA = await client.listTools();
@@ -411,7 +408,7 @@ describe('instrumentMcpClient — stdio edge identity', () => {
     const client = new MockClient1x();
     // stdio transport: no url, no session — just send().
     client.transport = { sent: [], send: client.transport.send } as unknown as MockClient1x['transport'];
-    instrumentMcpClient(client, { integration: 'acme-payments', onCapture: (c) => calls.push(c) });
+    instrumentMcpClient(client, { onCapture: (c) => calls.push(c) });
     await client.callTool({ name: 'get_balance', arguments: { card_number: PAN } });
     expect(calls[0]!.edgeClass).toBe('local-process');
     expect(calls[0]!.peerHost).toBe('acme-payments-mcp');
@@ -472,7 +469,6 @@ function harnessNoHandshake() {
   const snapshots: McpContractSnapshot[] = [];
   const client = new MockClientNoHandshake();
   instrumentMcpClient(client, {
-    integration: 'acme-tools',
     onCapture: (c) => calls.push(c),
     onSnapshot: (s) => snapshots.push(s)
   });
@@ -562,7 +558,7 @@ describe('instrumentMcpClient — protocol revision 2026-07-28 (no handshake)', 
   it('an older server with a handshake but no _meta still resolves identity', async () => {
     const calls: McpCapturedCall[] = [];
     const client = new MockClient1x();
-    instrumentMcpClient(client, { integration: 'acme-payments', onCapture: (c) => calls.push(c) });
+    instrumentMcpClient(client, { onCapture: (c) => calls.push(c) });
     await client.callTool({ name: 'get_balance', arguments: {} });
     expect(calls[0]!.mcp.serverName).toBe('acme-payments-mcp'); // the fallback still works
     expect(calls[0]!.mcp.serverVersion).toBe('3.2.0');
@@ -575,7 +571,7 @@ describe('instrumentMcpClient — protocol revision 2026-07-28 (no handshake)', 
       content: [{ type: 'text', text: 'ok' }],
       _meta: { [SERVER_INFO_KEY]: { name: 'acme-payments-mcp', version: '4.0.0' } }
     };
-    instrumentMcpClient(client, { integration: 'acme-payments', onCapture: (c) => calls.push(c) });
+    instrumentMcpClient(client, { onCapture: (c) => calls.push(c) });
     await client.callTool({ name: 'get_balance', arguments: {} });
     expect(calls[0]!.mcp.serverVersion).toBe('4.0.0'); // not the handshake's 3.2.0
   });
@@ -606,10 +602,12 @@ describe('instrumentMcpClient — protocol revision 2026-07-28 (no handshake)', 
 });
 
 /**
- * `flanj.mcp.server.command` on a stdio snapshot, and one integration per server
- * when none is configured (both CONTRACTS §2).
+ * `flanj.mcp.server.command` on a stdio snapshot (CONTRACTS §2). The collector
+ * now derives every record's integration itself (from the edge key, or from
+ * the inbound service name); the SDK carries no integration id or fallback of
+ * its own any more.
  */
-describe('instrumentMcpClient — launch command and per-server integration', () => {
+describe('instrumentMcpClient — launch command', () => {
   const stdioTransport = (serverParams?: unknown) => ({
     sent: [] as JsonRpcMessage[],
     send(msg: JsonRpcMessage): Promise<void> {
@@ -621,7 +619,7 @@ describe('instrumentMcpClient — launch command and per-server integration', ()
 
   async function snapshotOf(client: MockClient1x): Promise<McpContractSnapshot> {
     const snapshots: McpContractSnapshot[] = [];
-    instrumentMcpClient(client, { integration: 'acme-payments', onSnapshot: (s) => snapshots.push(s) });
+    instrumentMcpClient(client, { onSnapshot: (s) => snapshots.push(s) });
     await client.listTools();
     await client.listTools({ cursor: 'c1' });
     expect(snapshots).toHaveLength(1);
@@ -648,34 +646,15 @@ describe('instrumentMcpClient — launch command and per-server integration', ()
     expect(snap.serverCommand).toBeUndefined();
     expect(buildContractSnapshotAttributes(snap)).not.toHaveProperty('flanj.mcp.server.command');
   });
-
-  it('with no integration configured, each server gets its own, the collector’s way', async () => {
-    const calls: McpCapturedCall[] = [];
-    const http = new MockClient1x();
-    const stdio = new MockClient1x();
-    stdio.transport = stdioTransport() as unknown as MockClient1x['transport'];
-    instrumentMcpClient(http, { onCapture: (c) => calls.push(c) });
-    instrumentMcpClient(stdio, { onCapture: (c) => calls.push(c) });
-    await http.callTool({ name: 'get_balance' });
-    await stdio.callTool({ name: 'get_balance' });
-    expect(calls.map((c) => c.integration)).toEqual(['mcp-acme-test', 'acme-payments-mcp']);
-  });
-
-  it('a server name with nothing to slug falls back to unknown-integration, never an empty id', async () => {
-    const calls: McpCapturedCall[] = [];
-    const client = new MockClient1x();
-    client.transport = stdioTransport() as unknown as MockClient1x['transport'];
-    client.getServerVersion = () => ({ name: '天气', version: '1.0.0' });
-    instrumentMcpClient(client, { onCapture: (c) => calls.push(c) });
-    await client.callTool({ name: 'get_balance' });
-    expect(calls[0]!.integration).toBe('unknown-integration');
-  });
-
-  it('a configured integration always wins', async () => {
-    const calls: McpCapturedCall[] = [];
-    const client = new MockClient1x();
-    instrumentMcpClient(client, { integration: 'acme-payments', onCapture: (c) => calls.push(c) });
-    await client.callTool({ name: 'get_balance' });
-    expect(calls[0]!.integration).toBe('acme-payments');
-  });
 });
+
+/**
+ * Type-level proof of the hard removal (no deprecated shim, no warning): TS
+ * must refuse `integration` as an excess property on `InstrumentMcpClientOptions`.
+ * Never called — the body exists only to be type-checked by `tsc -b` / `yarn build`.
+ */
+function typeOnlyInstrumentMcpClientOptionsProof(client: McpClientLike): void {
+  // @ts-expect-error — `integration` was removed from InstrumentMcpClientOptions (2026-09-19).
+  instrumentMcpClient(client, { integration: 'x' });
+}
+void typeOnlyInstrumentMcpClientOptionsProof;

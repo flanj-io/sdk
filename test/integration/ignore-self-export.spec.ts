@@ -35,7 +35,6 @@ beforeAll(async () => {
 
   // Point the OTLP endpoint at the collector server → its host[:port] is auto-ignored.
   handle = start({
-    integration: 'acme-payments',
     otlpEndpoint: `${collectorBase}/v1/logs`,
     processor: new SimpleLogRecordProcessor({ exporter })
   });

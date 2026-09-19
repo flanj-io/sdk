@@ -1,3 +1,4 @@
+import { readFileSync, realpathSync } from 'node:fs';
 import { LoggerProvider, BatchLogRecordProcessor, SimpleLogRecordProcessor } from '@opentelemetry/sdk-logs';
 import { OTLPLogExporter } from '@opentelemetry/exporter-logs-otlp-http';
 import { resourceFromAttributes } from '@opentelemetry/resources';
@@ -9,12 +10,18 @@ import { assertSupportedNodeVersion } from './instrumentation/builtin-module';
 import { emitCall } from './instrumentation/otlp-record';
 import { resolveOtlpLogsEndpoint } from './otlp-endpoint';
 import { withExportFailureWarning } from './export-failure-warning';
+import { resolveAppName } from './resolve-app-name';
 import { SDK_NAME, SDK_VERSION } from './version';
 
 export interface StartOptions {
-  /** Integration id emitted as `flanj.integration`. Env: FLANJ_INTEGRATION_ID. */
-  integration?: string;
-  /** service.name resource attribute. Env: OTEL_SERVICE_NAME. */
+  /**
+   * `service.name` resource attribute. Env: `OTEL_SERVICE_NAME`. Default order
+   * (CONTRACTS §2, 2026-09-19): this option, then `OTEL_SERVICE_NAME`, then the
+   * app's own name (nearest `package.json`'s `name`, see `resolveAppName`),
+   * then `"flanj-sdk"`. The collector derives every record's integration
+   * itself (outbound/MCP: the peer host; inbound: this service name) — the SDK
+   * no longer sends an integration id of its own.
+   */
   serviceName?: string;
   /**
    * OTLP/HTTP **logs** endpoint. A base URL (no path) is normalized by appending
@@ -52,8 +59,8 @@ export interface FlanjHandle {
   instrumentation: HttpBodyCaptureInstrumentation;
   /** Ingress (server-path) body-capture instrumentation. */
   serverInstrumentation: HttpServerCaptureInstrumentation;
-  /** The resolved integration id emitted as `flanj.integration`. */
-  integration: string;
+  /** The resolved `service.name` resource attribute (see {@link StartOptions.serviceName}). */
+  serviceName: string;
   /** The resolved, normalized OTLP/HTTP logs endpoint records are exported to. */
   endpoint: string;
   /**
@@ -77,8 +84,16 @@ export function start(options: StartOptions = {}): FlanjHandle {
   // actually wrong, and say it before an exporter or provider exists to leak.
   assertSupportedNodeVersion();
 
-  const integration = options.integration ?? process.env.FLANJ_INTEGRATION_ID ?? 'unknown-integration';
-  const serviceName = options.serviceName ?? process.env.OTEL_SERVICE_NAME ?? 'flanj-consumer';
+  // `||`, not `??`: an empty option or env var counts as unset (the Python SDK's `or`).
+  const serviceName =
+    options.serviceName ||
+    process.env.OTEL_SERVICE_NAME ||
+    resolveAppName({
+      argv1: process.argv[1],
+      cwd: process.cwd(),
+      readFile: (p) => readFileSync(p, 'utf8'),
+      realpath: (p) => realpathSync(p)
+    });
   const endpoint = resolveOtlpLogsEndpoint(options.otlpEndpoint);
   const bodyCapBytes = options.bodyCapBytes ?? envInt('FLANJ_BODY_CAP_BYTES');
   const trustedProxies = options.trustedProxies ?? envList('FLANJ_TRUSTED_PROXIES');
@@ -122,13 +137,11 @@ export function start(options: StartOptions = {}): FlanjHandle {
 
   // Egress (client) + ingress (server) share one config and one capture sink.
   const instrumentation = new HttpBodyCaptureInstrumentation({
-    integration,
     bodyCapBytes,
     ignoreUrls,
     onCapture
   });
   const serverInstrumentation = new HttpServerCaptureInstrumentation({
-    integration,
     bodyCapBytes,
     ignoreUrls,
     trustedProxies,
@@ -139,7 +152,7 @@ export function start(options: StartOptions = {}): FlanjHandle {
     loggerProvider,
     instrumentation,
     serverInstrumentation,
-    integration,
+    serviceName,
     endpoint,
     flush: () => loggerProvider.forceFlush(),
     shutdown: async () => {
