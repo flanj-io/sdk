@@ -84,9 +84,10 @@ export function start(options: StartOptions = {}): FlanjHandle {
   // actually wrong, and say it before an exporter or provider exists to leak.
   assertSupportedNodeVersion();
 
+  // `||`, not `??`: an empty option or env var counts as unset (the Python SDK's `or`).
   const serviceName =
-    options.serviceName ??
-    process.env.OTEL_SERVICE_NAME ??
+    options.serviceName ||
+    process.env.OTEL_SERVICE_NAME ||
     resolveAppName({
       argv1: process.argv[1],
       cwd: process.cwd(),

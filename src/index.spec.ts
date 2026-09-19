@@ -1,4 +1,6 @@
 import { describe, it, expect, afterEach } from 'vitest';
+import { readFileSync, realpathSync } from 'node:fs';
+import { resolveAppName } from './resolve-app-name';
 import { start, type FlanjHandle } from './index';
 
 /**
@@ -38,6 +40,19 @@ describe('start() — service name resolution precedence', () => {
     process.env.OTEL_SERVICE_NAME = 'env-name';
     handle = start({ processor: NOOP_PROCESSOR });
     expect(handle.serviceName).toBe('env-name');
+  });
+
+  it('an empty option or OTEL_SERVICE_NAME counts as unset, as in the Python SDK', () => {
+    const appName = resolveAppName({
+      argv1: process.argv[1],
+      cwd: process.cwd(),
+      readFile: (p) => readFileSync(p, 'utf8'),
+      realpath: (p) => realpathSync(p)
+    });
+    process.env.OTEL_SERVICE_NAME = '';
+    handle = start({ serviceName: '', processor: NOOP_PROCESSOR });
+    expect(appName).not.toBe('');
+    expect(handle.serviceName).toBe(appName);
   });
 });
 

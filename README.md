@@ -231,12 +231,13 @@ License 2.0; the network layer that carries a flagged finding between the two te
 Pre-release (v0). See [docs/CONCEPTS.md](docs/CONCEPTS.md) for the engineering model and [CLAUDE.md](CLAUDE.md)
 for the repo map.
 
-**0.2.0: breaking.** The `integration` `start()` option and its environment variable are gone, with no
-shim and no warning. The collector now derives every record's integration itself — from the peer host on
+**0.2.0: breaking.** The `integration` option (of `start()`, `instrumentMcpClient` and
+`registerMcpAutoInstrumentation`) and `FLANJ_INTEGRATION_ID` are gone, with no shim and no warning: passing
+the option is now a type error, and the variable is ignored. The collector now derives every record's integration itself — from the peer host on
 outbound and MCP calls, from the resource `service.name` on inbound ones — so the service name is the only
 thing you configure. Its default order also changed: the `serviceName` option, then `OTEL_SERVICE_NAME`,
-then your app's own name (from the nearest `package.json`), then `flanj-sdk` as a last resort (it used to
-be a different fixed placeholder).
+then your app's own name (from the nearest `package.json`), then `flanj-sdk` as a last resort (it was
+`flanj-consumer`). An empty value counts as unset.
 
 ## License
 
