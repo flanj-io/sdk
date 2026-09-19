@@ -1,6 +1,6 @@
 name: ci
 
-# Per-PR CI for the SDK. Fast, fixtures-only — NEVER needs the private control-plane.
+# Per-PR CI for the SDK. Fast, fixtures-only — NEVER needs the hosted control plane.
 # Runs unit + the redaction golden-vector suite + the OTLP contract test (emitted record vs
 # contracts/golden-otlp-call.json).
 
@@ -14,8 +14,7 @@ permissions:
 
 # Actions-minutes budget: without this, pushing three times to a branch runs three full
 # pipelines to completion — nothing supersedes anything. Cancel only on pull_request, so every
-# commit on main keeps its own verdict instead of "cancelled". (This used to be about the e2e
-# dispatch a main push fired; there is none since 2026-09-13.)
+# commit on main keeps its own verdict instead of "cancelled".
 concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}

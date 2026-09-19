@@ -330,7 +330,7 @@ describe.each([
     edgeClass: 'internal'
   },
   {
-    name: 'a hostname hop (a proxy forwarding a name, as the e2e consumers do) is kept verbatim',
+    name: 'a hostname hop (a proxy forwarding a name) is kept verbatim',
     path: '/spoof/hostname-hop',
     xff: '10.0.0.1, api.consumer-a.test',
     peerHost: 'api.consumer-a.test',

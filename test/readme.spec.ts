@@ -21,10 +21,10 @@ const pkg = JSON.parse(readFileSync(resolve(__dirname, '../package.json'), 'utf8
 };
 
 describe('README — first-run essentials', () => {
-  // Copy ruling (Idan, 2026-09-17): the "Nothing threw. Nothing 500'd…" lead is RETIRED on every
-  // surface — it restated one point three times, spoke REST on an MCP product and buried its one new
-  // idea. The README opens with the ruled lines instead, and no variant of the old one may return.
-  it('opens with the ruled lead, and the retired "Nothing threw" line appears nowhere', () => {
+  // The "Nothing threw. Nothing 500'd…" lead is RETIRED on every surface — it restated one point
+  // three times, spoke REST on an MCP product and buried its one new idea. The README opens with
+  // the current lines instead, and no variant of the old one may return.
+  it('opens with the current lead, and the retired "Nothing threw" line appears nowhere', () => {
     expect(readme).toContain("**Your integration didn't break. It started being wrong.**");
     expect(readme).toContain("Every call succeeded. That's why nothing caught it.");
     const lower = readme.toLowerCase();

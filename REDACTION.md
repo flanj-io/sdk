@@ -124,7 +124,7 @@ Because only fired scalars are rewritten, the TypeScript, Go and Python text pat
 
 ## 3. Cross-language parity: enforced, not assumed
 
-Two fixture files, canonical in `e2e/contracts/v1/` and vendored here under `contracts/`, are the contract —
+Two fixture files, canonical upstream and vendored here under `contracts/`, are the contract —
 **not either implementation**:
 
 | File | What it pins | Run by |
@@ -143,8 +143,8 @@ different libraries, so exotic inputs (quoted local parts, a BBAN with a letter 
 digits) may be judged differently. The fixtures pin the real-world shapes; add a fixture before relying on any
 new shape.
 
-**Adding a case:** edit the canonical file in `e2e/contracts/v1/`, re-vendor to `sdk/contracts/`,
-`collector/contracts/`, `control-plane/contracts/` (byte-identical), make all three suites green.
+**Adding a case:** edit the canonical file, re-vendor to `sdk/contracts/`,
+`collector/contracts/` and the control plane's copy (byte-identical), make all three suites green.
 
 ---
 

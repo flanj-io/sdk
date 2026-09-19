@@ -1,7 +1,7 @@
 # Flanj — Cross-repo Contracts (v1)
 
 **This directory is the single source of truth for every cross-component contract in Flanj.**
-All four repos (`sdk`, `collector`, `control-plane`, `e2e`) key off the fixtures and schemas here.
+The SDKs, the collector and the hosted control plane all key off the fixtures and schemas here.
 Nothing on the coupling surface changes except by editing this directory and re-broadcasting a new
 `schema_version`. See [README.md](./README.md) for governance, versioning, and vendoring rules.
 
@@ -295,13 +295,13 @@ JSON Schema: [`v1/finding.schema.json`](./v1/finding.schema.json). Sample: [`v1/
   "schema_version": 1,
   "id": "0191e8c4-…",
   "kind": "live-vs-spec",                    // | "version-diff"
-  "change_kind": null,                       // R-A, additive+optional: WHAT moved —
+  "change_kind": null,                       // additive+optional: WHAT moved —
                                              // wording | input | output | catalog | value | observed_failure.
                                              // Set on MCP findings only; absent on the HTTP kinds and on
                                              // findings from older collectors.
   "severity": "breaking",                    // breaking | warning | info — info NEVER crosses the org
-                                             //   boundary (R-C, 2026-09-17): not flaggable on any kind
-  "via_dispatch": null,                      // R-E, additive+optional: the dispatcher tool a call went
+                                             //   boundary: not flaggable on any kind
+  "via_dispatch": null,                      // additive+optional: the dispatcher tool a call went
                                              //   through, when detection attributed it to the INNER tool
   "source": null,                            // additive+optional: "tools_list" (absent = this) | "search_result"
                                              //   (defs a discovery meta-tool returned) | "toolset_enable" (a
@@ -345,20 +345,20 @@ the §2 MCP call / `contract_snapshot` records — same `Finding` shape, same pe
 | `kind` | Evidence | Cross-org flaggable? |
 |---|---|---|
 | `output_mismatch` | a `tools/call` `structuredContent` violates the tool's declared `outputSchema` (same JSON Schema validator + token-aware redaction rules as `live-vs-spec`; captured props of whole-value redactions decide type/length constraints). A tool with **no** `outputSchema` never produces one. `source_call_id` = a representative call carrying the MCP correlation keys. | **Yes** (severity `breaking`) |
-| `definition_change` | two consecutive observed `tools/list` snapshots differ; one finding per (edge, tool, `rule`, `field_path`) from the definition-diff classifier. `expected`/`actual` = before/after schema **fragments**; `spec_version_from`/`to` = abbreviated snapshot content hashes; both snapshot timestamps in `detail`; `source_call_id` = null. `change_kind` is `wording` \| `input` \| `output` \| `catalog`. | **Yes for `warning` and `breaking`** — and never automatic: a human presses the flag control on the row. **`info` is local only** (R-C, 2026-09-17): the UI shows it, the Flag control is unavailable on it, and the CP rejects a flag whose finding severity is `info`. Wording changes stay flaggable (they are `warning`), as they have been since qfix2-2026-08-26. |
-| `stale_client` | the consumer's agent called a tool absent from the **current** `tools/list` (`rule` = `tool-not-listed`) or with arguments violating the **current** `inputSchema`. Consumer-side. `change_kind` `observed_failure`, severity **`breaking`** (R-B, 2026-09-17: the call the agent just made fails; it was `warning`). | **No — local only, ever**, at any severity. No flag control anywhere. |
+| `definition_change` | two consecutive observed `tools/list` snapshots differ; one finding per (edge, tool, `rule`, `field_path`) from the definition-diff classifier. `expected`/`actual` = before/after schema **fragments**; `spec_version_from`/`to` = abbreviated snapshot content hashes; both snapshot timestamps in `detail`; `source_call_id` = null. `change_kind` is `wording` \| `input` \| `output` \| `catalog`. | **Yes for `warning` and `breaking`** — and never automatic: a human presses the flag control on the row. **`info` is local only**: the UI shows it, the Flag control is unavailable on it, and the CP rejects a flag whose finding severity is `info`. Wording changes stay flaggable (they are `warning`), as they have been since qfix2-2026-08-26. |
+| `stale_client` | the consumer's agent called a tool absent from the **current** `tools/list` (`rule` = `tool-not-listed`) or with arguments violating the **current** `inputSchema`. Consumer-side. `change_kind` `observed_failure`, severity **`breaking`** (the call the agent just made fails; it was `warning`). | **No — local only, ever**, at any severity. No flag control anywhere. |
 | `input_rejection` *(2026-09-17)* | a `tools/call` was rejected with JSON-RPC **`-32602`** (`flanj.mcp.error.code`) on arguments whose **shape** (top-level keys and JSON types) previously **succeeded** on the same tool. A `-32602` on a never-accepted shape is the caller's own problem and is not reported. `rule` = `arguments-previously-accepted-rejected`; `change_kind` `observed_failure`; severity `breaking`; `source_call_id` = the rejected call. Provider-side. | **Yes.** |
 | `value_change` *(2026-09-17)* | a field of the tool's OBSERVED responses held one value **format** for 5 consecutive responses and then another in the same family for 3 in a row: timestamp (ISO-8601 / date / epoch seconds / epoch milliseconds), ID (UUID / prefixed / numeric), enum casing (UPPER_CASE / lower_case), number representation (integer / decimal — the units story). A field whose format never settles, or that carries free text, never fires. `rule` = `value-format-changed`; `expected` / `actual` = the old / new format; `change_kind` `value`; severity `warning`. Needs no declared schema. | **Yes.** |
 
-**`change_kind` by kind** (R-A): `definition_change` → `wording` \| `input` \| `output` \| `catalog` (from the rule
+**`change_kind` by kind**: `definition_change` → `wording` \| `input` \| `output` \| `catalog` (from the rule
 table below); `output_mismatch` → `output`; `value_change` → `value`; `stale_client` and `input_rejection` →
-`observed_failure`. Absent on `live-vs-spec` / `version-diff`, whose vocabulary R-A does not describe.
+`observed_failure`. Absent on `live-vs-spec` / `version-diff`, whose vocabulary this field does not describe.
 
-**INFO stays local** (R-C, Idan 2026-09-17), on **every** kind: the local UI shows an `info` finding with no Flag
+**INFO stays local**, on **every** kind: the local UI shows an `info` finding with no Flag
 control, the collector's relay answers `403 not_flaggable`, and the control plane answers `400 info_not_flaggable`
 to a flag whose `finding.severity` is `info`. Only `warning` and `breaking` become a thread.
 
-**Servers behind discovery meta-tools** (R-E, 2026-09-17). Detection reads tool definitions out of search RESULTS
+**Servers behind discovery meta-tools.** Detection reads tool definitions out of search RESULTS
 the agent already received (baked adapters for known patterns plus the operator's
 `flanjdrift.mcp_meta_adapters`; the collector never probes). Those definitions are a per-tool contract with
 `source: "search_result"`, `completeness: "partial"`: a tool re-observed with a different definition is a
@@ -391,7 +391,7 @@ two-axis since 2026-09-17).**
 one change. `expected` / `actual` are the before / after **fragments**. The single implementation is the
 collector's public `contract/diff` package; nothing re-implements a rule.
 
-Every row carries **two independent fields** (ruling R-A, Idan 2026-09-17): a **kind** — what moved — and a
+Every row carries **two independent fields**: a **kind** — what moved — and a
 **severity** — how much it matters. They replace the single `class` label (BREAKING / NON_BREAKING /
 DESCRIPTION), which mixed the two: "DESCRIPTION" named a kind while "BREAKING" named a severity, so a reader
 could not ask one question without answering the other. **A kind never implies a severity** (`input` spans INFO
@@ -414,9 +414,9 @@ carry no severity, `reported` is false, and they must never reach a published co
 | `input-optional-property-added` | input | a new argument callers may send | `input` | *additive — not reported* |
 | `input-required-property-removed` | input | an argument callers were required to send is gone | `input` | **INFO** |
 | `input-optional-property-removed` | input | an argument callers could send is gone. `detail` still states the consequence — whether the **new** schema declares `additionalProperties: false` (a caller still sending it now fails validation) or tolerates the stray argument — but the severity is the same either way. | `input` | **INFO** |
-| `input-property-renamed` | input | a removed property with a **same-typed** twin added under a name that normalises to the same key (camelCase / snake_case / kebab-case fold together: `branchId` = `branch_id` = `branch-id`) — ONE row, never a removal plus an addition; `expected` = `{name, schema}` of the old, `actual` of the new, `field_path` = the OLD path. `detail` = `renamed <old> → <new>`. | `input` | **INFO** (ruled: the same parameter under a new spelling, even when the new name is required) |
+| `input-property-renamed` | input | a removed property with a **same-typed** twin added under a name that normalises to the same key (camelCase / snake_case / kebab-case fold together: `branchId` = `branch_id` = `branch-id`) — ONE row, never a removal plus an addition; `expected` = `{name, schema}` of the old, `actual` of the new, `field_path` = the OLD path. `detail` = `renamed <old> → <new>`. | `input` | **INFO** (the same parameter under a new spelling, even when the new name is required) |
 | `output-property-renamed` | output | as above, on the declared response, when the removed property was **required** | `output` | **BREAKING** |
-| `output-optional-property-renamed` | output | as above, when the removed property was **optional** — ONE row, never an `output-optional-property-removed` plus an unreported addition (Idan, 2026-09-17: "reuse the input rename pairing") | `output` | **WARNING** — the grade of that property being removed, which is what it is to a consumer still reading the old name |
+| `output-optional-property-renamed` | output | as above, when the removed property was **optional** — ONE row, never an `output-optional-property-removed` plus an unreported addition (it reuses the input rename pairing) | `output` | **WARNING** — the grade of that property being removed, which is what it is to a consumer still reading the old name |
 | `input-type-widened` | input | the type set gained members (`string` → `["string","null"]`; `integer` → `number`): every argument sent today still validates | `input` | *additive — not reported* |
 | `input-type-narrowed` | input | the type set lost members (`["integer","string"]` → `integer`; `number` → `integer`): a caller sending the dropped type now fails | `input` | **INFO** |
 | `input-type-changed` | input | the type set was replaced (`integer` → `string`) | `input` | **INFO** |
@@ -426,11 +426,11 @@ carry no severity, `reported` is false, and they must never reach a published co
 | `input-enum-value-removed` | input | values left the enum and none arrived; `expected` = `{"enum": [removed…]}`, `actual` = `{"enum": []}` | `input` | **INFO** |
 | `output-enum-value-removed` | output | as above, on the declared response | `output` | **BREAKING** |
 | `input-enum-value-added` | input | values arrived and none left; a caller's existing value still validates | `input` | *additive — not reported* |
-| `output-enum-value-added` | output | values arrived and none left; `expected` = `{"enum": []}`, `actual` = `{"enum": [added…]}`. A consumer may now receive a value it has no branch for — worth telling them; nothing they already handle stopped being valid. (Idan, 2026-09-17; it was NON_BREAKING here while the classifier's prose claimed every output cell was breaking.) | `output` | **WARNING** |
+| `output-enum-value-added` | output | values arrived and none left; `expected` = `{"enum": []}`, `actual` = `{"enum": [added…]}`. A consumer may now receive a value it has no branch for — worth telling them; nothing they already handle stopped being valid. (It was NON_BREAKING here while the classifier's prose claimed every output cell was breaking.) | `output` | **WARNING** |
 | `input-enum-value-replaced` | input | values left AND arrived in one revision: ONE row, `expected` = the removed, `actual` = the added | `input` | **INFO** |
 | `output-enum-value-replaced` | output | as above (`["city","region"]` → `["city","state"]`) — follows the REMOVED half, the worse one | `output` | **BREAKING** |
 | `output-required-property-removed` | output | a value consumers were promised is gone | `output` | **BREAKING** |
-| `output-optional-property-removed` | output | a declared value consumers were **not** promised is gone. **New with R-B**: this cell used to emit nothing at all, so a provider could stop declaring a field consumers were reading and the diff stayed silent. | `output` | **WARNING** |
+| `output-optional-property-removed` | output | a declared value consumers were **not** promised is gone. **Newly covered**: this cell used to emit nothing at all, so a provider could stop declaring a field consumers were reading and the diff stayed silent. | `output` | **WARNING** |
 | `output-optional-property-added` | output | a new value consumers may receive | `output` | *additive — not reported* |
 | `output-schema-removed` | output | the output contract as a whole left — every declared field at once | `output` | **BREAKING** |
 | `output-schema-declared` | output | the output contract as a whole arrived: a surface that was never declared promises more, not less | `output` | *additive — not reported* |
@@ -455,7 +455,7 @@ without a business judgement it is not allowed to make (technical adherence only
 under its own id and the class stays conservative. A reader that wants to triage the two differently has the
 id to do it with.
 
-The evidence rule (v0.5 spec §6, **amended qfix2-2026-08-26**) is enforced **server-side in the collector
+The evidence rule (**amended qfix2-2026-08-26**) is enforced **server-side in the collector
 relay**, not only by UI absence: `POST /api/flag` for a `stale_client` finding returns
 `403 {"error":"not_flaggable"}`, and such findings never reach the CP. `stale_client` is consumer-side —
 it has no flag control on any surface and never gains one.
@@ -484,7 +484,7 @@ a registrable domain, not a drift, so no finding exists to attach. Such a thread
 claims no redacted evidence, because none is attached. All of it lives in
 [`v1/cp-flag-request.schema.json`](./v1/cp-flag-request.schema.json). Server-side `not_flaggable`
 refusals for consumer-local kinds (`stale_client`) are **unchanged** — those never cross the boundary with
-or without a message. This supersedes the v0.5 §7 deferral and the qfix2 kind list.
+or without a message. This supersedes the earlier deferral and the qfix2 kind list.
 
 **`spec_version_to` is the evidence version of a `definition_change`** (existing field; its consumer-facing
 semantics are stated here for the first time — no wire change). It is the AFTER snapshot's content hash, and
@@ -509,7 +509,7 @@ the state a person set can only ever cover the evidence that was on screen when 
 
 Only the endpoints the **collector** calls are specified here: the collector is a public repo and implements
 the client side of these. The control plane's own surface (thread pages, sessions, identity, notifications,
-DLP) is a private contract maintained alongside the control plane and is not part of this document.
+DLP) is not part of this document.
 
 **Model:** the collector **Connects** once per deployment (`register` → a per-deployment **collector key**,
 persisted in the collector's store, never logged, never per-pod) and the contact confirms their email with one
@@ -587,7 +587,7 @@ Headers: `X-Flanj-Collector-Version`, `X-Flanj-Schema-Version`.
 // 400 access_conflict      — `allowed_domains` and `allowed_emails` are both lists
 // 400 bad_request          — `allowed_domains` / `allowed_emails` is neither a list nor null, or has more than 20 entries
 // 403 not_flaggable        — a consumer-local kind (`stale_client`), with or without a message
-// 400 info_not_flaggable   — `finding.severity` is `info` (R-C, 2026-09-17): INFO never crosses the org
+// 400 info_not_flaggable   — `finding.severity` is `info`: INFO never crosses the org
 //                            boundary, on any kind; the CP's standard one-sentence error body
 // 412 not_connected | contact_unconfirmed
 ```
@@ -718,7 +718,7 @@ covers older SDKs in the compatibility window that emit no fields).
   only below-floor with an actionable "upgrade your collector" message. The CP is tested against **every
   in-window contract version**, not just the latest.
 - Breaking change ⇒ bump the contract major, add a new `vN/` dir here, keep the CP dual-reading through a
-  deprecation window, and require the `e2e` compatibility matrix to be green for the whole set before promotion.
+  deprecation window, and require the integration compatibility matrix to be green for the whole set before promotion.
 
 ---
 
@@ -726,7 +726,7 @@ covers older SDKs in the compatibility window that emit no fields).
 
 **Removed 2026-09-14 — `integration_id`, `self_integration_id`.** The collector's identity is its
 `collector_name`, given in the Connect panel (mandatory, unique within the contact's workspace,
-changeable — CONTRACTS-CP §5.21), not a config key; the Overview headline names the collector, and
+changeable), not a config key; the Overview headline names the collector, and
 a call's or finding's `integration` (§3/§4) is derived by the collector at ingest (§2, the
 `flanj.integration` row), and never came from this key. A self-spec finding is keyed locally by the inbound
 call's service name (the constant `self` until 2026-09-19); on the wire it is still `self` (§3). A config that still carries either key
@@ -748,7 +748,7 @@ is deliberately unaffected: one document per deployment, not one per vendor.
 | `consumer_display_name` *(optional)* | human name of this consumer org, e.g. `Acme Consumer Ltd`; sent on the flag. |
 | `self_spec_path` *(optional)* | the OpenAPI spec THIS org publishes as a provider; validates INBOUND (server-direction) responses against the org's own contract |
 | `cp_base_url` | control-plane base URL the COLLECTOR's own requests go to (register/me, flags, thread routes, the syncs). May be in-network — a docker service name, a k8s Service, a VPC-private ingress — because only the collector has to reach it; see `cp_public_url` for the browser's side |
-| `cp_public_url` *(optional, flanjui — 2026-09-07)* | the control-plane origin the OPERATOR'S BROWSER can open: the base of the local UI's one link out, `dashboard_url` on the collector's `GET /api/connect` (emitted only while Connected; the collector composes the `/d` path). A link built from an in-network `cp_base_url` is dead off-host — the launch-week defect. Unset: the link falls back to `cp_base_url` only when its host is not obviously non-public (loopback / private IP / single-label / `.local` `.internal` `.svc` `.cluster.local` `.test` `.example`-style suffixes), otherwise `dashboard_url` is omitted and the UI keeps the pill a Settings button. Validated at boot: absolute `http(s)` URL, no credentials. Never logged. The `/api/connect` shape is unchanged — `dashboard_url` was already optional; only its presence rule narrowed |
+| `cp_public_url` *(optional, flanjui — 2026-09-07)* | the control-plane origin the OPERATOR'S BROWSER can open: the base of the local UI's one link out, `dashboard_url` on the collector's `GET /api/connect` (emitted only while Connected; the collector composes the `/d` path). A link built from an in-network `cp_base_url` is dead off-host — an early defect. Unset: the link falls back to `cp_base_url` only when its host is not obviously non-public (loopback / private IP / single-label / `.local` `.internal` `.svc` `.cluster.local` `.test` `.example`-style suffixes), otherwise `dashboard_url` is omitted and the UI keeps the pill a Settings button. Validated at boot: absolute `http(s)` URL, no credentials. Never logged. The `/api/connect` shape is unchanged — `dashboard_url` was already optional; only its presence rule narrowed |
 | `cp_deploy_token` *(optional since 2026-09-14)* | a deploy token for Connect — an operator's or a per-account one. **Not needed**: with it unset a new collector registers with no credential and the contact's confirmation click is the consent; the per-deployment collector key the CP returns is what authorizes every later call either way. Set it only when an operator wants registrations partitioned by a token they hold |
 | `body_cap_bytes` | capture cap, default `16384` |
 | `backend` | store backend: `sqlite` (default — embedded, one pod per db file) or `postgres` (shared external DB; multiple collector pods may write to one database) |

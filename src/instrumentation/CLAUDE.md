@@ -196,7 +196,7 @@ down first.
 - **Emit the exact convention.** The attribute key set + scalar values must match
   `contracts/golden-otlp-call.json` (locked by `otlp-record.spec.ts`). Optional attributes
   (`*.content_type`, `corr.*`) are omitted when absent, never emitted empty. Change the wire format in
-  the canonical `e2e/contracts` first, then re-vendor.
+  the canonical contract first, then re-vendor.
 - **`redaction.patterns` is reported in canonical order** (`PAN, EMAIL, IBAN, SSN, PHONE, CVV, TOKEN,
   IP`) and covers bodies **and** the redacted target/URL, so the emitted set reflects everything that
   fired.

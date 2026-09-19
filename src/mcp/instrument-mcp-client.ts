@@ -84,7 +84,7 @@ function deliverToSendObserver(registry: SendObserverRegistry, message: unknown)
 }
 
 /**
- * Wrap an MCP **Client** (v0.5 spec §4.B). Strictly out-of-band: the wrapper
+ * Wrap an MCP **Client** (v0.5). Strictly out-of-band: the wrapper
  * NEVER changes a call, a result, or an error — arguments pass through
  * verbatim, results are returned untouched, rejections propagate unchanged,
  * and every capture step is fenced so a capture failure means "we stopped

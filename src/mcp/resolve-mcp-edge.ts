@@ -1,7 +1,7 @@
 import { classifyHost } from '../instrumentation/classify-host';
 import type { McpServerKind } from './mcp-types';
 
-/** Inputs for MCP edge identity (v0.5 spec §4.B "Edge classification"). */
+/** Inputs for MCP edge identity (v0.5). */
 export interface ResolveMcpEdgeInput {
   /** Explicit streamable-HTTP endpoint (config wins over detection). */
   endpoint?: string;

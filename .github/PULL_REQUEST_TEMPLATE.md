@@ -16,3 +16,4 @@
       body can reach an attribute, the store, or the wire before redaction.
 - [ ] If this changes a cross-repo wire format, the change went through `contracts/` first.
 - [ ] Docs and `CLAUDE.md` updated if behaviour or structure changed.
+- [ ] The description stands alone for a stranger: no links to non-public repositories or documents, and no decision labels or attributions.
