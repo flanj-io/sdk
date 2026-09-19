@@ -7,7 +7,7 @@ import type { PatternId, RedactedField, SensitiveField } from '../src/index';
 
 /**
  * THE cross-language PARITY suite. `contracts/redaction-fixtures.json` (vendored from the canonical
- * `e2e/contracts/v1`) is run by this suite AND by the Go collector's suite; both must produce these exact
+ * contract) is run by this suite AND by the Go collector's suite; both must produce these exact
  * results. This file is the contract, not the code.
  *
  *  - kind=json: BOTH entry points are asserted — the structural `redact(value)` and the text path

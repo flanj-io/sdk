@@ -3,7 +3,7 @@ import { patchMcpClientConstructor, registerMcpAutoInstrumentation } from './aut
 import type { McpCapturedCall, McpContractSnapshot } from './mcp-types';
 
 /**
- * The auto-patch path (spec §4.B): a Client CONSTRUCTOR is patched so every
+ * The auto-patch path: a Client CONSTRUCTOR is patched so every
  * instance self-instruments on first use — same pass-through guarantees, no
  * hard dependency on either MCP package (both are optional peers; a missing
  * package is skipped silently).
