@@ -539,8 +539,17 @@ Headers: `X-Flanj-Collector-Version`, `X-Flanj-Schema-Version`.
 ```jsonc
 // request
 { "idempotency_key": "flag_0191…",           // re-flag returns the existing thread
-  "consumer_display_name": "Acme Consumer Ltd",
-  "provider_display_name": "Acme Payments",  // OPTIONAL — else the CP humanizes call.integration
+  "consumer_display_name": "Acme Consumer Ltd", // REQUIRED on the wire, but IGNORED for naming since 2026-09-19:
+                                             //   the control plane names the sender from the flagging
+                                             //   workspace's display name (set in the dashboard, one per
+                                             //   workspace across all its collectors). Still sent, so a
+                                             //   control plane that predates this keeps accepting the flag.
+  "provider_display_name": "Acme Payments",  // DEPRECATED 2026-09-19 — OPTIONAL, accepted and IGNORED.
+                                             //   Collectors no longer send it. The control plane names the
+                                             //   provider itself: the workspace that has proved ownership
+                                             //   of the flagged host's domain, else a verified directory
+                                             //   name, else the domain. A consumer's guess never names the
+                                             //   other side.
   "message": "Your /v1/charges response returns amount as a string; spec says integer.",
   "evidence_origin": "finding",              // OPTIONAL, additive (slice2-2026-08-28): "finding" (default when
                                              //   absent — the promoted call's bodies start withheld from the
@@ -723,8 +732,8 @@ is deliberately unaffected: one document per deployment, not one per vendor.
 
 | Key | Meaning |
 |---|---|
-| `provider_display_name` *(optional)* | fallback provider name sent ON A FLAG, so the thread names the provider. Defaults to a humanized form of the call's (or finding's) `integration`. **No longer names an edge** (2026-08-31): that tier needed a config→edge linkage supplied by the config spec's `peer_host`, and contracts are uploaded now — the `contract` tier names edges from the uploaded document's `info.title`, keyed by the bound host's registrable domain. |
-| `consumer_display_name` *(optional)* | human name of this consumer org, e.g. `Acme Consumer Ltd`; sent on the flag. |
+| `provider_display_name` *(optional, deprecated 2026-09-19)* | **Accepted and ignored.** It was the fallback provider name sent on a flag; the collector no longer sends any provider name, because the control plane names the provider from verified domain ownership (see `POST /api/v1/flags`, §5). Kept as a key only so an existing config keeps loading. It stopped naming an edge on 2026-08-31: the `contract` tier names edges from the uploaded document's `info.title`, keyed by the bound host's registrable domain. |
+| `consumer_display_name` *(optional)* | human name of this consumer org, e.g. `Acme Consumer Ltd`. Sent at Connect, where the control plane uses it as the default name of the workspace the collector joins, and on the flag, where it is ignored for naming since 2026-09-19 (the workspace's display name names the sender). |
 | `self_spec_path` *(optional)* | the OpenAPI spec THIS org publishes as a provider; validates INBOUND (server-direction) responses against the org's own contract |
 | `cp_base_url` | control-plane base URL the COLLECTOR's own requests go to (register/me, flags, thread routes, the syncs). May be in-network — a docker service name, a k8s Service, a VPC-private ingress — because only the collector has to reach it; see `cp_public_url` for the browser's side |
 | `cp_public_url` *(optional, flanjui — 2026-09-07)* | the control-plane origin the OPERATOR'S BROWSER can open: the base of the local UI's one link out, `dashboard_url` on the collector's `GET /api/connect` (emitted only while Connected; the collector composes the `/d` path). A link built from an in-network `cp_base_url` is dead off-host — an early defect. Unset: the link falls back to `cp_base_url` only when its host is not obviously non-public (loopback / private IP / single-label / `.local` `.internal` `.svc` `.cluster.local` `.test` `.example`-style suffixes), otherwise `dashboard_url` is omitted and the UI keeps the pill a Settings button. Validated at boot: absolute `http(s)` URL, no credentials. Never logged. The `/api/connect` shape is unchanged — `dashboard_url` was already optional; only its presence rule narrowed |
