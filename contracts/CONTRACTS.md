@@ -297,7 +297,7 @@ JSON Schema: [`v1/finding.schema.json`](./v1/finding.schema.json). Sample: [`v1/
 {
   "schema_version": 1,
   "id": "0191e8c4-…",
-  "kind": "live-vs-spec",                    // | "version-diff"
+  "kind": "live-vs-spec",                    // | "version-diff" | "deprecation" | the MCP kinds below
   "change_kind": null,                       // additive+optional: WHAT moved —
                                              // wording | input | output | catalog | value | observed_failure.
                                              // Set on MCP findings only; absent on the HTTP kinds and on
@@ -338,8 +338,10 @@ same drift returns the existing thread. Individual calls stay marked drifted in 
 
 Detection is **technical adherence only** — fields/types/shapes/enums. Never business/economic
 correctness (pricing, quantities, business rules). `live-vs-spec` via `kin-openapi` `openapi3filter.ValidateResponse`
-(`MultiError: true`). `version-diff` via `oasdiff` checker (`Level=ERR` → `severity="breaking"`,
-change-id → `rule`), computed once at spec load, `source_call_id=null`.
+(`MultiError: true`). `version-diff` via `oasdiff` checker (`Level=ERR` → `severity="breaking"`, change-id → `rule`),
+computed once at spec load, `source_call_id=null`; that same pass also yields the `deprecation`
+findings described below, and every other sub-`ERR` change is computed and dropped — lifting the whole
+of it would bury the deprecations under the noise they are meant to stand out from.
 
 **MCP finding kinds — v0.5 (Step C)** (additive; produced by the collector's MCP detection path from
 the §2 MCP call / `contract_snapshot` records — same `Finding` shape, same per-signature dedup;
@@ -356,6 +358,51 @@ the §2 MCP call / `contract_snapshot` records — same `Finding` shape, same pe
 **`change_kind` by kind**: `definition_change` → `wording` \| `input` \| `output` \| `catalog` (from the rule
 table below); `output_mismatch` → `output`; `value_change` → `value`; `stale_client` and `input_rejection` →
 `observed_failure`. Absent on `live-vs-spec` / `version-diff`, whose vocabulary this field does not describe.
+
+**`deprecation` — a surface that is GOING AWAY.** A provider rarely breaks a consumer overnight. They
+mark a surface deprecated, give a window, then remove it. Only the removal is a breaking change, and by
+the time it lands the window has closed — so the ANNOUNCEMENT is a finding of its own, at
+`severity: "warning"`. Nothing has broken; something will.
+
+| evidence | `rule` | `source_call_id` |
+|---|---|---|
+| a CALL used a deprecated thing: the bound contract marks the operation, a parameter the call SENT, or a request/response field the body CARRIED, `deprecated: true` | `deprecated-operation` \| `deprecated-parameter` \| `deprecated-field` | the call, pinned as evidence |
+| a replacement DOCUMENT deprecated something its predecessor did not | the version-diff engine's own change id (`endpoint-deprecated`, `endpoint-deprecated-with-sunset`, and the parameter and property variants) | `null` |
+
+**Its own `kind`, not a warning-severity `live-vs-spec` or `version-diff`.** What it reports is that a
+surface is going away, which is a different question from how a document changed or whether a response
+conformed — and the separate kind is what keeps it out of the two per-call answers with no special case
+anywhere: **a deprecation never marks its call drifted** (`flanj.validated` stays `clean`, the Traffic
+row stays conforming) and never counts as live drift. The operation is still declared and the response
+still conformed, so the call departed from nothing. Painting conforming traffic red would accuse a
+provider of breaking a promise they are in fact keeping while giving notice of ending it.
+
+It is flaggable like any other warning: asking a provider *"when does this sunset?"* is exactly what a
+thread is for, and the evidence — their own published document, marking their own surface — is
+verifiable in their own systems. The document arm is call-less, so such a flag travels under the
+message rule above (`call` optional when the request carries a non-empty `message`).
+
+**The live arm is about the org's OWN traffic**, which is what makes it worth reading: a deprecated
+operation nobody calls raises nothing, a deprecated parameter the caller omits raises nothing, and a
+deprecated field the response never carries raises nothing. There is no one to tell and nothing to
+change. Dedup is the usual one — one finding per (endpoint, deprecated thing), `occurrence_count`
+rising while the calling continues.
+
+The two arms do not overlap. A document diff sees only the TRANSITION — the moment `deprecated` became
+true — so a contract that arrives already carrying `deprecated: true` produces nothing there; the live
+arm sees the standing state, for the surfaces traffic actually touches.
+
+**A sunset date rides the finding when the contract publishes one** (`x-sunset` on the operation,
+parameter or schema; a bare date or an RFC 3339 timestamp, reported as the date). It is the half that
+makes the warning actionable rather than merely true, so it is stated in `actual` and in `detail`
+instead of being left in the document for a reader to find.
+
+**Lifting a deprecation is not reported.** A surface that was deprecated and is deprecated no longer
+constrains nobody and breaks nothing — the same posture this section already takes for additive
+changes. A warning that carries good news costs the tier its meaning.
+
+**MCP has no deprecation to detect.** `tools/list` declares no such field on a tool, so there is
+nothing on that wire to read; a provider saying it in a description surfaces as `description-changed`.
 
 **INFO stays local**, on **every** kind: the local UI shows an `info` finding with no Flag
 control, the collector's relay answers `403 not_flaggable`, and the control plane answers `400 info_not_flaggable`
