@@ -43,9 +43,11 @@ Redaction happens here, at the call site, **before** anything is attached or exp
 ```
 src/
   index.ts                         # the distro entrypoint (start(): register both instrumentations + OTLP logs exporter)
-  register.ts                      # the `./register` zero-code entry (see package.json exports) — KEEPS the handle
+  register.ts                      # the `./register` zero-code entry (see package.json exports) — KEEPS the handle,
+                                   # and switches on BOTH capture paths: HTTP bodies + MCP auto-instrumentation
   otlp-endpoint.ts                 # endpoint resolution: FLANJ_/OTEL_ precedence + base-URL -> /v1/logs normalization
   export-failure-warning.ts        # wraps the exporter so the FIRST export failure prints one line (no diag hijack)
+  capture-warning.ts               # the FIRST failed capture prints one line (same text + env var as the Python SDK)
   flush-on-exit.ts                 # beforeExit + SIGTERM/SIGINT flush, bounded, then re-raise the signal
   version.ts                       # package version (OTLP scope)
   instrumentation/                 # the capture core — see instrumentation/CLAUDE.md
@@ -63,7 +65,8 @@ src/
     captured-call.ts, capped-buffer.ts, http-args.ts, config.ts
   mcp/                             # v0.5 Step B: MCP CLIENT instrumentation — see mcp/CLAUDE.md
     instrument-mcp-client.ts       # instrumentMcpClient(client): wrap listTools/callTool, pass-through, both package lines
-    auto-instrument.ts             # constructor auto-patch path (optional peers, feature-detected, never required)
+    auto-instrument.ts             # constructor auto-patch path (optional peers, feature-detected, never required);
+                                   # loads each peer BOTH ways — see non-negotiable 6
     assemble-mcp-call.ts           # tools/call -> CapturedCall via the shared assembler (same floor, same caps)
     assemble-contract-snapshot.ts  # complete tools/list -> floor-redacted ToolDef-shaped contract_snapshot
     mcp-record.ts, resolve-mcp-edge.ts, mcp-types.ts
@@ -107,7 +110,20 @@ REDACTION.md                       # the floor's design: composed validators, ow
    is undone before redaction, and a coding we cannot undo stores no body rather than an unscanned frame.
 4. **Emit the exact `flanj.*` convention** in `contracts/CONTRACTS.md` §2. The emitted record must match
    `contracts/golden-otlp-call.json`.
-5. **Coexist with the app's OpenTelemetry.** Patching `node:http` must STACK on whatever is already
+5. **The zero-code entry covers BOTH capture paths, and says which.** `register.ts` starts HTTP body
+   capture and auto-instruments MCP; its one startup line names MCP only when a client package was
+   actually patched. The Python SDK's `import flanj.register` is the same entry minus the HTTP half, and
+   `contracts/CONTRACTS.md` §2 (*SDK parity*) records that as the ONLY intended difference between the two
+   SDKs. Do not let the two entries diverge again without changing that note first.
+6. **Load an optional peer BOTH ways, and the `require` half synchronously.** Both
+   `@modelcontextprotocol` packages are **dual**: `require` and `import` yield two different `Client`
+   class objects, and patching one leaves the other untouched — silently. `auto-instrument.ts` therefore
+   patches both, and keeps a real `import()` alive through the CommonJS downlevel (`tsc` rewrites a
+   literal `import()` into `require()`; the `new Function` indirection is deliberate, not a style
+   choice). The `require` pass must stay **synchronous and run in the preload**: a CommonJS app can call
+   a tool in its own module body, before any `import()` started in the preload has settled. All three
+   failure modes are silent, and all three are locked by `test/integration/register-mcp.spec.ts`.
+7. **Coexist with the app's OpenTelemetry.** Patching `node:http` must STACK on whatever is already
    installed (`instrumentation/wrap-layer.ts`) — never `isWrapped → _unwrap → wrap`, and never construct an
    OTel `InstrumentationBase`, whose require-in-the-middle singleton caches core modules and silences
    `@opentelemetry/instrumentation-http`. Both failure modes were silent; both are locked by

@@ -188,3 +188,79 @@ describe('README — first-run essentials', () => {
     expect(notCaptured.toLowerCase()).toContain('zero rows');
   });
 });
+
+/**
+ * The two SDKs' READMEs are built on ONE skeleton: the same sections in the same
+ * order, differing only where the language or the HTTP half forces it. They had
+ * drifted into two unrelated documents describing what is very nearly the same
+ * product, which is how a reader concludes the SDKs differ far more than they do.
+ *
+ * Each repo can only pin its own half, so this is the TypeScript half: the
+ * ordered heading list, with the three entries the Python README does not share
+ * marked as such. Adding, removing or reordering a section here means doing the
+ * same in `flanj-io/sdk-py`'s README (its `tests/test_readme.py` pins the twin).
+ */
+describe('README — the shared cross-language skeleton', () => {
+  it('carries the agreed sections, in the agreed order', () => {
+    const headings = readme
+      .split('\n')
+      .filter((line) => /^#{1,3} /.test(line))
+      .map((line) => line.replace(/^#+ /, '').trim());
+
+    expect(headings).toEqual([
+      '@flanj/sdk',
+      'Quick start',
+      'ESM, CJS, and shutdown', // language-specific: the Python README has "Load flanj first" here
+      'MCP quick start',
+      'Instrumenting a client yourself',
+      'Configuration',
+      'Running next to OpenTelemetry', // HTTP-only: no Python counterpart
+      'What is captured',
+      'MCP clients: the contract arrives with the traffic',
+      'It stays out of the way',
+      'Also in this distribution', // packaging-specific: the second npm package
+      'Status',
+      'Development',
+      'Security',
+      'License'
+    ]);
+  });
+
+  /**
+   * MCP used to be a bullet under "Also in this distribution" — three quarters of
+   * the way down, under a heading that reads like an appendix. It is half of what
+   * this SDK captures and the whole of what the Python SDK captures, so it gets a
+   * quick start of its own, above the fold of the deep HTTP material.
+   */
+  it('gives MCP a quick start of its own, before "What is captured"', () => {
+    const mcpQuickStart = readme.indexOf('### MCP quick start');
+    expect(mcpQuickStart).toBeGreaterThan(-1);
+    expect(mcpQuickStart).toBeLessThan(readme.indexOf('## What is captured'));
+
+    const section = readme.slice(mcpQuickStart, readme.indexOf('### Instrumenting a client yourself'));
+    // The fields a reader has to know an MCP call records, and the two things that
+    // surprise people: the client-generated id, and where the service name shows.
+    for (const fact of [
+      'structuredContent',
+      'isError',
+      '_meta',
+      'client-generated',
+      'error',
+      'tasks/get',
+      'refetchOnListChanged',
+      'npx @stripe/mcp@0.2.1'
+    ]) {
+      expect(section, `the MCP quick start does not mention ${fact}`).toContain(fact);
+    }
+    expect(section).toContain('never sent to the control plane');
+  });
+
+  it('documents the capture-failure warning and its variable', () => {
+    expect(readme).toContain('FLANJ_SILENCE_CAPTURE_WARNINGS');
+    expect(lower).toContain('your application is unaffected');
+  });
+
+  it('documents handle.instrumentMcp, the explicit per-client entry', () => {
+    expect(readme).toContain('instrumentMcp(client)');
+  });
+});

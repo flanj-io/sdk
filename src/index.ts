@@ -3,10 +3,13 @@ import { LoggerProvider, BatchLogRecordProcessor, SimpleLogRecordProcessor } fro
 import { OTLPLogExporter } from '@opentelemetry/exporter-logs-otlp-http';
 import { resourceFromAttributes } from '@opentelemetry/resources';
 import type { LogRecordExporter, LogRecordProcessor } from '@opentelemetry/sdk-logs';
+import type { Logger } from '@opentelemetry/api-logs';
+import { instrumentMcpClient, type InstrumentMcpClientOptions, type McpClientLike } from './mcp/instrument-mcp-client';
 import { HttpBodyCaptureInstrumentation } from './instrumentation/http-body-capture';
 import { HttpServerCaptureInstrumentation } from './instrumentation/http-server-capture';
 import { TrustedProxies } from './instrumentation/trusted-proxies';
 import { assertSupportedNodeVersion } from './instrumentation/builtin-module';
+import { DEFAULT_BODY_CAP_BYTES } from './instrumentation/config';
 import { emitCall } from './instrumentation/otlp-record';
 import { resolveOtlpLogsEndpoint } from './otlp-endpoint';
 import { withExportFailureWarning } from './export-failure-warning';
@@ -63,6 +66,23 @@ export interface FlanjHandle {
   serviceName: string;
   /** The resolved, normalized OTLP/HTTP logs endpoint records are exported to. */
   endpoint: string;
+  /**
+   * The OTLP logger every captured record is emitted through. Exposed so an MCP
+   * client instrumented after `start()` lands in the same pipeline — see
+   * {@link FlanjHandle.instrumentMcp}.
+   */
+  logger: Logger;
+  /** The resolved per-body capture cap, in bytes (env `FLANJ_BODY_CAP_BYTES`). */
+  bodyCapBytes: number;
+  /**
+   * Instrument one MCP client with this handle's logger and body cap — the
+   * explicit counterpart of the register entry's auto-instrumentation, for a
+   * client you hold yourself. The Python SDK's `handle.instrument(session)`.
+   *
+   * Byte-identical pass-through, like every capture path here: the call is
+   * neither delayed nor rewritten.
+   */
+  instrumentMcp: (client: McpClientLike, options?: InstrumentMcpClientOptions) => void;
   /**
    * Export everything buffered so far and resolve when it has left the process.
    * The batch processor's export timer is `unref`'d with a 1s delay, so a
@@ -154,6 +174,15 @@ export function start(options: StartOptions = {}): FlanjHandle {
     serverInstrumentation,
     serviceName,
     endpoint,
+    logger,
+    bodyCapBytes: bodyCapBytes ?? DEFAULT_BODY_CAP_BYTES,
+    instrumentMcp: (client: McpClientLike, mcpOptions: InstrumentMcpClientOptions = {}): void => {
+      instrumentMcpClient(client, {
+        logger,
+        bodyCapBytes: bodyCapBytes ?? DEFAULT_BODY_CAP_BYTES,
+        ...mcpOptions
+      });
+    },
     flush: () => loggerProvider.forceFlush(),
     shutdown: async () => {
       instrumentation.disable();
@@ -192,8 +221,8 @@ function safeUrlHost(url: string): string | undefined {
 
 // MCP client instrumentation (v0.5 Step B): wrap the MCP Client — transport-
 // independent, out-of-band, both package lines feature-detected as optional peers.
-export { instrumentMcpClient } from './mcp/instrument-mcp-client';
-export type { InstrumentMcpClientOptions, McpClientLike } from './mcp/instrument-mcp-client';
+export { instrumentMcpClient };
+export type { InstrumentMcpClientOptions, McpClientLike };
 export { patchMcpClientConstructor, registerMcpAutoInstrumentation } from './mcp/auto-instrument';
 export { assembleMcpCall } from './mcp/assemble-mcp-call';
 export { assembleContractSnapshot } from './mcp/assemble-contract-snapshot';
