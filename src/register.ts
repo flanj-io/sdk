@@ -61,13 +61,21 @@ export const mcpReady: Promise<string[]> = registerMcpAutoInstrumentation(mcpOpt
   .then((patched) => {
     // One line, once, naming where capture is going and what it covers — the whole
     // failure class this SDK had was silence. FLANJ_QUIET=1 turns it off.
-    if (process.env.FLANJ_QUIET !== '1') {
-      const capturing =
-        patched.length > 0 ? 'capturing http/https bodies and MCP client calls' : 'capturing http/https bodies';
-      process.stderr.write(
-        `[flanj] ${SDK_NAME} ${SDK_VERSION} ${capturing} -> ${handle.endpoint} ` +
-          `(service.name=${handle.serviceName}). Set FLANJ_QUIET=1 to silence this line.\n`
-      );
+    try {
+      if (process.env.FLANJ_QUIET !== '1') {
+        const capturing =
+          patched.length > 0 ? 'capturing http/https bodies and MCP client calls' : 'capturing http/https bodies';
+        process.stderr.write(
+          `[flanj] ${SDK_NAME} ${SDK_VERSION} ${capturing} -> ${handle.endpoint} ` +
+            `(service.name=${handle.serviceName}). Set FLANJ_QUIET=1 to silence this line.\n`
+        );
+      }
+    } catch {
+      /* a broken stderr must not become a crash — and see the final catch below */
     }
     return patched;
-  });
+  })
+  // This promise is created by a PRELOAD and nobody is required to await it, so a
+  // rejection here would be an unhandled rejection — which Node turns into a
+  // process crash. A capture path may never take the application down.
+  .catch(() => patchedSync);

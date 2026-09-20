@@ -32,6 +32,13 @@ import {
 const repoRoot = resolve(__dirname, '../..');
 const tsc = resolve(repoRoot, 'node_modules/typescript/bin/tsc');
 const fixtures = resolve(repoRoot, 'test/fixtures/mcp-auto');
+/**
+ * How long to give a child's records to reach the receiver. Generous on purpose:
+ * the child exports through a 1s batch window plus the exit flush, and this suite
+ * shares the machine with the other integration suite and a `tsc -b`. A tight
+ * deadline here fails as "MCP was not instrumented", which is a lie.
+ */
+const EXPORT_DEADLINE_MS = 30_000;
 
 let receiver: OtlpReceiver;
 
@@ -80,7 +87,7 @@ describe('dist/register.js — with an MCP client package installed', () => {
     expect(result.stdout.trim()).toBe('called');
     expect(result.stderr).toContain('capturing http/https bodies and MCP client calls');
 
-    await waitFor(() => receiver.records.length - before >= 2);
+    await waitFor(() => receiver.records.length - before >= 2, EXPORT_DEADLINE_MS);
     const records = receiver.records.slice(before).map(attributesOf);
 
     const call = records.find((r) => r['flanj.record.type'] === 'call');
@@ -99,7 +106,7 @@ describe('dist/register.js — with an MCP client package installed', () => {
     expect(result.code, result.stderr).toBe(0);
     expect(result.stdout.trim()).toBe('called');
 
-    await waitFor(() => receiver.records.length - before >= 2);
+    await waitFor(() => receiver.records.length - before >= 2, EXPORT_DEADLINE_MS);
     const call = receiver.records
       .slice(before)
       .map(attributesOf)
@@ -114,7 +121,7 @@ describe('dist/register.js — with an MCP client package installed', () => {
 
     expect(result.code, result.stderr).toBe(0);
     expect(result.stderr).toBe('');
-    await waitFor(() => receiver.records.length - before >= 2);
+    await waitFor(() => receiver.records.length - before >= 2, EXPORT_DEADLINE_MS);
     expect(receiver.records.length - before).toBeGreaterThanOrEqual(2);
   }, 60_000);
 });
