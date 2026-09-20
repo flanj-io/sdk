@@ -15,9 +15,10 @@ Every call succeeded. That's why nothing caught it.
 [![node](https://img.shields.io/node/v/@flanj/sdk.svg)](package.json)
 
 `@flanj/sdk` is a thin [OpenTelemetry](https://opentelemetry.io/) distribution for Node. It records the
-request and response bodies of the HTTP calls your service makes to third-party APIs, and of the calls it
-receives, redacts sensitive data at the source, and exports the redacted records over OTLP to a Flanj
-collector, which checks them against the provider's contract and flags drift.
+request and response bodies of the HTTP calls your service makes to third-party APIs and of the calls it
+receives, and the `tools/list` catalogue and `tools/call` traffic of every MCP server your agent talks to.
+It redacts sensitive data at the source, then exports the redacted records over OTLP to a Flanj collector,
+which checks them against the provider's contract and flags drift.
 
 **Trust posture.** Capture is out of band: the SDK tees the bytes your app already sends and receives, and
 never proxies, rewrites, delays or blocks a call. Redaction runs in your process, before a body is stored or
@@ -44,8 +45,11 @@ FLANJ_OTLP_ENDPOINT=http://localhost:4318/v1/logs \
 node -r @flanj/sdk/register app.js
 ```
 
-That is the whole integration; no source change. The preload prints one line naming the endpoint and
-resolved service name, then every `node:http`/`node:https` call is captured, redacted and exported.
+That is the whole integration; no source change. The preload starts the OTLP pipeline, flushes on exit, and
+switches on **both** capture paths: every `node:http`/`node:https` call, and — when an MCP client package is
+installed — every MCP client your app constructs. It prints one line naming the endpoint, the resolved
+service name and what it is capturing (`FLANJ_QUIET=1` silences it). It is the counterpart of the Python
+SDK's `import flanj.register`.
 
 **Verify** — after your app has made at least one call, and assuming the collector was started with the
 [Run it on a laptop](https://github.com/flanj-io/collector#run-it-on-a-laptop) command including its UI
@@ -60,21 +64,6 @@ then open <http://127.0.0.1:5335> and look at the **Traffic** tab: your call sho
 If that `curl` answers `Failed to connect`, the SDK is not what failed: the collector's UI is loopback-only
 inside its container and nothing is forwarding to it. Re-run the collector with that block's sidecar. Ingest
 on `:4318` is a separate, ordinary published port and works either way.
-
-### Configuration
-
-| Variable | Default | Meaning |
-| --- | --- | --- |
-| `FLANJ_OTLP_ENDPOINT` | `http://localhost:4318/v1/logs` | OTLP/HTTP **logs** endpoint, with the `/v1/logs` path. A bare base URL (`http://localhost:4318`) is normalized to it; any other path is used verbatim. |
-| `OTEL_SERVICE_NAME` | the app's own name, else `flanj-sdk` | The `service.name` resource attribute — the only thing you configure to name your service. Order: the `serviceName` option to `start()`, then this variable, then the `name` in the nearest `package.json` walking up from your entry file (or, failing that, your working directory), then `flanj-sdk`. The collector derives each record's **integration** itself — from the peer host on outbound/MCP calls, from this service name on inbound ones — so there is nothing else to set. |
-| `FLANJ_BODY_CAP_BYTES` | `16384` | Per-body capture cap, in bytes. |
-| `FLANJ_IGNORE_URLS` | — | Comma-separated substrings; a matching URL is never captured. The exporter's own host is always ignored. |
-| `FLANJ_TRUSTED_PROXIES` | — | Comma-separated IPs / CIDR blocks of the reverse proxies or load balancers in front of your service (`10.0.0.5,fd00::5`). List the proxies themselves, not your whole network: every address in the set is skipped when walking the chain, so a caller inside it could still pick its own edge class. Inbound calls are classified by their **socket peer**; `X-Forwarded-For` is honoured only from these peers, and the caller is then the hop your proxy appended (the rightmost one that is not itself a trusted proxy), never the leftmost. Unset, the header is ignored, so **behind a proxy every inbound call classifies internal (metadata-only) until you set this**. An entry that is not an IP or CIDR fails `start()`. |
-| `FLANJ_FLUSH_TIMEOUT_MS` | `5000` | Upper bound on the exit/`SIGTERM` flush, so a wedged collector can never make your process unkillable. |
-| `FLANJ_QUIET` | — | `1` silences the one-line startup notice. |
-
-`OTEL_EXPORTER_OTLP_LOGS_ENDPOINT` and `OTEL_EXPORTER_OTLP_ENDPOINT` are honoured as fallbacks, in that
-order, if `FLANJ_OTLP_ENDPOINT` is unset, so a host already configured for OTLP needs nothing new.
 
 ### ESM, CJS, and shutdown
 
@@ -102,6 +91,9 @@ is a call made before the SDK started, or a function copied into a local variabl
 loader hook that rewrites `node:http` (OpenTelemetry's import-in-the-middle, for instance), a named
 import binds to the hook's copy, which the re-sync cannot reach. Use the preload there, after the hook.
 
+Both MCP client packages ship a CommonJS build and an ESM build, which are two different `Client` classes
+at runtime. The preload patches both, so it does not matter which one your app reaches for.
+
 The register entry flushes on `beforeExit` and on `SIGTERM`/`SIGINT` (then re-raises the signal), so a
 one-shot script and a pod's last batch both deliver. If you start the SDK yourself instead, you own that:
 
@@ -111,6 +103,75 @@ const flanj = start({ serviceName: 'checkout' });
 // ... your app ...
 await flanj.shutdown(); // or flanj.flush() — records are batched, so this is not optional
 ```
+
+### MCP quick start
+
+Nothing is configured per server. With the preload loaded and either `@modelcontextprotocol` package
+installed, an ordinary client is already captured:
+
+```js
+import { Client } from '@modelcontextprotocol/sdk/client/index.js';
+
+const client = new Client({ name: 'acme-agent', version: '1.0.0' });
+await client.connect(transport);
+await client.listTools();                                              // -> a contract snapshot
+await client.callTool({ name: 'get_balance', arguments: { id: 'x' } }); // -> a captured, redacted call
+```
+
+**For each `tools/call`:** the arguments as the request body; `structuredContent` — else the `content[]`
+text — as the response body; the outcome (`isError`); the server's identity from the result's `_meta`; and
+the JSON-RPC request id your client generated, labelled as client-generated. A call the server **rejected**
+(a JSON-RPC error rather than a result with `isError`) also records the error's code. A Tasks handle
+(`tasks/get`) is recorded as an envelope with **no body**, so nothing models the envelope as the tool's own
+output shape.
+
+**For each complete `tools/list`:** the server's own declared schemas, verbatim, never re-inferred. The
+catalogue is refetched and re-snapshotted on `notifications/tools/list_changed` (`refetchOnListChanged`,
+on by default), so a server that changes its tools mid-session is caught when it does.
+
+**For a server your app launched over stdio:** how it was launched (`npx @stripe/mcp@0.2.1 …`) — the command
+and its arguments only, each floor-redacted, never the environment or the working directory.
+
+**Your service's name** is the only thing you configure, and it defaults to your app's own name (the `name`
+in the nearest `package.json`), then `flanj-sdk`. It travels as the OTLP resource `service.name`, and the
+collector shows it as a **Service** column beside the counterparty and as a Traffic filter. It names your
+own internal topology, so it stays on your collector: a service name is **never sent to the control plane**.
+
+### Instrumenting a client yourself
+
+```js
+const { start } = require('@flanj/sdk');
+const flanj = start({ serviceName: 'acme-agent' }); // the OTLP pipeline
+
+const client = new Client({ name: 'acme-agent', version: '1.0.0' });
+flanj.instrumentMcp(client); // this handle's logger and body cap
+await client.connect(transport);
+// Use `client` exactly as before. Nothing about its behavior changes.
+const result = await client.callTool({ name: 'get_balance', arguments: { account_id: 'acct_1' } });
+```
+
+To instrument every client without the zero-code entry, call
+`registerMcpAutoInstrumentation({ logger: flanj.logger })` after `start()`.
+
+### Configuration
+
+| Variable | Default | Meaning |
+| --- | --- | --- |
+| `FLANJ_OTLP_ENDPOINT` | `http://localhost:4318/v1/logs` | OTLP/HTTP **logs** endpoint, with the `/v1/logs` path. A bare base URL (`http://localhost:4318`) is normalized to it; any other path is used verbatim. |
+| `OTEL_SERVICE_NAME` | the app's own name, else `flanj-sdk` | The `service.name` resource attribute — the only thing you configure to name your service. Order: the `serviceName` option to `start()`, then this variable, then the `name` in the nearest `package.json` walking up from your entry file (or, failing that, your working directory), then `flanj-sdk`. The collector derives each record's **integration** itself — from the peer host on outbound and MCP calls, from this service name on inbound ones — so there is nothing else to set. |
+| `FLANJ_BODY_CAP_BYTES` | `16384` | Per-body capture cap, in bytes. |
+| `FLANJ_IGNORE_URLS` | — | Comma-separated substrings; a matching URL is never captured. The exporter's own host is always ignored. |
+| `FLANJ_TRUSTED_PROXIES` | — | Comma-separated IPs / CIDR blocks of the reverse proxies or load balancers in front of your service (`10.0.0.5,fd00::5`). List the proxies themselves, not your whole network: every address in the set is skipped when walking the chain, so a caller inside it could still pick its own edge class. Inbound calls are classified by their **socket peer**; `X-Forwarded-For` is honoured only from these peers, and the caller is then the hop your proxy appended (the rightmost one that is not itself a trusted proxy), never the leftmost. Unset, the header is ignored, so **behind a proxy every inbound call classifies internal (metadata-only) until you set this**. An entry that is not an IP or CIDR fails `start()`. |
+| `FLANJ_FLUSH_TIMEOUT_MS` | `5000` | Upper bound on the exit/`SIGTERM` flush, so a wedged collector can never make your process unkillable. |
+| `FLANJ_QUIET` | — | `1` silences the one-line startup notice. |
+| `FLANJ_SILENCE_CAPTURE_WARNINGS` | — | Silences the one-time line printed when a capture path fails. Same variable, same line, in the Python SDK. |
+
+`OTEL_EXPORTER_OTLP_LOGS_ENDPOINT` and `OTEL_EXPORTER_OTLP_ENDPOINT` are honoured as fallbacks, in that
+order, if `FLANJ_OTLP_ENDPOINT` is unset, so a host already configured for OTLP needs nothing new.
+
+`start()` takes the same settings as options (`serviceName`, `otlpEndpoint`, `bodyCapBytes`, `ignoreUrls`,
+`trustedProxies`), and `instrumentMcpClient` / `handle.instrumentMcp` additionally take `endpoint`,
+`serverKind` and `refetchOnListChanged`.
 
 ### Running next to OpenTelemetry
 
@@ -145,10 +206,11 @@ patches this way). Capture comes back with `handle.instrumentation.disable()` fo
 
 ## What is captured
 
-**Captured** — any client that goes through Node's core `node:http` / `node:https`, which is most of them:
-`axios`, `got`, `node-fetch`, `superagent`, and `http.request`/`https.request` used directly. Both
-directions: calls your service makes (egress) and calls it receives (ingress). Capture is a passive tee on
-the bytes already in flight; the call itself is untouched.
+**Captured** — every `tools/call` and `tools/list` on an instrumented MCP client (the fields are listed
+under [MCP quick start](#mcp-quick-start)), and any HTTP client that goes through Node's core
+`node:http` / `node:https`, which is most of them: `axios`, `got`, `node-fetch`, `superagent`, and
+`http.request`/`https.request` used directly. Both directions: calls your service makes (egress) and calls
+it receives (ingress). Capture is a passive tee on the bytes already in flight; the call itself is untouched.
 
 **Not captured yet** — anything that bypasses `node:http`:
 
@@ -156,12 +218,18 @@ the bytes already in flight; the call itself is untouched.
   silent: you get zero rows and no warning, while an `axios` call beside it shows up normally. If your
   service uses `fetch`, this SDK will not see those calls yet.
 - **`node:http2`.**
+- **`tasks/get` payloads.** A Tasks handle is recorded as an envelope with no body, so nothing models the
+  envelope as the tool's output shape.
 - **Webhooks you receive** — see Roadmap below.
 
-Bodies are captured only on external edges and only for JSON, text and form content types; JSON includes
+HTTP bodies are captured only on external edges and only for JSON, text and form content types; JSON includes
 every RFC 6839 `+json` media type (`application/problem+json`, `application/vnd.api+json`, `application/hal+json`,
 and so on). Internal edges are metadata-only. Every captured body is redacted in your process before it is
 stored or exported, and the raw buffer is dropped; see [REDACTION.md](REDACTION.md) for what is redacted and how.
+
+**Edges.** A counterparty is `external` or `internal` by its host, the same rule the collector uses;
+internal edges are metadata-only. An MCP server your app launched over stdio is `local-process`, keyed by
+the name it reports, and its bodies are captured: it usually wraps someone else's API.
 
 **Inbound calls behind a reverse proxy.** The caller of an inbound call is its socket peer. Behind a load
 balancer that is the balancer's private address, so every inbound edge classifies internal and no bodies
@@ -169,67 +237,68 @@ are captured. `X-Forwarded-For` is client-controlled, so the SDK does not believ
 `FLANJ_TRUSTED_PROXIES` to your proxies' addresses (or `trustedProxies` in `start()`) and the header is
 honoured from exactly those peers, taking the hop your proxy appended rather than whatever the client sent.
 
-## Also in this distribution
-
-OTel auto-instrumentation gives you spans and metadata; this SDK adds the payloads, which are the evidence
-you need to show a provider changed their API out from under you, while guaranteeing that card numbers,
-personal data and secrets are redacted before anything is stored or leaves your process.
-
-- **Redaction at source**, before capture is stored or transmitted (card numbers via Luhn, personal data, secrets).
-- **Body capture** on the `http`/`https` client (egress) and server (ingress) paths, size-capped and content-type gated.
-- **MCP client instrumentation** (`instrumentMcpClient`) wraps the MCP `Client` (both `@modelcontextprotocol` package lines, optional peers, byte-identical pass-through): `tools/list` snapshots become the server's self-delivering contract and `tools/call` bodies are captured and redacted like any other call.
-- Emits a stable `flanj.*` OTLP convention consumed by the [collector](https://github.com/flanj-io/collector).
+**When capture itself fails** it stops collecting and says so — once, on stderr, naming what broke and that
+your application is unaffected. Silence is the failure mode this SDK exists to remove, and a collector
+showing nothing looks exactly like an app making no calls. `FLANJ_SILENCE_CAPTURE_WARNINGS=1` turns the
+line off once you have read it, and the first failed OTLP **export** prints its own one-time line.
 
 ### MCP clients: the contract arrives with the traffic
 
-REST drift detection needs a spec somebody published and kept accurate. MCP servers publish their
-contract on every single call — `tools/list` **is** the spec. So `instrumentMcpClient` gives the
-collector a baseline from the first call your agent makes, for every MCP server it touches, with
-nothing to configure and nothing to upload: the observed `tools/list` is forwarded as a contract
-snapshot, versioned by content hash, and every later `tools/call` is checked against it.
+REST drift detection needs a spec somebody published and kept accurate. MCP servers publish their contract
+on every single call — `tools/list` **is** the spec. So the collector has the baseline from the first call
+your agent makes, for every MCP server it touches, with nothing to configure and nothing to upload: the
+observed `tools/list` is forwarded as a contract snapshot, versioned by content hash, and every later
+`tools/call` is checked against it.
 
-That is not a convenience difference. "Nobody publishes an accurate OpenAPI spec" is the strongest
-practical objection to the REST half of this, and it does not apply to MCP at all — which matters
-most for agents, the most drift-fragile API consumers anyone has built: an agent reads a tool's
-description to decide what to do, so a description that changes under it changes what it does, and
-nothing anywhere logs an error.
+That is not a convenience difference. "Nobody publishes an accurate OpenAPI spec" is the strongest practical
+objection to drift detection on REST, and it does not apply to MCP at all. It matters most for agents, the most
+drift-fragile API consumers anyone has built: an agent reads a tool's description to decide what to do, so a
+description that changes under it changes what it does, and nothing anywhere logs an error.
 
-The wrapper is out of band like every other capture path here: it wraps `Client` from both
-`@modelcontextprotocol` package lines as optional peers, passes results through byte-identical, and
-never delays or rewrites a call.
+There is nothing to configure per server: the collector derives each MCP server's integration from its peer
+host (or, over stdio, the name it reports), so two servers never share a baseline.
 
-There is nothing to configure per server: the collector derives each MCP server's integration from its
-peer host (or, over stdio, the name it reports), so two servers never share a baseline. A server your
-agent launched over stdio also records **how it was launched** (`npx @stripe/mcp@0.2.1 …`), shown on its
-contract card: the command and arguments only, each redacted, never the environment or working directory.
+### It stays out of the way
 
+The MCP wrapper is out of band like every other capture path here. Three properties are locked by tests
+rather than asserted in prose (`src/mcp/instrument-mcp-client.spec.ts`):
+
+- **the call passes through by identity**: the tool's own result object is what your code receives, its
+  arguments reach the server verbatim and are never mutated, and a rejection propagates as the *same*
+  error object — `listTools` pages too;
+- **a broken capture path never reaches the app**: a capture sink that throws is fenced, and the call
+  returns normally;
+- **the result is read, never consumed**: capture holds no reference past the call.
+
+Both `@modelcontextprotocol` package lines are **optional peers**, feature-detected at runtime. Neither is
+imported at build time, and with neither installed the MCP half is a silent no-op.
+
+## Also in this distribution
+
+Also publishes [`@flanj/redaction-patterns`](packages/redaction-patterns/README.md), the standalone
+redaction floor — the same detectors this SDK runs, usable on its own.
+
+## Status
+
+Pre-release (v0). See [docs/CONCEPTS.md](docs/CONCEPTS.md) for the engineering model and [CLAUDE.md](CLAUDE.md)
+for the repo map.
 
 **Supported:** REST/HTTP integrations — live request and response validated against the provider's OpenAPI document.
 **Supported:** MCP tools — tool-definition drift and result-vs-`outputSchema` mismatch, flagged to the server operator with evidence.
 **Roadmap:** webhooks (received-webhook contract drift; missing-webhook detection under design).
 
 **Languages.** Node / TypeScript — **supported**: this package, HTTP egress and ingress plus the MCP
-client. Python — **early**, MCP client only, with no HTTP body capture; there is no `node:http` choke
-point to port, and for an agent shop with no REST integration to instrument, MCP-only is a complete
-product rather than a partial SDK. A language is called *supported* only once the whole loop runs on
-it end to end in our own integration harness, with that suite's assertions green — until then it says early,
-here and everywhere else.
+client. Python — **early**: [`flanj`](https://github.com/flanj-io/sdk-py), MCP client only, with no HTTP
+body capture; there is no `node:http` choke point to port, and for an agent shop with no REST integration
+to instrument, MCP-only is a complete product rather than a partial SDK. Apart from HTTP capture the two
+are the same SDK: same defaults, same records, same entry points. A language is called *supported* only
+once the whole loop runs on it end to end in our own integration harness, with that suite's assertions
+green — until then it says early, here and everywhere else.
 
 **Where this stops, said out loud.** Global `fetch`/undici is **not** captured (see *What is
 captured*). A REST provider needs a spec somebody published; an MCP server needs none. A call the
 collector cannot check against a contract is captured and reported as **not validated**, never as
 conforming.
-
-Also publishes [`@flanj/redaction-patterns`](packages/redaction-patterns/README.md), the standalone redaction floor.
-
-Flanj turns a detection into something you can act on with the other team. The SDK is open source under
-Apache-2.0; the [collector](https://github.com/flanj-io/collector) is source-available under the Elastic
-License 2.0; the network layer that carries a flagged finding between the two teams is hosted.
-
-## Status
-
-Pre-release (v0). See [docs/CONCEPTS.md](docs/CONCEPTS.md) for the engineering model and [CLAUDE.md](CLAUDE.md)
-for the repo map.
 
 **0.2.0: breaking.** The `integration` option (of `start()`, `instrumentMcpClient` and
 `registerMcpAutoInstrumentation`) and `FLANJ_INTEGRATION_ID` are gone, with no shim and no warning: passing
@@ -238,6 +307,24 @@ outbound and MCP calls, from the resource `service.name` on inbound ones — so 
 thing you configure. Its default order also changed: the `serviceName` option, then `OTEL_SERVICE_NAME`,
 then your app's own name (from the nearest `package.json`), then `flanj-sdk` as a last resort (it was
 `flanj-consumer`). An empty value counts as unset.
+
+Flanj turns a detection into something you can act on with the other team. The SDK is open source under
+Apache-2.0; the [collector](https://github.com/flanj-io/collector) is source-available under the Elastic
+License 2.0; the network layer that carries a flagged finding between the two teams is hosted.
+
+## Development
+
+```bash
+yarn install
+yarn test     # unit specs plus the real-process integration specs
+yarn lint     # eslint
+yarn build    # tsc -b, including the workspace redaction package
+```
+
+## Security
+
+Report vulnerabilities, including any redaction gap, privately — see [SECURITY.md](SECURITY.md). Never
+include a real card number or real personal data.
 
 ## License
 

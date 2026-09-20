@@ -5,6 +5,7 @@ import { emitContractSnapshot, emitMcpCall } from './mcp-record';
 import { stdioLaunchCommand } from './launch-command';
 import { resolveMcpEdge } from './resolve-mcp-edge';
 import { catalogCacheHints, serverInfoFromMeta, type CatalogCacheHints } from './result-meta';
+import { warnCaptureFailed } from '../capture-warning';
 import type { McpCapturedCall, McpContractSnapshot, McpServerIdentity, McpServerKind } from './mcp-types';
 
 /**
@@ -310,8 +311,10 @@ export function instrumentMcpClient<T extends McpClientLike>(client: T, options:
           bodyCapBytes: options.bodyCapBytes
         })
       );
-    } catch {
-      /* capture failure = we stopped collecting, never "the agent broke" */
+    } catch (err) {
+      // Capture failure = we stopped collecting, never "the agent broke".
+      // Silent, except for one line the first time — see capture-warning.
+      warnCaptureFailed(err, 'capturing an MCP tool call');
     }
   };
 
@@ -329,8 +332,8 @@ export function instrumentMcpClient<T extends McpClientLike>(client: T, options:
           serverCommand: e.serverKind === 'stdio' ? stdioLaunchCommand(c.transport) : undefined
         })
       );
-    } catch {
-      /* capture-side only */
+    } catch (err) {
+      warnCaptureFailed(err, 'recording an MCP contract snapshot');
     }
   };
 

@@ -106,18 +106,21 @@ not by a regex). Headers are `"{}"`; `flanj.http.status_code` is **omitted** (MC
 host[:port], or `serverInfo.name` for a stdio server (edge class `"local-process"`); a streamable-HTTP
 peer classified `internal` stays metadata-only as ever. Additive attributes:
 
-> **SDK parity.** The TypeScript and Python SDKs share every default and emit the same records; the one
-> intended difference is that the Python SDK does no HTTP body capture. Two further differences follow from
-> the runtime and are recorded here so they are not re-litigated as bugs:
+> **SDK parity.** The TypeScript and Python SDKs share every default and emit the same records. The one
+> intended difference is that the Python SDK does no HTTP body capture. Everything else is the same surface:
+> both zero-code entries (`node -r @flanj/sdk/register`, `import flanj.register`) start the OTLP pipeline,
+> flush on exit and **auto-instrument every MCP client**, and both handles expose an explicit per-client
+> equivalent (`handle.instrumentMcp(client)`, `handle.instrument(session)`) and the same one-time
+> capture-failure line under `FLANJ_SILENCE_CAPTURE_WARNINGS`. The TypeScript entry additionally switches on
+> HTTP body capture, which is the intended difference above.
 >
-> 1. **Edge class `"unknown"` (Python only).** A JavaScript MCP `Client` keeps its transport, and the
->    transport knows its URL, so the TypeScript SDK can always place a server. A Python `ClientSession` holds
->    two in-memory streams and no URL: the SDK learns where a server is when its transport *opens* (it wraps
->    `streamable_http_client` / `sse_client` / `stdio_client`). A session whose transport was opened before the
->    SDK loaded is `"unknown"` — metadata-only, never guessed. Hence the Python SDK's load-first rule.
-> 2. **The zero-code entry auto-instruments MCP.** `node -r @flanj/sdk/register` switches on HTTP body
->    capture; `import flanj.register` switches on MCP client capture instead, since that is the whole of what
->    the Python SDK does. Both also start the OTLP pipeline and flush on exit.
+> One further difference follows from the runtime and is recorded here so it is not re-litigated as a bug:
+>
+> - **Edge class `"unknown"` (Python only).** A JavaScript MCP `Client` keeps its transport, and the
+>   transport knows its URL, so the TypeScript SDK can always place a server. A Python `ClientSession` holds
+>   two in-memory streams and no URL: the SDK learns where a server is when its transport *opens* (it wraps
+>   `streamable_http_client` / `sse_client` / `stdio_client`). A session whose transport was opened before the
+>   SDK loaded is `"unknown"` — metadata-only, never guessed. Hence the Python SDK's load-first rule.
 
 > **Server identity, since protocol revision 2026-07-28.** That revision removed the `initialize` /
 > `notifications/initialized` handshake and protocol-level sessions, so the client accessors the v0.5
