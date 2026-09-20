@@ -34,7 +34,6 @@ describe('patchMcpClientConstructor', () => {
     const snapshots: McpContractSnapshot[] = [];
     expect(
       patchMcpClientConstructor(C, {
-        integration: 'acme-payments',
         onCapture: (c) => calls.push(c),
         onSnapshot: (s) => snapshots.push(s)
       })
@@ -61,7 +60,7 @@ describe('patchMcpClientConstructor', () => {
   it('is idempotent on the constructor and never double-captures', async () => {
     class C extends FakeClient {}
     const calls: McpCapturedCall[] = [];
-    const opts = { integration: 'acme-payments', onCapture: (c: McpCapturedCall) => calls.push(c) };
+    const opts = { onCapture: (c: McpCapturedCall) => calls.push(c) };
     expect(patchMcpClientConstructor(C, opts)).toBe(true);
     expect(patchMcpClientConstructor(C, opts)).toBe(true);
     const a = new C();
@@ -71,35 +70,15 @@ describe('patchMcpClientConstructor', () => {
   });
 
   it('refuses non-Client-shaped values without touching them', () => {
-    expect(patchMcpClientConstructor(undefined, { integration: 'x' })).toBe(false);
-    expect(patchMcpClientConstructor({}, { integration: 'x' })).toBe(false);
+    expect(patchMcpClientConstructor(undefined, {})).toBe(false);
+    expect(patchMcpClientConstructor({}, {})).toBe(false);
     class NotAClient {}
-    expect(patchMcpClientConstructor(NotAClient, { integration: 'x' })).toBe(false);
+    expect(patchMcpClientConstructor(NotAClient, {})).toBe(false);
   });
 });
 
 describe('registerMcpAutoInstrumentation', () => {
   it('skips missing optional peers silently (neither MCP package is installed here)', async () => {
-    await expect(registerMcpAutoInstrumentation({ integration: 'x' })).resolves.toEqual([]);
-  });
-});
-
-/**
- * The bug this fixes: one `registerMcpAutoInstrumentation({ integration })` call
- * patches EVERY client the process opens, so every MCP server used to share one
- * integration id — and therefore one baseline. With no integration configured,
- * each instance now derives its own from its edge key.
- */
-describe('auto-instrumentation — one integration per server', () => {
-  it('two servers behind one patched constructor get two integrations', async () => {
-    class C extends FakeClient {}
-    const calls: McpCapturedCall[] = [];
-    expect(patchMcpClientConstructor(C, { onCapture: (c) => calls.push(c) })).toBe(true);
-    const acme = new C();
-    const globex = new C();
-    globex.transport = { url: 'https://mcp.globex.test/mcp' };
-    await acme.callTool({ name: 'get_balance' });
-    await globex.callTool({ name: 'get_balance' });
-    expect(calls.map((c) => c.integration)).toEqual(['mcp-acme-test', 'mcp-globex-test']);
+    await expect(registerMcpAutoInstrumentation({})).resolves.toEqual([]);
   });
 });

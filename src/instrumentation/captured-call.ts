@@ -16,7 +16,6 @@ export interface WireRedactedField extends RedactedField {
  * is redacted and dropped before a `CapturedCall` is constructed.
  */
 export interface CapturedCall {
-  integration: string;
   direction: 'client' | 'server';
   /** The OTHER end's host[:port] — egress: destination; ingress: caller/source. The edge key. */
   peerHost: string;

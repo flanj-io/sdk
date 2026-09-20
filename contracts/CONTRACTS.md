@@ -38,10 +38,23 @@ record per observed `tools/list` (the MCP blocks below). The SDK redacts at sour
 is constructed; raw bodies never reach OTLP.
 
 **Resource attributes** *(2026-09-19)* — set once per OTLP `Resource` and shared by every record under
-it; not `flanj.*` keys. `service.name` is the emitting service, which on a call record is the CALLER.
-Both SDKs set it from their service-name option, else `OTEL_SERVICE_NAME`, else `"flanj-consumer"`.
+it; not `flanj.*` keys. `service.name` is the emitting service: on an outbound (`client`) call record
+the CALLER, on an inbound (`server`) one the service the call reached. Both SDKs set it from their
+service-name option, else `OTEL_SERVICE_NAME`, else the app's own name, else `"flanj-sdk"`
+*(2026-09-19; it was `"flanj-consumer"`)*. The app's own name, resolved once when `start()` runs and
+never at import:
+- **TypeScript:** the non-empty string `name` of the nearest `package.json` that has one, walking up
+  from the directory of the entry file (`process.argv[1]`, symlinks resolved as Node resolves the main
+  module), and when that finds none, walking up from the working directory. With no entry file (a
+  REPL, `node -e`, `node -p`) or no such `package.json` → `"flanj-sdk"`.
+- **Python:** under `python -m pkg.mod`, `__main__.__spec__.name` with a trailing `.__main__` removed
+  (`python -m myapp` → `myapp`); else the basename of `__main__.__file__` without `.py`
+  (`python path/app.py` → `app`; a launcher such as gunicorn or uvicorn yields the launcher's own script
+  name, as Datadog's does). A result of `__main__` (a directory or zip run as a script) is no name. A
+  REPL, `python -c`, or an embedded interpreter with neither → `"flanj-sdk"`. No file is read.
 The collector reads it off each call record's resource into the stored call's `service_name` (§3), for
-local display and filtering only. Every other resource attribute is ignored.
+local display and filtering, and on an inbound call it is also the call's integration (the
+`flanj.integration` row below). Every other resource attribute is ignored.
 
 Log record `body` is empty; all data is in **attributes**. Attribute keys (carrier-agnostic — identical
 if ever moved to a span event):
@@ -55,7 +68,7 @@ if ever moved to a span event):
 | `flanj.peer.addr` *(optional)* | string | the peer's socket address (IP) when the socket layer exposed one — egress: the resolved remote address; ingress: `socket.remoteAddress` (behind a proxy: the last hop's). Transport detail for display/debugging; NEVER an identity or edge key. Omitted when unknown. |
 | `flanj.edge.class` | string | `"external"` \| `"internal"` — classification of `peer.host`, byte-identical in SDK + collector. **Internal** = RFC1918 (10/8, 172.16-31/12, 192.168/16) / loopback (127/8, `::1`) / unspecified (`::`) / link-local (169.254/16, `fe80::/10`) / ULA (`fc00::/7`) / a name ending `.svc.cluster.local`·`.internal`·`.local` / single-label host. `::ffff:` IPv4-mapped addresses are unmapped first. Else **external**. v0.5 (Step B) adds the additive value `"local-process"`: a stdio MCP server (see the MCP block below) — bodies ARE captured + redacted (a local MCP process usually fronts an external API; the contract is the server's), unlike `internal` which stays metadata-only. The Python SDK adds `"unknown"`: an MCP server whose transport the SDK never saw, so it cannot tell remote from local — **metadata-only** (it might be internal), `peer.host` = `serverInfo.name`, and the SDK says so once on stderr. Never emitted by the TypeScript SDK (see *SDK parity* below). Consumers treat any class other than `external` as not an integration-graph edge, so it is carried as a plain string. One consequence for the collector: like `local-process`, an `unknown` row's `peer.host` is a self-reported name, not a host, so it never seeds another pod's MCP baseline. |
 | `flanj.capture.bodies` | bool | `true` on external edges (bodies present) · `false` on internal (bodies OMITTED — internal is metadata-only, classified out of surfacing). |
-| `flanj.integration` | string | the integration id, e.g. `"acme-payments"` (may be derived from `peer.host` when auto-discovered). **MCP records with no configured integration** derive one **per server** from `peer.host` by the collector's own rule (`integrationForHost`: ASCII letters lowercased, digits kept, every other character `-`, runs of `-` collapsed, ends trimmed), and use `"unknown-integration"` when that yields nothing — so two servers never share a baseline. Both SDKs, identically. |
+| `flanj.integration` *(deprecated 2026-09-19)* | string | **Ignored by the collector, and sent by neither SDK since @flanj/sdk 0.2.0 (the Python SDK never sent it in a release).** The collector derives every record's integration at ingest, the same way at every pod: an **outbound** HTTP call and any **MCP** record (call or `contract_snapshot`) → `integrationForHost(flanj.peer.host)` (ASCII letters lowercased, digits kept, every other character `-`, runs of `-` collapsed, ends trimmed), `"unknown-integration"` when that yields nothing; an **inbound** HTTP call → the record's resource `service.name` (the service the call reached; `"unknown-integration"` when the resource carries none). An older SDK that still sends the attribute lands on the same key as a new one. The key is internal: it never replaces the service (`service_name`, §3) or the counterparty (`flanj.peer.host`), and because the §4 finding signature starts with it, a finding opened under an SDK-sent id is not carried over: its next occurrence opens a new finding under the derived key, once. |
 | `flanj.http.method` | string | `"POST"` |
 | `flanj.http.route` | string | templated if known (`"/v1/charges"`) else path |
 | `flanj.http.target` | string | redacted path+query |
@@ -148,7 +161,7 @@ one record per **complete** observed `tools/list` (pagination followed; re-fetch
 | `flanj.record.type` | string | `"contract_snapshot"` |
 | `flanj.transport` | string | `"mcp"` |
 | `flanj.direction` | string | `"client"` |
-| `flanj.peer.host` / `flanj.edge.class` / `flanj.integration` | | as on MCP call records (same edge key). |
+| `flanj.peer.host` / `flanj.edge.class` | | as on MCP call records (same edge key). `flanj.integration` is deprecated and ignored here too: the collector derives the snapshot's integration by the call rule, so a server's catalogue and its calls always share one key. |
 | `flanj.mcp.contract_snapshot` | string | **floor-redacted** JSON `{"tools":[…], "serverInfo"?, "protocolVersion"?, "capabilities"?, "ttlMs"?, "cacheScope"?}`. Each tool carries exactly the ToolDef wire keys `name` / `description` / `inputSchema` / `outputSchema` / `annotations` (decodable by the collector's `contract.ParseToolsList`); schemas are the server's own words, passed verbatim — a tool without `outputSchema` keeps none (the honest "no output contract declared" state, never synthesized). `capabilities` carries `{tools:{listChanged}}` when the client surfaces it. |
 | `flanj.mcp.tool.count` | int | tools in the snapshot. |
 | `flanj.mcp.server.name` / `flanj.mcp.server.version` / `flanj.mcp.protocol.version` *(optional)* | string | server identity, same source and precedence as on call records. |
@@ -262,7 +275,14 @@ call it sends, so it never reaches the CP:
 
 | Field | Type | Meaning |
 |---|---|---|
-| `service_name` *(2026-09-19)* | string | The caller's `service.name`, from the record's OTLP resource (§2). It names this org's own services — internal topology — so it stays on the collector: shown on the Overview MCP lines and as a Traffic filter. Omitted when the resource carried none. |
+| `service_name` *(2026-09-19)* | string | The emitting service's `service.name` (the caller on an outbound record, the service the call reached on an inbound one), from the record's OTLP resource (§2). It names this org's own services — internal topology — so it stays on the collector: shown on the Overview MCP lines and as a Traffic filter. Omitted when the resource carried none. |
+
+**`integration` on the wire** *(2026-09-19)*. Locally, the collector stores and keys an inbound call by
+its service name (§2, the `flanj.integration` row), and so does a finding raised against the org's own
+`self_spec_path` contract. A service name never leaves the collector, so the flag relay sends
+`integration` = `"self"` on both the call and the finding (§4) whenever the call is inbound
+(`direction` `"server"`) or the finding came from the self spec. That is the value the wire carried
+before. Outbound and MCP keys, which are host slugs, cross unchanged.
 
 ---
 
@@ -349,7 +369,7 @@ call** (2026-09-18): `mcp_tool_name` and `route` name the inner tool and `via_di
 request body stays the literal dispatcher call so a provider can reproduce it exactly. Any other name stays on the
 dispatcher — nothing is inferred from the shape of a call.
 
-The tools a search returned are also a **contract row of their own** (a `spec_infos` row, listed in the local UI): integration
+The tools a search returned are also a **contract row of their own** (its own catalogue row, listed in the local UI): integration
 `<integration>:search`, format `mcp`, source `search_result` — partial by definition — written when the learned
 catalog changes and seeded back on restart and to tiered fronts, exactly like an observed `tools/list`. A tool
 that the complete listing does not declare but the partial catalog does (a searched tool called directly) is
@@ -730,8 +750,9 @@ covers older SDKs in the compatibility window that emit no fields).
 **Removed 2026-09-14 — `integration_id`, `self_integration_id`.** The collector's identity is its
 `collector_name`, given in the Connect panel (mandatory, unique within the contact's workspace,
 changeable), not a config key; the Overview headline names the collector, and
-a call's or finding's `integration` (§3/§4) is the SDK's `flanj.integration` attribute, which never
-came from this key. Self-spec findings are labelled `self`. A config that still carries either key
+a call's or finding's `integration` (§3/§4) is derived by the collector at ingest (§2, the
+`flanj.integration` row), and never came from this key. A self-spec finding is keyed locally by the inbound
+call's service name (the constant `self` until 2026-09-19); on the wire it is still `self` (§3). A config that still carries either key
 boots with a one-line warning naming it; the value is ignored.
 
 **Removed 2026-08-31 — `spec_path`, `spec_v2_path`, `peer_host`.** Provider
@@ -762,7 +783,7 @@ is deliberately unaffected: one document per deployment, not one per vendor.
 | `edge_sync` | *(flanjui, bool, default `true` — v1p2-2026-09-09)* **edge registration** — the third leg of the same 15s ticker, gated independently of the other two. Once a collector key exists, each unique **EXTERNAL** edge is registered to the CP (`POST /api/v1/edges/sync`, §5) as `{registrable_domain, direction, first_seen, last_seen}` and nothing else: no calls, no bodies, no payloads, no peer hosts, no call or drift counts. **Internal edges never leave** — the same classification that keeps them off `GET /api/edges` keeps them off the wire, asserted on the marshalled bytes. Nothing is sent before Connect. `false` disables the registration only (`finding_sync` and `directory_sync` are unaffected); with all three false no ticker starts at all. Unlike `directory_sync`, this leg DOES send something about this collector's edges — which is why the Connect panel discloses it before the operator Connects. |
 | `store_pod_endpoint` *(optional, flanjdrift)* | base URL of the store pod's `spec_endpoint`. Set on a FRONT of the tiered topology only: a front runs drift but owns no store, so this is how uploaded contracts — and, since 2026-09-07, the observed MCP `tools/list` snapshots every front forwards, i.e. the org-wide MCP baseline — reach it. Empty everywhere else, where the co-located store is read in-process |
 | `store_pod_token` *(optional, flanjdrift)* | bearer token presented to `store_pod_endpoint`; must match the store pod's `spec_token`. Use `${env:…}`; never logged |
-| `spec_endpoint` *(optional, flanjstore)* | intra-cluster bind for the read-only CONTRACT endpoint (`GET /internal/contracts`, `GET /internal/contracts/doc`). Set on the tiered topology's STORE POD so fronts can read provider contracts bound to an edge: uploaded OpenAPI documents and observed MCP `tools/list` snapshots (format `mcp`, since 2026-09-07). Contracts only — no calls, no findings, no settings, never the self contract — and never the loopback UI |
+| `spec_endpoint` *(optional, flanjstore)* | intra-cluster bind for the read-only CONTRACT endpoint (`GET /internal/contracts`, `GET /internal/contracts/doc`). Set on the tiered topology's STORE POD so fronts can read provider contracts bound to an edge: uploaded OpenAPI documents and observed MCP `tools/list` snapshots (format `mcp`, since 2026-09-07). `GET /internal/contracts/doc` takes an optional `format` (`openapi` | `mcp`, additive): without it the endpoint serves the REST contract when one exists for the integration, else the MCP catalogue. Contracts only — no calls, no findings, no settings, never the self contract — and never the loopback UI |
 | `spec_token` *(optional, flanjstore)* | bearer token `spec_endpoint` requires. Use `${env:…}`; never logged |
 | `ui_endpoint` | localhost bind for the UI extension, default `127.0.0.1:5335` |
 | `otlp_endpoint` | OTLP receiver bind, default `0.0.0.0:4318` |

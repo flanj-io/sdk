@@ -13,7 +13,6 @@ import { buildMcpCallAttributes } from './mcp-record';
 const PAN = '4242424242424242';
 
 const base = (over: Partial<AssembleMcpCallInput>): AssembleMcpCallInput => ({
-  integration: 'acme-payments',
   peerHost: 'mcp.acme.test',
   edgeClass: 'external',
   serverKind: 'streamable-http',

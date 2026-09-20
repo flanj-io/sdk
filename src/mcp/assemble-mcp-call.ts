@@ -6,7 +6,6 @@ import type { McpCallMeta, McpCapturedCall, McpServerKind } from './mcp-types';
 
 /** The direction-agnostic inputs for one completed MCP tool call. */
 export interface AssembleMcpCallInput {
-  integration: string;
   peerHost: string;
   edgeClass: 'external' | 'internal' | 'local-process';
   serverKind: McpServerKind;
@@ -63,7 +62,6 @@ export function assembleMcpCall(input: AssembleMcpCallInput): McpCapturedCall {
   const trace = traceContextFromMeta(input.result);
 
   const call = assembleCapturedCall({
-    integration: input.integration,
     direction: 'client',
     peerHost: input.peerHost,
     edgeClass: input.edgeClass,

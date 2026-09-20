@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { integrationForHost, resolveMcpEdge, UNKNOWN_MCP_SERVER } from './resolve-mcp-edge';
+import { resolveMcpEdge, UNKNOWN_MCP_SERVER } from './resolve-mcp-edge';
 
 describe('resolveMcpEdge — MCP edge identity', () => {
   it('streamable HTTP: endpoint URL host is the edge key, classified by the shared heuristic', () => {
@@ -57,23 +57,5 @@ describe('resolveMcpEdge — MCP edge identity', () => {
   it('never throws on a hostile transport object', () => {
     const hostile = new Proxy({}, { get: () => { throw new Error('boom'); } });
     expect(resolveMcpEdge({ transport: hostile }).serverKind).toBe('stdio');
-  });
-});
-
-/**
- * The collector's `integrationForHost`, used to give each MCP server its own
- * integration when none is configured. Literals shared with the Python suite
- * (`tests/mcp/test_integration_for_host.py`).
- */
-describe('integrationForHost — the collector rule', () => {
-  it.each([
-    ['api.stripe.com', 'api-stripe-com'],
-    ['mcp.acme.com:8443', 'mcp-acme-com-8443'],
-    ['Acme_Tools MCP', 'acme-tools-mcp'],
-    ['--weird..host--', 'weird-host'],
-    ['café-mcp', 'caf-mcp'],
-    ['天气', '']
-  ])('%s → %s', (host, expected) => {
-    expect(integrationForHost(host)).toBe(expected);
   });
 });

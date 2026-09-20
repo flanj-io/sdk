@@ -71,12 +71,6 @@
                   }
                 },
                 {
-                  "key": "flanj.integration",
-                  "value": {
-                    "stringValue": "acme-payments"
-                  }
-                },
-                {
                   "key": "flanj.mcp.contract_snapshot",
                   "value": {
                     "stringValue": "{\"tools\":[{\"name\":\"get_balance\",\"description\":\"Current balance for an account.\",\"inputSchema\":{\"type\":\"object\",\"properties\":{\"account_id\":{\"type\":\"string\"}},\"required\":[\"account_id\"]},\"outputSchema\":{\"type\":\"object\",\"properties\":{\"amount\":{\"type\":\"integer\"},\"currency\":{\"type\":\"string\"}},\"required\":[\"amount\",\"currency\"]}},{\"name\":\"create_refund\",\"description\":\"Refund a charge.\",\"inputSchema\":{\"type\":\"object\",\"properties\":{\"amount\":{\"type\":\"integer\"},\"card_number\":{\"type\":\"string\"},\"currency\":{\"type\":\"string\"}},\"required\":[\"amount\",\"currency\"]},\"outputSchema\":{\"type\":\"object\",\"properties\":{\"refund\":{\"type\":\"object\",\"properties\":{\"id\":{\"type\":\"string\"},\"amount\":{\"type\":\"integer\"},\"status\":{\"type\":\"string\"}},\"required\":[\"id\",\"amount\",\"status\"]}},\"required\":[\"refund\"]},\"annotations\":{\"readOnlyHint\":false}},{\"name\":\"list_transactions\",\"description\":\"Recent transactions for an account.\",\"inputSchema\":{\"type\":\"object\",\"properties\":{\"account_id\":{\"type\":\"string\"}},\"required\":[\"account_id\"]}}],\"serverInfo\":{\"name\":\"acme-payments-mcp\",\"version\":\"3.2.0\"},\"protocolVersion\":\"2025-06-18\",\"capabilities\":{\"tools\":{\"listChanged\":true}}}"

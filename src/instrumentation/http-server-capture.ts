@@ -262,7 +262,6 @@ export class HttpServerCaptureInstrumentation extends FlanjInstrumentation<HttpB
     const peerAddr = (req.socket as unknown as { remoteAddress?: string } | undefined)?.remoteAddress;
 
     return assembleCapturedCall({
-      integration: cfg.integration,
       direction: 'server',
       peerHost: input.peerHost,
       peerAddr,

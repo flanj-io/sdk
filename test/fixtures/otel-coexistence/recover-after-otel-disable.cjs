@@ -18,7 +18,6 @@ registerInstrumentations({ instrumentations: [otel] });
 const { start } = require(process.env.SDK_ENTRY);
 const captured = [];
 const handle = start({
-  integration: 'coexistence-probe',
   processor: {
     onEmit(record) {
       captured.push(record.attributes?.['flanj.direction']);

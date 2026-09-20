@@ -19,7 +19,6 @@ type HeaderValue = string | string[] | number | undefined;
  * be dropped by the caller the moment this returns.
  */
 export interface AssembleCallInput {
-  integration: string;
   direction: 'client' | 'server';
   peerHost: string;
   /** The peer's socket address (IP) when known; transport detail, not identity. */
@@ -87,7 +86,6 @@ export function assembleCapturedCall(input: AssembleCallInput): CapturedCall {
   ];
 
   return {
-    integration: input.integration,
     direction: input.direction,
     peerHost: input.peerHost,
     peerAddr: input.peerAddr,

@@ -28,7 +28,6 @@ function goldenAttrs(file: string): Record<string, unknown> {
 
 /** The golden call: RAW inputs — the PAN below must never survive into any attribute. */
 const callInput: AssembleMcpCallInput = {
-  integration: 'acme-payments',
   peerHost: 'mcp.acme.test',
   edgeClass: 'external',
   serverKind: 'streamable-http',
@@ -49,7 +48,6 @@ const callInput: AssembleMcpCallInput = {
 };
 
 const snapshotInput: AssembleContractSnapshotInput = {
-  integration: 'acme-payments',
   peerHost: 'mcp.acme.test',
   edgeClass: 'external',
   serverKind: 'streamable-http',

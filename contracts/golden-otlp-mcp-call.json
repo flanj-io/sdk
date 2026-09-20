@@ -71,12 +71,6 @@
                   }
                 },
                 {
-                  "key": "flanj.integration",
-                  "value": {
-                    "stringValue": "acme-payments"
-                  }
-                },
-                {
                   "key": "flanj.http.method",
                   "value": {
                     "stringValue": "tools/call"

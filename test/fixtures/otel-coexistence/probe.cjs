@@ -33,7 +33,6 @@ function setupFlanj() {
   // A processor instead of the OTLP exporter: this probe is about who patches
   // what, so nothing should leave the process.
   return start({
-    integration: 'coexistence-probe',
     processor: {
       onEmit(record) {
         const a = record.attributes ?? {};

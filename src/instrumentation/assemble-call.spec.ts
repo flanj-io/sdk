@@ -6,7 +6,6 @@ const EMAIL = 'jane@acme.test';
 
 function input(overrides: Partial<AssembleCallInput>): AssembleCallInput {
   return {
-    integration: 'acme-payments',
     direction: 'client',
     peerHost: 'api.acme.test',
     edgeClass: 'external',
