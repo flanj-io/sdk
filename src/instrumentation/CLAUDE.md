@@ -197,6 +197,14 @@ down first.
   `contracts/golden-otlp-call.json` (locked by `otlp-record.spec.ts`). Optional attributes
   (`*.content_type`, `corr.*`) are omitted when absent, never emitted empty. Change the wire format in
   the canonical contract first, then re-vendor.
+- **`route` is the path; `target` is path+query** (CONTRACTS §2). `assembleCapturedCall` redacts the
+  path+query ONCE and cuts that redacted text at the first `?` or `#` to get `route` — after redaction,
+  never before: the floor's verdict on a path segment can depend on the query beside it
+  (`/pay/cvv=123?x=1` is tokenised, the bare `/pay/cvv=123` is not), so a pre-cut path could show in
+  `route` a value `target` hid. A slice of `target` cannot. An empty path is `/`, never `''` (an empty
+  route is discarded downstream as not-a-call). MCP passes `opaquePath` — a tool name is not a URL, so
+  `route` = `target` = `"/<tool.name>"` whatever the name contains. The Python SDK's assembler applies
+  the identical rule; change both or neither.
 - **`redaction.patterns` is reported in canonical order** (`PAN, EMAIL, IBAN, SSN, PHONE, CVV, TOKEN,
   IP`) and covers bodies **and** the redacted target/URL, so the emitted set reflects everything that
   fired.
