@@ -69,37 +69,49 @@ describe('README — first-run essentials', () => {
   });
 
   /**
-   * The verify step gives a UI URL that a plain `docker run -p 5335:5335` of the
-   * collector does not serve: its UI binds CONTAINER loopback by design, so the
-   * port publish forwards to nothing and the two lines after it fail with
-   * `curl: (7) Failed to connect` — which reads as "the SDK exported nothing".
-   * The collector README's laptop block runs the sidecar that makes the URL
-   * real; this README is the npm package page and is what a stranger reads
-   * first and possibly only, so it must not assume that block silently
-   * (flanj-io/sdk#35).
+   * The collector README now offers two run blocks — Kubernetes (preferred) and
+   * Docker — and the old single "laptop" anchor is gone. Quick start must point
+   * at both, by their own anchors, not at the repo root, which would leave the
+   * reader to find the run command themselves (flanj-io/sdk#35 was the original
+   * version of this gap).
    *
    * Locked here the same way the Node floor is: this is the SDK half of a
    * two-repo pair, and a test can only hold this half.
    */
-  it('sends the reader to the collector run block, not the repo root, for the run command', () => {
+  it('sends the reader to both collector run blocks, not the repo root, for the run commands', () => {
     const quickStart = readme.slice(readme.indexOf('## Quick start'), readme.indexOf('### Configuration'));
     expect(
       quickStart,
-      'Quick start needs the collector README anchor, not a bare repo link'
-    ).toContain('https://github.com/flanj-io/collector#run-it-on-a-laptop');
+      'Quick start needs the collector README Kubernetes anchor, not a bare repo link'
+    ).toContain('https://github.com/flanj-io/collector#run-it-on-kubernetes');
+    expect(
+      quickStart,
+      'Quick start needs the collector README Docker anchor, not a bare repo link'
+    ).toContain('https://github.com/flanj-io/collector#run-it-with-docker');
+    expect(quickStart, 'the retired laptop anchor must not return').not.toContain('#run-it-on-a-laptop');
     // A repo-root link elsewhere (the feature list naming the consumer of the
-    // wire convention) is fine — it is not telling anyone how to run anything.
+    // wire convention, or the chart README under a /tree/ path) is fine — it is
+    // not telling anyone how to run anything.
     expect(
       quickStart.includes('](https://github.com/flanj-io/collector)'),
       'a bare repo-root link in Quick start leaves the reader to find the run command themselves'
     ).toBe(false);
   });
 
-  it('says the UI needs the collector run block sidecar before it gives a UI URL', () => {
+  /**
+   * The collector's UI used to need a manually-run sidecar because its Docker
+   * image bound container loopback only. Docker Compose now starts that bridge
+   * itself, and on Kubernetes the equivalent is a `kubectl port-forward` — so the
+   * "sidecar" framing (and its unqualified "collector's UI is loopback-only"
+   * claim) no longer describes either path and must not return.
+   */
+  it('explains recovery for both the Docker and Kubernetes verify paths, without stale sidecar wording', () => {
     const verify = readme.slice(readme.indexOf('**Verify**'), readme.indexOf('### Configuration'));
     expect(verify, 'no Verify section found').not.toHaveLength(0);
-    expect(verify.toLowerCase()).toContain('sidecar');
+    expect(verify.toLowerCase(), 'sidecar wording is retired').not.toContain('sidecar');
     expect(verify).toContain('http://127.0.0.1:5335');
+    expect(verify).toContain('docker compose up -d');
+    expect(verify).toContain('kubectl -n flanj port-forward');
   });
 
   it('says which module systems are supported', () => {
@@ -210,6 +222,7 @@ describe('README — the shared cross-language skeleton', () => {
     expect(headings).toEqual([
       '@flanj/sdk',
       'Quick start',
+      'On Kubernetes', // inside Quick start: the chart's fixed-name Service + the workload patch
       'ESM, CJS, and shutdown', // language-specific: the Python README has "Load flanj first" here
       'MCP quick start',
       'Instrumenting a client yourself',

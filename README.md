@@ -28,10 +28,9 @@ floor and how it is held identical across languages.
 
 ## Quick start
 
-Needs Node `^20.16.0 || >=22.3.0` and a running Flanj collector, started with the collector README's
-[Run it on a laptop](https://github.com/flanj-io/collector#run-it-on-a-laptop) block. Use that command as
-written: the collector's UI binds container loopback by design, so it is reached through the small sidecar
-that block includes, and a plain `docker run -p 5335:5335` publishes nothing.
+Needs Node `^20.16.0 || >=22.3.0` and a running Flanj collector: [Run it on
+Kubernetes](https://github.com/flanj-io/collector#run-it-on-kubernetes) — the preferred way to deploy one —
+or [Run it with Docker](https://github.com/flanj-io/collector#run-it-with-docker).
 The SDK patches core `node:http` through `process.getBuiltinModule`, which landed in Node 20.16.0 and 22.3.0;
 on anything older `start()` throws one line naming the requirement rather than capturing nothing.
 
@@ -39,31 +38,56 @@ on anything older `start()` throws one line naming the requirement rather than c
 npm install @flanj/sdk        # or: yarn add @flanj/sdk
 ```
 
+The Docker collector already listens on the SDK's default endpoint, `http://localhost:4318/v1/logs`, so
+there is nothing to point anywhere:
+
 ```bash
-OTEL_SERVICE_NAME=checkout \
-FLANJ_OTLP_ENDPOINT=http://localhost:4318/v1/logs \
 node -r @flanj/sdk/register app.js
 ```
 
 That is the whole integration; no source change. The preload starts the OTLP pipeline, flushes on exit, and
 switches on **both** capture paths: every `node:http`/`node:https` call, and — when an MCP client package is
 installed — every MCP client your app constructs. It prints one line naming the endpoint, the resolved
-service name and what it is capturing (`FLANJ_QUIET=1` silences it). It is the counterpart of the Python
-SDK's `import flanj.register`.
+service name (defaulting to your app's own `package.json` name — see [Configuration](#configuration)) and
+what it is capturing (`FLANJ_QUIET=1` silences it). It is the counterpart of the Python SDK's
+`import flanj.register`.
 
-**Verify** — after your app has made at least one call, and assuming the collector was started with the
-[Run it on a laptop](https://github.com/flanj-io/collector#run-it-on-a-laptop) command including its UI
-sidecar:
+### On Kubernetes
+
+The chart installs a fixed-name front Service, so the address below is right for every install that used
+the chart README's command. Set it, and the preload, on your **own** workload — not your shell — because
+the SDK runs in the app's pod, where `localhost` is not the collector, and `NODE_OPTIONS` is the preload
+without editing the image's `command`:
+
+```yaml
+env:
+  - name: FLANJ_OTLP_ENDPOINT
+    value: http://flanj-collector.flanj:4318/v1/logs
+  - name: NODE_OPTIONS
+    value: "--require @flanj/sdk/register"
+```
+
+The chart also renders `ConfigMap/flanj-endpoint` for teams that prefer `envFrom` to inlining the
+variable — a pod can only reference a ConfigMap in its own namespace, so the chart has to be told which
+namespaces to render it into. See the [chart
+README](https://github.com/flanj-io/collector/tree/main/charts/flanj-collector).
+
+**Verify** — after your app has made at least one call:
 
 ```bash
 curl -s http://127.0.0.1:5335/api/health
 ```
 
-then open <http://127.0.0.1:5335> and look at the **Traffic** tab: your call should be there, redacted.
+then open <http://127.0.0.1:5335> and look at the **Traffic** tab: your call should be there, redacted. On
+Kubernetes the UI is not published outside the cluster; port-forward it first, in its own terminal:
 
-If that `curl` answers `Failed to connect`, the SDK is not what failed: the collector's UI is loopback-only
-inside its container and nothing is forwarding to it. Re-run the collector with that block's sidecar. Ingest
-on `:4318` is a separate, ordinary published port and works either way.
+```bash
+kubectl -n flanj port-forward sts/flanj-flanj-collector-store 5335:5335
+```
+
+If that `curl` answers `Failed to connect`: on Docker, `docker compose up -d` already starts the UI bridge
+as part of the stack, so check it is still running; on Kubernetes, the port-forward above must stay running
+in its own terminal. Ingest on `:4318` is a separate, ordinary published port and works either way.
 
 ### ESM, CJS, and shutdown
 
