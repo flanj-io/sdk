@@ -29,7 +29,14 @@ export interface AssembleCallInput {
   method: string;
   protocol: string;
   host: string;
+  /** Path + query, as dialled. Becomes `target` whole, and `route` up to the query. */
   path: string;
+  /**
+   * `true` when `path` is an opaque name rather than a URL path+query — MCP's
+   * `/<tool.name>`, where a `?` or `#` is part of the name — so `route` is the
+   * whole redacted path. Default `false`: `route` stops at the first `?` or `#`.
+   */
+  opaquePath?: boolean;
   statusCode: number;
   reqContentType?: string;
   resContentType?: string;
@@ -43,6 +50,26 @@ export interface AssembleCallInput {
   durationMs: number;
   captureContentTypes?: readonly string[];
   headerAllowlist?: readonly string[];
+}
+
+/**
+ * The path of an ALREADY-REDACTED path+query: everything before the first `?` or
+ * `#` (RFC 3986 §3.3). CONTRACTS §2: `route` is the path, `target` is path+query.
+ *
+ * Cut AFTER redaction, never before. What the floor does with a path segment can
+ * depend on the query beside it — `/pay/cvv=123?x=1` has the value tokenised,
+ * the bare `/pay/cvv=123` does not — so redacting a pre-cut path could put a
+ * value in `route` that `target` hid. Cutting the redacted text makes `route` a
+ * prefix of `target`: it can never show more. A redaction token contains neither
+ * delimiter, so the cut cannot land inside one.
+ *
+ * An empty path is `/` (RFC 3986 §6.2.3), never `''` — a record with an empty
+ * route is discarded downstream as not-a-call.
+ */
+function pathOf(redactedTarget: string): string {
+  const end = redactedTarget.search(/[?#]/);
+  const path = end === -1 ? redactedTarget : redactedTarget.slice(0, end);
+  return path === '' ? '/' : path;
 }
 
 /**
@@ -92,7 +119,9 @@ export function assembleCapturedCall(input: AssembleCallInput): CapturedCall {
     edgeClass: input.edgeClass,
     captureBodies: input.captureBodies,
     method: input.method,
-    route: targetRedaction.text,
+    // No redaction pass of its own: `route` is a slice of `target`, so every token
+    // in it is already counted in `patterns` through `targetRedaction`.
+    route: input.opaquePath ? targetRedaction.text : pathOf(targetRedaction.text),
     target: targetRedaction.text,
     urlFull: urlRedaction.text,
     statusCode: input.statusCode,

@@ -148,4 +148,14 @@ describe('assembleMcpCall — shapes and edges', () => {
     expect(call.urlFull).toBe('mcp://mcp.acme.test/create_refund');
     expect(call.direction).toBe('client');
   });
+
+  // CONTRACTS §2: route = target = "/<tool.name>". The HTTP path cuts `route` at
+  // the query string; a tool name is opaque, so nothing in it is ever a query.
+  it('route and target are both "/<tool.name>" — for every name, a ? or # included', () => {
+    for (const toolName of ['create_refund', 'what?now', 'c#_lint', 'a?b#c']) {
+      const call = assembleMcpCall(base({ toolName }));
+      expect(call.route).toBe(`/${toolName}`);
+      expect(call.target).toBe(`/${toolName}`);
+    }
+  });
 });

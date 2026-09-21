@@ -70,6 +70,9 @@ export function assembleMcpCall(input: AssembleMcpCallInput): McpCapturedCall {
     protocol: 'mcp:',
     host: input.peerHost,
     path: `/${input.toolName}`,
+    // A tool name is opaque: a `?` or `#` in it is part of the name, never a query,
+    // so route = target = "/<tool.name>" for every name (CONTRACTS §2).
+    opaquePath: true,
     statusCode: 0,
     reqContentType: 'application/json',
     resContentType: res.contentType,
