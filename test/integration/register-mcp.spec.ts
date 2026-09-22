@@ -127,13 +127,80 @@ describe('dist/register.js — with an MCP client package installed', () => {
 });
 
 /**
+ * An ESM application, and nothing between its first line and its first MCP call.
+ *
+ * The ESM half used to be patched by an `import()` the preload started and never
+ * waited for. Whether that settled before the application's first line was a
+ * race: on Node 24 the entry point always won it, and an ESM agent was captured
+ * by nothing; on Node 23 and 22.12 it lost a few runs in ten under load, which
+ * is how this suite used to see one record where it waited for two. Both calls
+ * below start before the application awaits anything, so anything short of a
+ * synchronous patch in the preload fails here.
+ */
+describe('dist/register.js — an ESM application calling MCP on its first line', () => {
+  const UNPATCHED = /\[flanj\] MCP auto-instrumentation of the ESM build of @modelcontextprotocol\/sdk\/client\/index\.js failed/g;
+
+  it('is captured from its first call, both calls, with no warning', async () => {
+    const sandbox = makeSandbox({ withMcpPackage: true });
+    try {
+      const before = receiver.records.length;
+      const result = await run(sandbox, 'first-line-app.mjs');
+
+      expect(result.code, result.stderr).toBe(0);
+      expect(result.stdout.trim()).toBe('called');
+      expect(result.stderr).not.toMatch(UNPATCHED);
+
+      await waitFor(() => receiver.records.length - before >= 2, EXPORT_DEADLINE_MS);
+      const types = receiver.records
+        .slice(before)
+        .map(attributesOf)
+        .map((r) => r['flanj.record.type'])
+        .sort();
+      expect(types, 'the first-line tools/list AND tools/call must both be captured').toEqual([
+        'call',
+        'contract_snapshot'
+      ]);
+    } finally {
+      rmSync(sandbox, { recursive: true, force: true });
+    }
+  }, 60_000);
+
+  it('says so, once, when the ESM client cannot be patched — and the app is untouched', async () => {
+    // The CommonJS half patches fine; the ESM half the application holds does not.
+    const sandbox = makeSandbox({ withMcpPackage: true, esmBuild: 'frozen-mcp-client.mjs' });
+    try {
+      const result = await run(sandbox, 'first-line-app.mjs');
+
+      expect(result.code, result.stderr).toBe(0);
+      expect(result.stdout.trim(), 'a capture failure must never break the application').toBe('called');
+      const warnings = result.stderr.match(UNPATCHED) ?? [];
+      expect(warnings, `stderr was: ${result.stderr}`).toHaveLength(1);
+      expect(result.stderr).toContain('FLANJ_SILENCE_CAPTURE_WARNINGS=1');
+
+      const silenced = await run(sandbox, 'first-line-app.mjs', { FLANJ_SILENCE_CAPTURE_WARNINGS: '1' });
+      expect(silenced.code, silenced.stderr).toBe(0);
+      expect(silenced.stderr).not.toMatch(UNPATCHED);
+    } finally {
+      rmSync(sandbox, { recursive: true, force: true });
+    }
+  }, 60_000);
+});
+
+/**
  * An isolated tree the child can resolve from: the built `dist` beside a
  * `node_modules` that symlinks the repo's real packages and — when asked —
  * carries the MCP stand-in. `dist/mcp/auto-instrument.js` and the app then both
  * resolve `@modelcontextprotocol/sdk` to the SAME file, which is what makes the
  * prototype patch reach the app's own class.
  */
-function makeSandbox({ withMcpPackage }: { withMcpPackage: boolean }): string {
+function makeSandbox({
+  withMcpPackage,
+  esmBuild = 'fake-mcp-client.mjs'
+}: {
+  withMcpPackage: boolean;
+  /** The fixture planted as the package's ESM half. */
+  esmBuild?: string;
+}): string {
   const root = mkdtempSync(join(tmpdir(), 'flanj-register-mcp-'));
   cpSync(resolve(repoRoot, 'dist'), join(root, 'dist'), { recursive: true });
 
@@ -164,10 +231,11 @@ function makeSandbox({ withMcpPackage }: { withMcpPackage: boolean }): string {
       })
     );
     writeFileSync(join(pkg, 'cjs', 'package.json'), JSON.stringify({ type: 'commonjs' }));
-    cpSync(join(fixtures, 'fake-mcp-client.mjs'), join(pkg, 'esm', 'client', 'index.js'));
+    cpSync(join(fixtures, esmBuild), join(pkg, 'esm', 'client', 'index.js'));
     cpSync(join(fixtures, 'fake-mcp-client.cjs'), join(pkg, 'cjs', 'client', 'index.js'));
     cpSync(join(fixtures, 'app.mjs'), join(root, 'app.mjs'));
     cpSync(join(fixtures, 'app.cjs'), join(root, 'app.cjs'));
+    cpSync(join(fixtures, 'first-line-app.mjs'), join(root, 'first-line-app.mjs'));
   } else {
     writeFileSync(join(root, 'no-mcp-app.mjs'), "console.log('ran');\n");
   }
@@ -182,6 +250,7 @@ function run(sandbox: string, entry: string, extraEnv: NodeJS.ProcessEnv = {}): 
       OTEL_SERVICE_NAME: 'acme-agent',
       FLANJ_OTLP_ENDPOINT: receiver.base,
       FLANJ_QUIET: '',
+      FLANJ_SILENCE_CAPTURE_WARNINGS: '',
       ...extraEnv
     },
     stdio: ['ignore', 'pipe', 'pipe']

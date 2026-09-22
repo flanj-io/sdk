@@ -6,7 +6,7 @@ module.exports = [
     ignores: ['**/dist/**', '**/node_modules/**', '**/*.tsbuildinfo']
   },
   {
-    files: ['**/*.ts'],
+    files: ['**/*.ts', '**/*.mts'],
     languageOptions: {
       parser: tsparser,
       parserOptions: {

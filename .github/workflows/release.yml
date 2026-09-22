@@ -100,12 +100,10 @@ jobs:
             echo "::warning::$GITHUB_SHA is not on main's history. On a real release that is fatal; this run publishes nothing."
           fi
 
-      # ci.yml's Node line, deliberately and not a newer one: a release runs the
-      # repo's own suite, and it must run it on the runtime that suite is green
-      # on. `test/integration/register-mcp.spec.ts` is red on Node 24 today (the
-      # ESM half of the dual-package preload does not patch there), so a release
-      # job on 24 would be red for a reason that has nothing to do with the
-      # release.
+      # One of the lines ci.yml's matrix runs the whole suite on: a release runs
+      # the repo's own suite, and must run it on a runtime that suite is green on.
+      # It stays 23, the line this job was first proven green on, until a release
+      # run on another line (24, the LTS) has been seen green too.
       - uses: actions/setup-node@v7
         with: { node-version: '23' }
       - run: corepack enable
