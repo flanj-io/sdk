@@ -47,7 +47,9 @@ there is nothing to point anywhere:
 node -r @flanj/sdk/register app.js
 ```
 
-That is the whole integration; no source change. The preload starts the OTLP pipeline, flushes on exit, and
+That is the whole integration; no source change. `node:http`/`node:https` — and everything built on them
+(`axios`, `got`, `node-fetch`, `superagent`) — are captured; global `fetch`/undici is not yet, silently (see
+[What is captured](#what-is-captured)). The preload starts the OTLP pipeline, flushes on exit, and
 switches on **both** capture paths: every `node:http`/`node:https` call, and — when an MCP client package is
 installed — every MCP client your app constructs. It prints one line naming the endpoint, the resolved
 service name (defaulting to your app's own `package.json` name — see [Configuration](#configuration)) and
@@ -121,7 +123,16 @@ Both MCP client packages ship a CommonJS build and an ESM build, which are two d
 at runtime. The preload patches both, so it does not matter which one your app reaches for.
 
 The register entry flushes on `beforeExit` and on `SIGTERM`/`SIGINT` (then re-raises the signal), so a
-one-shot script and a pod's last batch both deliver. If you start the SDK yourself instead, you own that:
+one-shot script and a pod's last batch both deliver.
+
+**`process.exit()` skips it.** `beforeExit` only fires when the event loop drains on its own; calling
+`process.exit()` — the natural last line of a one-shot script — ends the process before that happens, so the
+flush never runs. Nothing catches it: the startup line still prints, the process still exits `0`, and the
+batch is silently dropped. Fix it either way: let the process exit on its own instead of calling
+`process.exit()`, or, if you start the SDK yourself, `await flanj.shutdown()` (or `flanj.flush()`)
+immediately before you call it.
+
+If you start the SDK yourself instead, you own that:
 
 ```js
 const { start } = require('@flanj/sdk');
@@ -197,7 +208,9 @@ order, if `FLANJ_OTLP_ENDPOINT` is unset, so a host already configured for OTLP 
 
 `start()` takes the same settings as options (`serviceName`, `otlpEndpoint`, `bodyCapBytes`, `ignoreUrls`,
 `trustedProxies`), and `instrumentMcpClient` / `handle.instrumentMcp` additionally take `endpoint`,
-`serverKind` and `refetchOnListChanged`.
+`serverKind` (`'streamable-http' | 'stdio'` — forces the edge classification instead of detecting it from
+the transport; left unset, a transport with a resolvable URL is `streamable-http` and everything else is
+`stdio`) and `refetchOnListChanged`.
 
 ### Running next to OpenTelemetry
 
