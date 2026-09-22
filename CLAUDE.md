@@ -30,13 +30,21 @@ Redaction happens here, at the call site, **before** anything is attached or exp
   below it with one sentence. Three places state that range and a test locks each pair: `engines.node`,
   the README's Quick start line (`test/readme.spec.ts`), and `SUPPORTED_NODE_RANGE`
   (`src/instrumentation/builtin-module.spec.ts`). Change all three or none. Develop on 22+; CI runs 23.
-- `yarn install` · `yarn build` · `yarn test` (unit + redaction vectors + OTLP contract + pack manifest) ·
+- `yarn install` · `yarn build` · `yarn test` (unit + redaction vectors + OTLP contract + pack manifest +
+  the release-artifact checks) ·
   `yarn test:watch` · `yarn lint` · `bash scripts/smoke-pack.sh` (packs, installs the tarball into a scratch app).
 - `@opentelemetry/sdk-trace-base` / `-node` are devDeps of the coexistence fixtures, pinned **exactly** to the
   version `@opentelemetry/sdk-node` already resolves: a `^` range resolves a second, newer OTel core into the
   tree and the fixtures then run against a different core than the SDK does.
-- **Publishing goes through `yarn npm publish`** (it rewrites the `workspace:` protocol; plain `npm publish` does not),
-  and `@flanj/redaction-patterns` must be published **first** — the SDK tarball depends on it by plain version.
+- **Publishing is a tag, not a laptop.** `.github/workflows/release.yml` is the only thing in this repo that
+  publishes: push `vX.Y.Z` and it builds from an empty `dist/`, runs the gate, packs, verifies the tarballs
+  against the tag, keeps them as an artifact, publishes and then installs the result from the registry. The
+  floor `@flanj/redaction-patterns` goes **first** — `yarn pack` rewrites the SDK's `workspace:^` dependency
+  into a plain range at PACK time, so the SDK tarball is uninstallable until the floor is on the registry.
+  It publishes the Yarn-produced tarballs with `npm publish <tgz>`: Yarn 4 does not read `~/.npmrc`, and
+  publishing the inspected artifact means the bytes that ship are the bytes that were checked. Auth is npm
+  trusted publishing (OIDC) — no token. `CONTRIBUTING.md` has the procedure, what the `workflow_dispatch`
+  dry run does and does not prove, and the one-time per-package setup only an owner can do.
 
 ## Layout
 
@@ -93,7 +101,10 @@ test/fixtures/                     # child scripts the integration specs spawn: 
 test/packaging.spec.ts             # asserts the REAL `yarn pack` file list (dist entries in; src/test/contracts out;
                                    # no source maps — sources are not shipped, so a map could not resolve: sdk#33)
 test/readme.spec.ts                # asserts the README's first-run floor incl. the Not-captured list (fetch/undici)
+test/verify-release.spec.ts        # every release check, seen RED on a tarball built to break exactly that one
 scripts/smoke-pack.sh              # a stranger's first run: pack -> npm install the tarball -> require ./register
+scripts/verify-release.cjs         # the pre-publish gate: tag vs both package.jsons, the rewritten floor range,
+                                   # what each tarball must and must not contain — read from the TARBALL, not the tree
 contracts/                         # vendored from the canonical contract (do not hand-edit; re-vendor) — see contracts/README.md
 REDACTION.md                       # the floor's design: composed validators, owned responsibilities, parity, never-subtract
 ```

@@ -1,0 +1,358 @@
+name: release
+
+# Publishes @flanj/redaction-patterns and @flanj/sdk to npmjs.com on a `v*` tag.
+# Before this existed the release was typed by hand from a laptop (0.1.0): the
+# bytes that went out were whatever happened to be in that checkout's dist/, and
+# the only record of what shipped was the registry itself.
+#
+# ci.yml is NOT this. It proves a PR builds, tests and packs; it publishes
+# nothing. This is the only thing in the repo that publishes.
+#
+# BEFORE YOU TAG: GitHub reads the workflow from the TAG's own tree, so a tag cut
+# from a stale checkout runs that commit's workflows — or, if this file did not
+# exist there, nothing at all, silently. Tag a freshly fetched origin/main and
+# then confirm a run actually started. CONTRIBUTING.md has the commands.
+#
+# AUTH is npm trusted publishing (OIDC): `id-token: write` below is the whole
+# credential. There is no secret to rotate, nothing to leak in a log, and an
+# account with 2FA on does not block it. It has to be configured once per
+# package on npmjs.com — CONTRIBUTING.md says where and with which values.
+# An `NPM_TOKEN` secret, if one exists, is used only as a fallback after a
+# trusted publish has already failed; nothing here requires it and its value is
+# never printed.
+#
+# WHAT THE DRY RUN PROVES: everything except the two registry writes and the
+# OIDC exchange itself. It builds from a clean tree, runs the repo's gate and
+# the stranger-install smoke, packs both tarballs, checks them against the tag,
+# uploads them, and rehearses the exact `npm publish` command lines with
+# `--dry-run`. Run it from the Actions tab before a release you care about.
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Version to build, e.g. v0.2.0 (must match a pushed tag for a real publish)'
+        required: true
+      dry_run:
+        description: 'Verify and rehearse only — publish nothing'
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+  id-token: write # npm trusted publishing (OIDC) + provenance. Not a token.
+
+# Never cancel a release in flight: half of a two-package publish is the one
+# state that cannot be cleaned up, because npm does not take a version back.
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with: { fetch-depth: 0 } # the ancestry check below needs main's history
+
+      - name: Resolve the version being released
+        id: v
+        env:
+          INPUT_TAG: ${{ inputs.tag }}
+          DRY_RUN: ${{ inputs.dry_run }}
+        run: |
+          set -euo pipefail
+          tag="${INPUT_TAG:-${GITHUB_REF_NAME}}"
+          # A tag that is not vMAJOR.MINOR.PATCH would publish under a version
+          # the docs and the SDK's own version.ts cannot refer to. Refuse it
+          # here rather than after the push, which cannot be undone.
+          case "$tag" in
+            v[0-9]*.[0-9]*.[0-9]*) ;;
+            *) echo "::error::'$tag' is not a vMAJOR.MINOR.PATCH tag"; exit 1 ;;
+          esac
+          publishing=false
+          if [ "$GITHUB_EVENT_NAME" = "push" ] || [ "${DRY_RUN:-}" = "false" ]; then
+            publishing=true
+          fi
+          {
+            echo "tag=$tag"
+            echo "version=${tag#v}"
+            echo "publishing=$publishing"
+          } >> "$GITHUB_OUTPUT"
+          echo "tag=$tag  commit=$GITHUB_SHA  publishing=$publishing"
+
+      - name: The commit being released must be on main
+        env:
+          PUBLISHING: ${{ steps.v.outputs.publishing }}
+        run: |
+          set -euo pipefail
+          git fetch --no-tags origin main
+          if git merge-base --is-ancestor "$GITHUB_SHA" FETCH_HEAD; then
+            echo "$GITHUB_SHA is on main's history"
+          elif [ "$PUBLISHING" = "true" ]; then
+            # A release cut from a side branch ships code that was never
+            # reviewed or merged, under a version number that implies it was.
+            echo "::error::$GITHUB_SHA is not on main's history — tag a freshly fetched origin/main"
+            exit 1
+          else
+            echo "::warning::$GITHUB_SHA is not on main's history. On a real release that is fatal; this run publishes nothing."
+          fi
+
+      # ci.yml's Node line, deliberately and not a newer one: a release runs the
+      # repo's own suite, and it must run it on the runtime that suite is green
+      # on. `test/integration/register-mcp.spec.ts` is red on Node 24 today (the
+      # ESM half of the dual-package preload does not patch there), so a release
+      # job on 24 would be red for a reason that has nothing to do with the
+      # release.
+      - uses: actions/setup-node@v7
+        with: { node-version: '23' }
+      - run: corepack enable
+
+      - name: npm must be new enough to publish with OIDC
+        run: |
+          set -euo pipefail
+          # 11.5.1 is the floor for trusted publishing. Below it npm never
+          # attempts the OIDC exchange and falls back to looking for a token
+          # that deliberately does not exist, which surfaces as a bare ENEEDAUTH
+          # after every other step has already passed.
+          floor() {
+            node -e '
+              const v = process.argv[1];
+              const [a, b, c] = v.split(".").map(Number);
+              process.exit(a > 11 || (a === 11 && (b > 5 || (b === 5 && c >= 1))) ? 0 : 1);
+            ' "$1"
+          }
+          got="$(npm --version)"
+          if ! floor "$got"; then
+            # A pinned major, NOT npm@latest. npm carries its own `engines`, and
+            # npm 12 already refuses to install on this Node line — so `@latest`
+            # would make the one tool that authenticates the release move
+            # underneath it, and break it, on somebody else's release date.
+            echo "bundled npm $got is below 11.5.1 — upgrading"
+            npm install -g 'npm@^11.5.1'
+            hash -r # the shell cached where `npm` was BEFORE the upgrade
+            got="$(npm --version)"
+          fi
+          echo "npm $got from $(command -v npm)"
+          floor "$got" || {
+            echo "::error::npm $got cannot use trusted publishing (needs >= 11.5.1)"
+            exit 1
+          }
+
+      - run: yarn install --immutable
+      - run: yarn lint
+
+      - name: Build from an empty dist
+        run: |
+          set -euo pipefail
+          # Not `yarn build` on its own: `tsc -b` is incremental, and an emit
+          # option that was turned OFF leaves its previous output sitting in
+          # dist/ — where `yarn pack` will happily ship it. A release builds
+          # from nothing.
+          rm -rf dist packages/*/dist ./*.tsbuildinfo packages/*/*.tsbuildinfo
+          yarn build
+
+      - run: yarn test
+
+      - name: A stranger's first run, from the tarball
+        # The repo's existing pre-publish gate: pack, install into a scratch app
+        # with no source tree and no workspace links, and actually capture a
+        # call. It is the only check that runs the published bytes.
+        run: bash scripts/smoke-pack.sh
+
+      - name: Pack both packages
+        id: pack
+        env:
+          VERSION: ${{ steps.v.outputs.version }}
+        run: |
+          set -euo pipefail
+          # Emptied first: the artifact uploaded below is meant to be exactly
+          # what went out, and a leftover tarball from an earlier attempt in the
+          # same workspace would ride along looking just as official.
+          out="$PWD/release-artifacts"
+          rm -rf "$out"
+          mkdir -p "$out"
+          # ABSOLUTE paths. `yarn workspace <pkg> pack -o` resolves a relative
+          # path against THAT WORKSPACE's directory, not the repo root, so the
+          # floor's tarball silently lands under packages/redaction-patterns/
+          # and every later step is handed a path with nothing at it.
+          yarn workspace @flanj/redaction-patterns pack -o "$out/flanj-redaction-patterns-$VERSION.tgz"
+          yarn pack -o "$out/flanj-sdk-$VERSION.tgz"
+          ls -l "$out"
+          # Absolute here too, and for a different reason: `npm publish` reads a
+          # BARE relative path as a package SPEC, not a file, and goes looking
+          # for a git remote by that name. `npm publish release-artifacts/x.tgz`
+          # fails with an ssh permission error that names a repository nobody
+          # ever created.
+          {
+            echo "floor=$out/flanj-redaction-patterns-$VERSION.tgz"
+            echo "sdk=$out/flanj-sdk-$VERSION.tgz"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: The tarballs must match the tag, and ship only what a consumer needs
+        env:
+          TAG: ${{ steps.v.outputs.tag }}
+          FLOOR: ${{ steps.pack.outputs.floor }}
+          SDK: ${{ steps.pack.outputs.sdk }}
+        run: node scripts/verify-release.cjs --tag "$TAG" --floor "$FLOOR" --sdk "$SDK"
+
+      # Before the publish, not after: a publish cannot be undone, and this is
+      # the only copy of exactly what went out.
+      - name: Keep exactly what is about to be published
+        uses: actions/upload-artifact@v7
+        with:
+          name: release-tarballs-${{ steps.v.outputs.version }}
+          path: release-artifacts/*.tgz
+          if-no-files-found: error
+
+      - name: Rehearse both publish commands, without the registry write
+        if: steps.v.outputs.publishing != 'true'
+        env:
+          FLOOR: ${{ steps.pack.outputs.floor }}
+          SDK: ${{ steps.pack.outputs.sdk }}
+        run: |
+          set -euo pipefail
+          # `--dry-run` stops npm before the registry request, so this proves the
+          # manifest, the file list and the access level are acceptable — and
+          # proves nothing about the OIDC exchange, which only a real publish
+          # exercises. Say so rather than read this as a green light.
+          npm publish "$FLOOR" --access public --provenance --dry-run
+          npm publish "$SDK" --access public --provenance --dry-run
+          echo "rehearsed both publishes; the OIDC exchange is the one step a dry run cannot cover"
+
+      # ORDER IS LOAD-BEARING, and it is why these are two steps rather than a
+      # loop. `yarn pack` rewrote the SDK's `workspace:^` dependency on the floor
+      # into a plain version range at pack time, so until the floor is on the
+      # registry the SDK tarball is uninstallable for everyone.
+      - name: Publish the redaction floor (first)
+        if: steps.v.outputs.publishing == 'true'
+        env:
+          PKG: '@flanj/redaction-patterns'
+          TGZ: ${{ steps.pack.outputs.floor }}
+          VERSION: ${{ steps.v.outputs.version }}
+          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          set -euo pipefail
+          if [ "$(npm view "$PKG@$VERSION" version 2>/dev/null || true)" = "$VERSION" ]; then
+            echo "SKIPPED: $PKG@$VERSION is already on the registry."
+            echo "An npm version is never republished, so a re-run after a half-finished release finishes the job instead of failing on it."
+            exit 0
+          fi
+          if npm publish "$TGZ" --access public --provenance; then
+            echo "published $PKG@$VERSION"
+            exit 0
+          fi
+          # A publish that reported a failure may still have landed; ask the
+          # registry before doing anything else.
+          if [ "$(npm view "$PKG@$VERSION" version 2>/dev/null || true)" = "$VERSION" ]; then
+            echo "::warning::npm publish reported a failure but $PKG@$VERSION is on the registry — treating it as published"
+            exit 0
+          fi
+          if [ -z "${NPM_TOKEN:-}" ]; then
+            echo "::error::publishing $PKG@$VERSION failed. Trusted publishing is configured per package, under Settings on https://www.npmjs.com/package/$PKG — see the Releasing section of CONTRIBUTING.md. No NPM_TOKEN secret is set, which is the intended state."
+            exit 1
+          fi
+          echo "::warning::trusted publishing did not work; falling back to the NPM_TOKEN secret"
+          npmrc="$(mktemp)"
+          trap 'rm -f "$npmrc"' EXIT
+          printf '//registry.npmjs.org/:_authToken=%s\n' "$NPM_TOKEN" > "$npmrc"
+          npm_config_userconfig="$npmrc" npm publish "$TGZ" --access public --provenance
+          echo "published $PKG@$VERSION using the token fallback"
+
+      - name: Publish the SDK (second — it needs the floor on the registry)
+        if: steps.v.outputs.publishing == 'true'
+        env:
+          PKG: '@flanj/sdk'
+          TGZ: ${{ steps.pack.outputs.sdk }}
+          VERSION: ${{ steps.v.outputs.version }}
+          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          set -euo pipefail
+          if [ "$(npm view "$PKG@$VERSION" version 2>/dev/null || true)" = "$VERSION" ]; then
+            echo "SKIPPED: $PKG@$VERSION is already on the registry."
+            echo "An npm version is never republished, so a re-run after a half-finished release finishes the job instead of failing on it."
+            exit 0
+          fi
+          if npm publish "$TGZ" --access public --provenance; then
+            echo "published $PKG@$VERSION"
+            exit 0
+          fi
+          if [ "$(npm view "$PKG@$VERSION" version 2>/dev/null || true)" = "$VERSION" ]; then
+            echo "::warning::npm publish reported a failure but $PKG@$VERSION is on the registry — treating it as published"
+            exit 0
+          fi
+          if [ -z "${NPM_TOKEN:-}" ]; then
+            echo "::error::publishing $PKG@$VERSION failed. Trusted publishing is configured per package, under Settings on https://www.npmjs.com/package/$PKG — see the Releasing section of CONTRIBUTING.md. No NPM_TOKEN secret is set, which is the intended state."
+            exit 1
+          fi
+          echo "::warning::trusted publishing did not work; falling back to the NPM_TOKEN secret"
+          npmrc="$(mktemp)"
+          trap 'rm -f "$npmrc"' EXIT
+          printf '//registry.npmjs.org/:_authToken=%s\n' "$NPM_TOKEN" > "$npmrc"
+          npm_config_userconfig="$npmrc" npm publish "$TGZ" --access public --provenance
+          echo "published $PKG@$VERSION using the token fallback"
+
+      - name: Install what was published, as a stranger would
+        if: steps.v.outputs.publishing == 'true'
+        env:
+          VERSION: ${{ steps.v.outputs.version }}
+        run: |
+          set -euo pipefail
+          # An empty npm config and a scratch HOME. This has to be what somebody
+          # with no relationship to the project gets, not what this runner's
+          # credentials get.
+          work="$(mktemp -d)"
+          export HOME="$work/home"
+          mkdir -p "$HOME" "$work/app"
+          # Two DIFFERENT empty files. Pointed at one path, npm refuses with
+          # "double-loading config ... as global, previously loaded as user" and
+          # then exits 0 having done nothing at all — a silent no-op in the one
+          # step whose job is to prove the release actually works.
+          : > "$work/npmrc-user"
+          : > "$work/npmrc-global"
+          export npm_config_userconfig="$work/npmrc-user"
+          export npm_config_globalconfig="$work/npmrc-global"
+          export npm_config_registry="https://registry.npmjs.org/"
+          unset NODE_AUTH_TOKEN NPM_TOKEN || true
+
+          # "Published" and "installable" are not the same instant: the registry
+          # serves new versions through a CDN. Poll rather than guess.
+          for pkg in "@flanj/redaction-patterns" "@flanj/sdk"; do
+            got=""
+            for _ in $(seq 1 60); do
+              got="$(npm view "$pkg@$VERSION" version 2>/dev/null || true)"
+              [ "$got" = "$VERSION" ] && break
+              sleep 5
+            done
+            [ "$got" = "$VERSION" ] || { echo "::error::$pkg@$VERSION never became visible on the registry"; exit 1; }
+            echo "registry serves $pkg@$VERSION"
+          done
+
+          cd "$work/app"
+          npm init -y >/dev/null
+          npm install --no-audit --no-fund --loglevel=error "@flanj/sdk@$VERSION"
+
+          # The floor must have come along on its own. That is the entire point
+          # of publishing it first and of the rewritten dependency range.
+          node -e 'require("@flanj/redaction-patterns"); console.log("the floor resolved as a dependency of the SDK")'
+
+          printf 'setTimeout(() => {}, 2000);\n' > app.cjs
+          export FLANJ_FLUSH_TIMEOUT_MS=500
+          export FLANJ_OTLP_ENDPOINT="http://127.0.0.1:4318"
+
+          # Both documented ways in. The README's Kubernetes quick start prints
+          # the NODE_OPTIONS form, so a release that breaks it breaks somebody's
+          # deployment with nothing else to catch it.
+          timeout 120 node -r @flanj/sdk/register app.cjs > require.out 2> require.err \
+            || { echo "::error::node -r @flanj/sdk/register failed"; cat require.err; exit 1; }
+          NODE_OPTIONS="--require @flanj/sdk/register" timeout 120 node app.cjs > nodeopts.out 2> nodeopts.err \
+            || { echo "::error::NODE_OPTIONS=--require @flanj/sdk/register failed"; cat nodeopts.err; exit 1; }
+
+          for f in require.err nodeopts.err; do
+            cat "$f"
+            grep -q "\[flanj\] @flanj/sdk $VERSION " "$f" \
+              || { echo "::error::$f: the startup line does not name $VERSION"; exit 1; }
+          done
+          echo "both entry forms start @flanj/sdk $VERSION, installed from the registry"
