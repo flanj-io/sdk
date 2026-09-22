@@ -1,6 +1,6 @@
 {
   "name": "@flanj/sdk",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Thin OpenTelemetry-JS distribution: HTTP request/response body capture with redaction-at-source, exporting the flanj.* OTLP convention to a Flanj collector.",
   "license": "Apache-2.0",
   "repository": {
