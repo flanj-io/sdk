@@ -40,11 +40,18 @@ flushOnExit(handle);
 /**
  * MCP auto-instrumentation, and the startup line that reports it.
  *
- * Two passes, because the two module systems need different timing. The
- * `require` pass is SYNCHRONOUS and runs here, inside the preload, so a
- * CommonJS app that calls a tool in its own module body is already covered. The
- * `import()` pass cannot be synchronous, and does not need to be: an ESM main
- * module is itself loaded asynchronously, after this.
+ * Both halves of each dual MCP package are patched SYNCHRONOUSLY, here, inside
+ * the preload: the `require` build with `require`, and the `import` build with
+ * `require(esm)` on the file the `import` condition names. An application can
+ * call a tool in its own module body, and on Node 24 an ESM entry point starts
+ * running before anything this preload started asynchronously has settled, so
+ * nothing that settles later can be relied on to be in time.
+ *
+ * `registerMcpAutoInstrumentation` repeats the synchronous pass (it is
+ * idempotent) and then finishes with a real `import()` whatever that pass had
+ * to defer: the `import` half on a Node without `require(esm)` (20.16–20.18,
+ * 22.3–22.11). Anything installed and still unpatched at the end is reported on
+ * the one-time capture warning, rather than left silent.
  *
  * The one startup line waits for both — its whole job is to say what is actually
  * being captured, and a line printed before detection would have to guess. Both

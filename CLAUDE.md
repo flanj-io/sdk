@@ -29,7 +29,8 @@ Redaction happens here, at the call site, **before** anything is attached or exp
   20.16.0 and 22.3.0 (so NOT 18.x, 20.6–20.15, any 21.x, or 22.0–22.2). `start()` refuses to run
   below it with one sentence. Three places state that range and a test locks each pair: `engines.node`,
   the README's Quick start line (`test/readme.spec.ts`), and `SUPPORTED_NODE_RANGE`
-  (`src/instrumentation/builtin-module.spec.ts`). Change all three or none. Develop on 22+; CI runs 23.
+  (`src/instrumentation/builtin-module.spec.ts`). Change all three or none. Develop on 22+; CI runs the
+  whole suite on every line the range claims: 20.16.0 and 22.3.0 (the floors), 22, 23 and 24.
 - `yarn install` · `yarn build` · `yarn test` (unit + redaction vectors + OTLP contract + pack manifest +
   the release-artifact checks) ·
   `yarn test:watch` · `yarn lint` · `bash scripts/smoke-pack.sh` (packs, installs the tarball into a scratch app).
@@ -75,6 +76,7 @@ src/
     instrument-mcp-client.ts       # instrumentMcpClient(client): wrap listTools/callTool, pass-through, both package lines
     auto-instrument.ts             # constructor auto-patch path (optional peers, feature-detected, never required);
                                    # loads each peer BOTH ways — see non-negotiable 6
+    resolve-import-url.mts         # the one ES module: sync `import.meta.resolve`, so the preload can find the ESM build
     assemble-mcp-call.ts           # tools/call -> CapturedCall via the shared assembler (same floor, same caps)
     assemble-contract-snapshot.ts  # complete tools/list -> floor-redacted ToolDef-shaped contract_snapshot
     mcp-record.ts, resolve-mcp-edge.ts, mcp-types.ts
@@ -126,14 +128,18 @@ REDACTION.md                       # the floor's design: composed validators, ow
    actually patched. The Python SDK's `import flanj.register` is the same entry minus the HTTP half, and
    `contracts/CONTRACTS.md` §2 (*SDK parity*) records that as the ONLY intended difference between the two
    SDKs. Do not let the two entries diverge again without changing that note first.
-6. **Load an optional peer BOTH ways, and the `require` half synchronously.** Both
+6. **Patch an optional peer's BOTH halves, synchronously, in the preload.** Both
    `@modelcontextprotocol` packages are **dual**: `require` and `import` yield two different `Client`
-   class objects, and patching one leaves the other untouched — silently. `auto-instrument.ts` therefore
-   patches both, and keeps a real `import()` alive through the CommonJS downlevel (`tsc` rewrites a
-   literal `import()` into `require()`; the `new Function` indirection is deliberate, not a style
-   choice). The `require` pass must stay **synchronous and run in the preload**: a CommonJS app can call
-   a tool in its own module body, before any `import()` started in the preload has settled. All three
-   failure modes are silent, and all three are locked by `test/integration/register-mcp.spec.ts`.
+   class objects, and patching one leaves the other untouched — silently. `auto-instrument.ts` patches
+   the `require` half with `require`, and the `import` half with `require(esm)` on the file the `import`
+   condition names (`resolve-import-url.mts` resolves it). Both must happen before the preload returns:
+   a CommonJS app can call a tool in its own module body, and on Node 24 an ESM entry point starts
+   before anything the preload left pending has settled — a late `import()` lost that race on every
+   run there, and a few runs in ten on 22.12 and 23. Only where the runtime cannot load ESM
+   synchronously (20.16–20.18, 22.3–22.11) does a real `import()` finish the job; `tsc` rewrites a
+   literal `import()` into `require()`, so the `new Function` indirection is deliberate. An installed
+   half that still is not patched goes to the one-time capture warning, never to silence. All of
+   this is locked by `test/integration/register-mcp.spec.ts`, which CI runs on every supported line.
 7. **Coexist with the app's OpenTelemetry.** Patching `node:http` must STACK on whatever is already
    installed (`instrumentation/wrap-layer.ts`) — never `isWrapped → _unwrap → wrap`, and never construct an
    OTel `InstrumentationBase`, whose require-in-the-middle singleton caches core modules and silences

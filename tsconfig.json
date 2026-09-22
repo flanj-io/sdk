@@ -8,6 +8,6 @@
       "@flanj/redaction-patterns": ["./packages/redaction-patterns/src/index.ts"]
     }
   },
-  "include": ["src/**/*.ts"],
+  "include": ["src/**/*.ts", "src/**/*.mts"],
   "references": [{ "path": "./packages/redaction-patterns" }]
 }

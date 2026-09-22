@@ -75,6 +75,14 @@ describe('patchMcpClientConstructor', () => {
     class NotAClient {}
     expect(patchMcpClientConstructor(NotAClient, {})).toBe(false);
   });
+
+  it('throws when a Client-shaped constructor cannot be patched, so the caller can say so', () => {
+    // Returning false here would read as "not a client" — and an installed client
+    // left unpatched would then be dropped without a word.
+    class Frozen extends FakeClient {}
+    Object.freeze(Frozen.prototype);
+    expect(() => patchMcpClientConstructor(Frozen, {})).toThrow(TypeError);
+  });
 });
 
 describe('registerMcpAutoInstrumentation', () => {
