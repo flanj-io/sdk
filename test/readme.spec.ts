@@ -199,6 +199,63 @@ describe('README — first-run essentials', () => {
     const notCaptured = readme.slice(readme.indexOf('**Not captured yet**'));
     expect(notCaptured.toLowerCase()).toContain('zero rows');
   });
+
+  /**
+   * A reader who only reads Quick start (never scrolls ~240 lines to "What is
+   * captured") can write an ESM app on global `fetch()` and capture nothing,
+   * silently — friction jordan/marco both hit. Quick start must name the gap
+   * itself, right after the run line, with a link to the full caveat.
+   */
+  it('names the fetch/undici gap in Quick start itself, not only in "What is captured"', () => {
+    const quickStart = readme.slice(readme.indexOf('## Quick start'), readme.indexOf('### On Kubernetes'));
+    expect(quickStart, 'node -r line missing from Quick start').toContain(
+      'node -r @flanj/sdk/register app.js'
+    );
+    expect(quickStart.toLowerCase(), 'Quick start does not name node:http/https as captured').toContain(
+      'node:http'
+    );
+    expect(quickStart.toLowerCase(), 'Quick start does not name fetch/undici as not-yet-captured').toContain(
+      'fetch'
+    );
+    expect(quickStart, 'Quick start does not link to the What is captured anchor').toContain(
+      '(#what-is-captured)'
+    );
+  });
+
+  /**
+   * A one-shot script's natural last line — `process.exit()` — skips
+   * `beforeExit` entirely, so the SDK's exit flush never runs: exit code 0, the
+   * startup banner prints, and the batch is silently dropped. This bit two
+   * first-run readers who used the documented preload exactly as shown.
+   */
+  it('warns that process.exit() skips the beforeExit flush, with both fixes', () => {
+    const section = readme.slice(
+      readme.indexOf('### ESM, CJS, and shutdown'),
+      readme.indexOf('### MCP quick start')
+    );
+    expect(section, 'no ESM, CJS, and shutdown section').not.toHaveLength(0);
+    expect(section).toContain('process.exit()');
+    expect(section.toLowerCase(), 'does not say beforeExit is skipped').toContain('skips');
+    expect(section, 'does not offer the self-started fix').toContain('flanj.shutdown()');
+  });
+
+  /**
+   * `serverKind` used to appear only as a bare identifier next to
+   * `refetchOnListChanged`, which gets a full explanation two paragraphs
+   * earlier — no allowed values, no meaning, no default. A reader trying to be
+   * thorough had no way to know what it does (jordan's report, friction #5).
+   */
+  it('documents serverKind — values, meaning and default — next to refetchOnListChanged', () => {
+    const start = readme.indexOf('`start()` takes the same settings as options');
+    expect(start, 'no "start() takes the same settings" paragraph found').toBeGreaterThan(-1);
+    const paragraph = readme.slice(start, readme.indexOf('\n\n', start));
+    expect(paragraph, 'paragraph does not pair serverKind with refetchOnListChanged').toContain(
+      '`refetchOnListChanged`'
+    );
+    expect(paragraph).toContain('`serverKind`');
+    expect(paragraph).toContain("'streamable-http' | 'stdio'");
+    expect(paragraph.toLowerCase()).toContain('forces');
+  });
 });
 
 /**
