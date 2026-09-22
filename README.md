@@ -14,6 +14,8 @@ Every call succeeded. That's why nothing caught it.
 [![ci](https://github.com/flanj-io/sdk/actions/workflows/ci.yml/badge.svg)](https://github.com/flanj-io/sdk/actions/workflows/ci.yml)
 [![node](https://img.shields.io/node/v/@flanj/sdk.svg)](package.json)
 
+[flanj.io](https://flanj.io)
+
 `@flanj/sdk` is a thin [OpenTelemetry](https://opentelemetry.io/) distribution for Node. It records the
 request and response bodies of the HTTP calls your service makes to third-party APIs and of the calls it
 receives, and the `tools/list` catalogue and `tools/call` traffic of every MCP server your agent talks to.
