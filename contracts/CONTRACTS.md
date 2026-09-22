@@ -657,6 +657,8 @@ Headers: `X-Flanj-Collector-Version`, `X-Flanj-Schema-Version`.
 // 400 finding_has_no_call  — `call` missing, `message` empty, and the kind is not call-less by nature
 // 400 allowed_domains_empty | invalid_domain | allowed_emails_empty | invalid_email — a list with nothing usable
 //                            in it, or an entry that is not a bare domain / one plain address (or not a string)
+// 400 domain_is_public_mail — an `allowed_domains` entry names a public mail domain (gmail.com, outlook.com
+//                            and the like) — see "Who may open a thread" below
 // 400 access_conflict      — `allowed_domains` and `allowed_emails` are both lists
 // 400 bad_request          — `allowed_domains` / `allowed_emails` is neither a list nor null, or has more than 20 entries
 // 403 not_flaggable        — a consumer-local kind (`stale_client`), with or without a message
@@ -692,6 +694,11 @@ specific people it names nobody.
   fold; at most 20 (`400 bad_request`, as is a value that is neither a list nor null). An empty list is
   `400 allowed_emails_empty` / `allowed_domains_empty`; an entry that is not one plain address / a bare domain is
   `400 invalid_email` / `invalid_domain`.
+- **A domain choice never names a public mail domain — gmail.com, outlook.com and the like — because
+  anyone can get an address there; such a person is reachable only through `allowed_emails`, by exact
+  address.** Refused with `400 domain_is_public_mail`, the same code and server sentence on every route
+  that reads `allowed_domains`. A relay caller sees the error surfaced as the relay's own error message —
+  it applies no domain-specific check of its own.
 - The side that shared the thread keeps all of it regardless of the choice.
 
 ## 6. Redaction contract (the security floor)
