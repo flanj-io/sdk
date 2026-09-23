@@ -10,6 +10,8 @@ import { DEFAULT_BODY_CAP_BYTES, HttpBodyCaptureConfig, isIgnoredUrl } from './c
 import { teeRequestBody } from './tee-request-body';
 import { teeDispatchHandler, type DispatchObserver } from './tee-dispatch-handler';
 import { normalizeUndiciHeaders } from './undici-headers';
+import { headerValue } from './header-value';
+import { correlationIds } from './correlation-ids';
 import { undiciGlobalDispatcher, type InstalledDispatchers } from './undici-global-dispatcher';
 import type { DispatchFn, DispatchHandler, DispatchOptions } from './undici-types';
 
@@ -58,6 +60,26 @@ interface InstalledLayer {
 }
 
 type HeaderMap = Record<string, string | string[]>;
+
+/** One `fetch()` hop being captured: what was known at dispatch, and where its bodies accumulate. */
+interface FetchCall {
+  method: string;
+  protocol: string;
+  host: string;
+  path: string;
+  /** At dispatch; replaced at response start by the headers that went on the wire. */
+  requestHeaders: HeaderMap;
+  /** Filled with undici's own request object if one was built inside our dispatch. */
+  pending: PendingDispatch;
+  reqBuf: CappedBuffer;
+  /** Settles once an asynchronous request-body copy (a Blob's) is in `reqBuf`. */
+  bodyRead: Promise<void> | undefined;
+  edgeClass: EdgeClass;
+  captureBodies: boolean;
+  cap: number;
+  startTime: number;
+  spanCtx: SpanContext | undefined;
+}
 
 /**
  * EGRESS capture for global `fetch()` — Node's bundled undici, which has its own
@@ -226,22 +248,7 @@ export class FetchBodyCaptureInstrumentation extends FlanjInstrumentation<HttpBo
     return { opts: sendOpts, observer, pending };
   }
 
-  private observe(call: {
-    method: string;
-    protocol: string;
-    host: string;
-    path: string;
-    requestHeaders: HeaderMap;
-    /** Filled with undici's own request object if one was built inside our dispatch. */
-    pending: PendingDispatch;
-    reqBuf: CappedBuffer;
-    bodyRead: Promise<void> | undefined;
-    edgeClass: EdgeClass;
-    captureBodies: boolean;
-    cap: number;
-    startTime: number;
-    spanCtx: SpanContext | undefined;
-  }): DispatchObserver {
+  private observe(call: FetchCall): DispatchObserver {
     let statusCode = 0;
     let requestHeaders = call.requestHeaders;
     let responseHeaders: HeaderMap = {};
@@ -289,7 +296,7 @@ export class FetchBodyCaptureInstrumentation extends FlanjInstrumentation<HttpBo
   }
 
   private buildCall(
-    call: Parameters<FetchBodyCaptureInstrumentation['observe']>[0],
+    call: FetchCall,
     statusCode: number,
     responseHeaders: HeaderMap,
     resBuf: CappedBuffer
@@ -299,8 +306,8 @@ export class FetchBodyCaptureInstrumentation extends FlanjInstrumentation<HttpBo
     const res = responseHeaders;
     // Wire bytes, exactly as on the http path: undo `content-encoding` before
     // the redactor sees them; a coding we cannot undo keeps no body.
-    const reqBody = decodeBody(call.reqBuf.toBuffer(), pick(req, 'content-encoding'), call.cap, call.reqBuf.truncated);
-    const resBody = decodeBody(resBuf.toBuffer(), pick(res, 'content-encoding'), call.cap, resBuf.truncated);
+    const reqBody = decodeBody(call.reqBuf.toBuffer(), headerValue(req['content-encoding']), call.cap, call.reqBuf.truncated);
+    const resBody = decodeBody(resBuf.toBuffer(), headerValue(res['content-encoding']), call.cap, resBuf.truncated);
 
     return assembleCapturedCall({
       direction: 'client',
@@ -312,8 +319,8 @@ export class FetchBodyCaptureInstrumentation extends FlanjInstrumentation<HttpBo
       host: call.host,
       path: call.path,
       statusCode,
-      reqContentType: pick(req, 'content-type'),
-      resContentType: pick(res, 'content-type'),
+      reqContentType: headerValue(req['content-type']),
+      resContentType: headerValue(res['content-type']),
       reqBodyRaw: reqBody.text,
       reqBodyTruncated: reqBody.truncated,
       resBodyRaw: resBody.text,
@@ -321,12 +328,10 @@ export class FetchBodyCaptureInstrumentation extends FlanjInstrumentation<HttpBo
       requestHeaders: req,
       responseHeaders: res,
       correlation: {
-        requestId:
-          pick(res, 'x-request-id') ??
-          pick(res, 'x-correlation-id') ??
-          pick(req, 'x-request-id') ??
-          pick(req, 'x-correlation-id'),
-        idempotencyKey: pick(req, 'idempotency-key') ?? pick(res, 'idempotency-key'),
+        ...correlationIds(
+          (name) => req[name],
+          (name) => res[name]
+        ),
         traceId: call.spanCtx?.traceId,
         spanId: call.spanCtx?.spanId
       },
@@ -367,10 +372,4 @@ function parseOrigin(origin: DispatchOptions['origin']): { protocol: string; hos
   } catch {
     return undefined;
   }
-}
-
-function pick(headers: HeaderMap, key: string): string | undefined {
-  const v = headers[key];
-  if (v === undefined) return undefined;
-  return Array.isArray(v) ? v.join(', ') : v;
 }

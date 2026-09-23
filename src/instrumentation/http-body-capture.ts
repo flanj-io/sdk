@@ -12,6 +12,9 @@ import { decodeBody } from './decode-body';
 import { classifyHost, type EdgeClass } from './classify-host';
 import { DEFAULT_BODY_CAP_BYTES, HttpBodyCaptureConfig, isIgnoredUrl } from './config';
 import { syncBuiltinEsmExports } from './sync-builtin-esm-exports';
+import { headerValue } from './header-value';
+import { correlationIds } from './correlation-ids';
+import { teeReadablePush } from './tee-readable-push';
 
 /**
  * Custom OTel instrumentation that tees the request + response bodies of
@@ -126,17 +129,7 @@ export class HttpBodyCaptureInstrumentation extends FlanjInstrumentation<HttpBod
         }
       };
 
-      if (captureBodies) {
-        const originalPush = res.push.bind(res);
-        (res as unknown as { push: IncomingMessage['push'] }).push = (chunk: unknown, encoding?: BufferEncoding) => {
-          if (chunk === null || chunk === undefined) {
-            finalize();
-          } else {
-            safeAppend(resBuf, chunk, encoding);
-          }
-          return originalPush(chunk as never, encoding as never);
-        };
-      }
+      if (captureBodies) teeReadablePush(res, resBuf, finalize);
       res.on('end', finalize);
     });
   }
@@ -175,7 +168,7 @@ export class HttpBodyCaptureInstrumentation extends FlanjInstrumentation<HttpBod
     // a gzip'd JSON response would be stored as mangled bytes, unscanned, and
     // reported `redaction.applied=false`. A coding we cannot undo yields NO body.
     const reqBody = decodeBody(reqBuf.toBuffer(), headerValue(req.getHeader('content-encoding')), cap, reqBuf.truncated);
-    const resBody = decodeBody(resBuf.toBuffer(), pickHeader(res.headers, 'content-encoding'), cap, resBuf.truncated);
+    const resBody = decodeBody(resBuf.toBuffer(), headerValue(res.headers['content-encoding']), cap, resBuf.truncated);
 
     // The resolved remote IP the connection actually went to — transport
     // detail alongside the peer.host identity (the name the app dialed).
@@ -201,12 +194,10 @@ export class HttpBodyCaptureInstrumentation extends FlanjInstrumentation<HttpBod
       requestHeaders: outgoingHeaders(req),
       responseHeaders: res.headers as Record<string, string | string[] | undefined>,
       correlation: {
-        requestId:
-          pickHeader(res.headers, 'x-request-id') ??
-          pickHeader(res.headers, 'x-correlation-id') ??
-          headerValue(req.getHeader('x-request-id')) ??
-          headerValue(req.getHeader('x-correlation-id')),
-        idempotencyKey: headerValue(req.getHeader('idempotency-key')) ?? pickHeader(res.headers, 'idempotency-key'),
+        ...correlationIds(
+          (name) => req.getHeader(name),
+          (name) => res.headers[name]
+        ),
         traceId: input.spanCtx?.traceId,
         spanId: input.spanCtx?.spanId
       },
@@ -215,26 +206,6 @@ export class HttpBodyCaptureInstrumentation extends FlanjInstrumentation<HttpBod
       headerAllowlist: cfg.headerAllowlist
     });
   }
-}
-
-function safeAppend(buf: CappedBuffer, chunk: unknown, encoding?: BufferEncoding): void {
-  try {
-    buf.append(chunk, encoding);
-  } catch {
-    // ignore malformed chunk
-  }
-}
-
-function headerValue(v: string | number | string[] | undefined): string | undefined {
-  if (v === undefined) return undefined;
-  if (Array.isArray(v)) return v.join(', ');
-  return String(v);
-}
-
-function pickHeader(headers: IncomingMessage['headers'], key: string): string | undefined {
-  const v = headers[key];
-  if (v === undefined) return undefined;
-  return Array.isArray(v) ? v.join(', ') : String(v);
 }
 
 function outgoingHeaders(req: ClientRequest): Record<string, string | string[] | undefined> {
