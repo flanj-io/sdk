@@ -1,4 +1,5 @@
 import type { CappedBuffer } from './capped-buffer';
+import { teeReadablePush } from './tee-readable-push';
 
 /** What to send in place of the original body, plus any read still in flight. */
 export interface TeedRequestBody {
@@ -93,18 +94,4 @@ function isNodeReadable(v: Record<string | symbol, unknown>): boolean {
 
 function isBlobLike(v: Record<string | symbol, unknown>): boolean {
   return typeof v.arrayBuffer === 'function' && typeof v.slice === 'function' && typeof v.stream === 'function';
-}
-
-function teeReadablePush(stream: Record<string | symbol, unknown>, buf: CappedBuffer): void {
-  const original = stream.push as (chunk: unknown, encoding?: BufferEncoding) => boolean;
-  stream.push = function push(this: unknown, chunk: unknown, encoding?: BufferEncoding): boolean {
-    if (chunk !== null && chunk !== undefined) {
-      try {
-        buf.append(chunk, encoding);
-      } catch {
-        // never let the tee break the stream
-      }
-    }
-    return original.call(this, chunk, encoding);
-  };
 }

@@ -12,6 +12,9 @@ import { classifyHost, type EdgeClass } from './classify-host';
 import { DEFAULT_BODY_CAP_BYTES, HttpBodyCaptureConfig, isIgnoredUrl } from './config';
 import { resolveIngressPeer } from './resolve-ingress-peer';
 import { TrustedProxies } from './trusted-proxies';
+import { headerValue } from './header-value';
+import { correlationIds } from './correlation-ids';
+import { teeReadablePush } from './tee-readable-push';
 
 interface ServerCtor {
   prototype: Record<string, unknown> & { emit?: unknown };
@@ -135,13 +138,7 @@ export class HttpServerCaptureInstrumentation extends FlanjInstrumentation<HttpB
     // `push` — never a passive flowing-mode `on('data')` listener, which would
     // starve an app reading the body with `for await`. Only for external callers.
     const reqBuf = new CappedBuffer(cap);
-    if (captureBodies) {
-      const originalPush = req.push.bind(req);
-      (req as unknown as { push: IncomingMessage['push'] }).push = (chunk: unknown, encoding?: BufferEncoding) => {
-        if (chunk !== null && chunk !== undefined) safeAppend(reqBuf, chunk, encoding);
-        return originalPush(chunk as never, encoding as never);
-      };
-    }
+    if (captureBodies) teeReadablePush(req, reqBuf);
 
     // Tee the OUTGOING response body by wrapping write/end.
     const resBuf = new CappedBuffer(cap);
@@ -281,8 +278,7 @@ export class HttpServerCaptureInstrumentation extends FlanjInstrumentation<HttpB
       requestHeaders: req.headers as Record<string, string | string[] | undefined>,
       responseHeaders,
       correlation: {
-        requestId: pickHeader(req.headers, 'x-request-id') ?? pickHeader(req.headers, 'x-correlation-id'),
-        idempotencyKey: pickHeader(req.headers, 'idempotency-key'),
+        ...correlationIds((name) => req.headers[name]),
         traceId: input.spanCtx?.traceId,
         spanId: input.spanCtx?.spanId
       },
@@ -319,24 +315,4 @@ function recordHeader(sink: Record<string, HeaderValue>, key: unknown, value: un
   if (Array.isArray(value)) sink[key.toLowerCase()] = value.map((v) => String(v));
   else if (typeof value === 'number') sink[key.toLowerCase()] = value;
   else sink[key.toLowerCase()] = String(value);
-}
-
-function safeAppend(buf: CappedBuffer, chunk: unknown, encoding?: BufferEncoding): void {
-  try {
-    buf.append(chunk, encoding);
-  } catch {
-    // ignore malformed chunk
-  }
-}
-
-function headerValue(v: string | number | string[] | undefined): string | undefined {
-  if (v === undefined) return undefined;
-  if (Array.isArray(v)) return v.join(', ');
-  return String(v);
-}
-
-function pickHeader(headers: IncomingMessage['headers'], key: string): string | undefined {
-  const v = headers[key];
-  if (v === undefined) return undefined;
-  return Array.isArray(v) ? v.join(', ') : String(v);
 }

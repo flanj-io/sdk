@@ -114,3 +114,99 @@ describe('teeDispatchHandler — undici 7 handlers', () => {
     expect(wrapped.onResponseData).toBeUndefined();
   });
 });
+
+describe('teeDispatchHandler — the wrapper itself', () => {
+  const legacy = (): Record<string, () => unknown> => ({
+    onConnect: () => {},
+    onHeaders: () => true,
+    onData: () => true,
+    onComplete: () => {},
+    onError: () => {}
+  });
+
+  it('shares one prototype per handler shape, and binds nothing per access', () => {
+    // Arrange
+    const a = teeDispatchHandler(legacy(), recorder());
+    const b = teeDispatchHandler(legacy(), recorder());
+
+    // Assert: same shape, same prototype; a method read twice is the same function.
+    expect(Object.getPrototypeOf(a)).toBe(Object.getPrototypeOf(b));
+    expect(loose(a).onData).toBe(loose(b).onData);
+    expect(loose(a).onData).toBe(loose(a).onData);
+  });
+
+  it('presents exactly the optional callbacks the original has (onBodySent / onRequestSent / onResponseStarted)', () => {
+    const without = teeDispatchHandler(legacy(), recorder()) as Record<string, unknown>;
+    const sent: string[] = [];
+    const withAll = loose(teeDispatchHandler(
+      { ...legacy(), onBodySent: () => sent.push('body'), onRequestSent: () => sent.push('req'), onResponseStarted: () => sent.push('res') },
+      recorder()
+    ));
+
+    expect(without.onBodySent).toBeUndefined();
+    expect(without.onRequestSent).toBeUndefined();
+    expect(without.onResponseStarted).toBeUndefined();
+    withAll.onBodySent!(Buffer.from('x'));
+    withAll.onRequestSent!();
+    withAll.onResponseStarted!();
+    expect(sent).toEqual(['body', 'req', 'res']);
+  });
+
+  it('forwards a method outside its API to the original, as the original — own or inherited', () => {
+    class Future {
+      #calls = 0;
+      onRequestStart(): void {}
+      onResponseEnd(): void {}
+      onResponseTrailers(n: number): number {
+        this.#calls += n;
+        return this.#calls;
+      }
+    }
+    const own = { ...legacy(), onSomethingNew: (x: unknown) => ['new', x] };
+
+    const inherited = loose(teeDispatchHandler(new Future(), recorder()));
+    const literal = loose(teeDispatchHandler(own, recorder()));
+
+    expect(inherited.onResponseTrailers!(2)).toBe(2);
+    expect(inherited.onResponseTrailers!(3)).toBe(5);
+    expect(literal.onSomethingNew!(1)).toEqual(['new', 1]);
+  });
+
+  it('a handler that speaks both APIs is observed once, through the new one, and keeps its legacy callbacks', () => {
+    const calls: string[] = [];
+    const both = {
+      onRequestStart: () => calls.push('requestStart'),
+      onResponseStart: () => calls.push('responseStart'),
+      onResponseData: () => calls.push('responseData'),
+      onResponseEnd: () => calls.push('responseEnd'),
+      onHeaders: () => calls.push('headers'),
+      onData: () => calls.push('data')
+    };
+    const obs = recorder();
+    const wrapped = loose(teeDispatchHandler(both, obs));
+
+    wrapped.onResponseStart!({}, 200, {});
+    wrapped.onResponseData!({}, Buffer.from('a'));
+    wrapped.onHeaders!(200, []);
+    wrapped.onData!(Buffer.from('b'));
+    wrapped.onResponseEnd!({});
+
+    expect(calls).toEqual(['responseStart', 'responseData', 'headers', 'data', 'responseEnd']);
+    expect(obs.events).toEqual([['start', 200, {}], ['data', 'a'], ['end']]);
+  });
+
+  it('never invokes a getter on a handler prototype while looking for methods', () => {
+    let reads = 0;
+    class WithGetter {
+      onRequestStart(): void {}
+      get costly(): () => void {
+        reads++;
+        return () => {};
+      }
+    }
+
+    teeDispatchHandler(new WithGetter(), recorder());
+
+    expect(reads).toBe(0);
+  });
+});

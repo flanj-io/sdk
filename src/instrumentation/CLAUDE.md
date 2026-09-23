@@ -13,7 +13,10 @@ non-negotiable lives — **redact at source, drop the raw buffer, never attach r
 | `http-server-capture.ts` | `HttpServerCaptureInstrumentation` — INGRESS: patches `Server.prototype.emit`, intercepts `'request'`, tees the incoming request body (via the IncomingMessage `push`) + the response body (via `res.write`/`end`), records `res.writeHead`'s headers, emits a `direction="server"` record. |
 | `fetch-body-capture.ts` | `FetchBodyCaptureInstrumentation` — EGRESS for global `fetch()` (Node's bundled undici): composes an interceptor onto undici's global dispatcher, tees the request body and the response, emits the same `CapturedCall` through the same assembler. See *Global `fetch()`* below. |
 | `tee-request-body.ts` | `teeRequestBody` — observe a dispatch request body into a `CappedBuffer` without consuming, delaying or altering what is sent: an async iterable (what `fetch()` always passes) becomes a lazy pass-through generator; a Node Readable gets the `push` tee; a Blob is read on the side; FormData (multipart) is left alone. |
-| `tee-dispatch-handler.ts` | `teeDispatchHandler` — a Proxy over a dispatch handler that observes the response callbacks of whichever API the handler speaks (undici 6 `onHeaders/onData/onComplete/onError`, undici 7 `onResponseStart/Data/End/Error`), forwarding every call and return value. |
+| `tee-dispatch-handler.ts` | `teeDispatchHandler` — wraps a dispatch handler to observe the response callbacks of whichever API it speaks (undici 6 `onHeaders/onData/onComplete/onError`, undici 7 `onResponseStart/Data/End/Error`), forwarding every call and return value. One small object per dispatch over a prototype cached per API and shape; see point 2 below. |
+| `tee-readable-push.ts` | `teeReadablePush` — copy every chunk fed to a Node Readable by wrapping its `push` (never a flowing-mode listener), with an optional end-of-stream hook. The client response tee, the ingress request tee and `teeRequestBody`'s Readable branch all use it. |
+| `correlation-ids.ts` | `correlationIds` — `requestId` (`x-request-id`, then `x-correlation-id`; response before request) and `idempotencyKey` (request before response), the same precedence on all three capture paths. Ingress passes no response side. |
+| `header-value.ts` | `headerValue` — one header value as a string (a repeated header joined with `, `, a number stringified). |
 | `undici-global-dispatcher.ts` | `undiciGlobalDispatcher` — `get` / `install` / `uninstall` undici's process-wide dispatcher through its registered `globalThis` slots (`.1` and `.2`, per slot — see point 1 below), loading Node's bundled undici first (the `Headers` lazy global); never imports a userland `undici`. |
 | `compose-dispatcher.ts` | `composeDispatcher` — `base.compose(interceptor)`, or for a base without `compose` the view undici 7's own `compose` returns (intercepted `dispatch`, everything else the base's, bound to it). |
 | `to-legacy-handler.ts` | `toLegacyHandler` — present a new-API handler (undici ≥ 7) to a dispatcher that only takes undici 6's legacy callbacks, through a controller that maps pause/resume/abort. Used by the `.2` bridge. |
@@ -225,8 +228,18 @@ calls), with the same record shape and the same assembler.
    own is legacy: `onHeaders/onData/onComplete/onError`). undici 7's `compose` wraps every handler into the
    new API (`onRequestStart/onResponseStart/onResponseData/onResponseEnd/onResponseError`) before an
    interceptor sees it. `teeDispatchHandler` checks for `onRequestStart`, as undici does, and speaks back the
-   same API — never a version string. It is a Proxy that binds forwarded methods to the ORIGINAL: undici 7's
-   `WrapHandler` keeps state in `#private` fields, which throw when called with the Proxy as `this`.
+   same API — never a version string. The wrapper runs once per dispatch, so it is one object holding the
+   original and the observer; its methods live on a prototype built once per API and **shape** (which of that
+   API's callbacks the original has) and cached. Three rules it keeps:
+   - **Forward as the original.** Every method calls the original's method with the ORIGINAL as `this`:
+     undici 7's `WrapHandler` keeps state in `#private` fields, which throw for any other receiver.
+   - **Present exactly the callbacks the original has.** undici checks presence: a missing `onResponseError`
+     throws, and `onBodySent` / `onRequestSent` / `onResponseStarted` are called only when defined. That is
+     why the prototype is per shape rather than one class per API.
+   - **Never drop a method.** A function the original has outside its API's known callbacks (one a later undici
+     adds, or the other API's on a handler that speaks both) is forwarded through a per-name cached forwarder
+     set on the instance. Class prototype chains are walked once per prototype, by descriptor, never invoking a
+     getter.
 3. **Request body: tee the iterable, lazily.** By dispatch time `fetch()` has turned every `BodyInit`
    (string, bytes, URLSearchParams, Blob, FormData, ReadableStream) into one async generator. It is replaced
    by a generator that yields the same chunks, in order, as undici pulls them, and forwards `return()`.
@@ -248,7 +261,22 @@ calls), with the same record shape and the same assembler.
 6. **One live layer per process** (`Symbol.for('flanj.sdk.fetch-capture.owner')`), so a preload plus a
    `start()` from code capture each `fetch()` once. `disable()` puts the base dispatcher back only while
    ours is still the installed one; buried under a later layer it stays, inert.
-7. **Not reachable:** a `fetch()` given `{ dispatcher }`; a global dispatcher an app installs AFTER `start()`
+7. **undici loads at `start()`, not on first `fetch()` — open.** `install` touches the `Headers` lazy global
+   to get a dispatcher to compose onto. That costs ~13–15 ms of startup (measured 2026-09-23 on 20.16.0, 22.3.0,
+   22.22, 23.3 and 24.21; the first, cold run is ~2× that) in every app, including one that never calls
+   `fetch()`. Composing lazily on first use would need a hook that runs before the first dispatch, and none
+   exists without replacing `globalThis.fetch`, which point 1 and non-negotiable 2 rule out:
+   - `fetch` is a plain function that loads undici only when called, so nothing observes the load without
+     wrapping it. On Node 24 `Headers` and the other web globals are lazy DATA properties, not accessors.
+   - **Pre-seeding the dispatcher slot does not survive the load.** An accessor on `.1` is read exactly once,
+     while undici loads inside the first `fetch()`; it has no Agent to hand back (undici creates the Agent only
+     when the slot is empty), and undici then `defineProperty`s its own Agent over it, non-configurable.
+     Verified on 20.16.0 (undici 6.19) and 24.21 (7.29). The first call would dispatch uncaptured, and nothing
+     fires again to compose onto the Agent.
+   - `undici:request:create` fires inside the first dispatch, after the chance to tee its body has passed.
+   So behaviour stays eager. Revisit if Node exposes a load hook for its bundled undici, or undici a
+   dispatcher-created channel that runs before the first request is built.
+8. **Not reachable:** a `fetch()` given `{ dispatcher }`; a global dispatcher an app installs AFTER `start()`
    (it replaces ours); a library that swaps `globalThis.fetch` for another implementation. The README names
    all three. `flanj.peer.addr` is omitted on this path: the dispatcher API exposes no socket address.
 
@@ -328,5 +356,7 @@ collector §8 key); `onCapture` → the sink `start()` wires to the OTLP logger.
 - `../../test/integration/userland-undici.spec.ts` — REAL children with a userland `undici` 8 loaded after
   and before `start()`: Node's `fetch()` stays captured, the app's undici calls work, one record each.
   Runs where undici 8 does (Node ≥ 22.19); fails without the `.2` bridge.
-- `tee-request-body.spec.ts` / `tee-dispatch-handler.spec.ts` / `undici-headers.spec.ts` /
-  `to-legacy-handler.spec.ts` — the tees, the header shapes, both handler APIs and the conversion between them.
+- `tee-request-body.spec.ts` / `tee-dispatch-handler.spec.ts` / `tee-readable-push.spec.ts` /
+  `undici-headers.spec.ts` / `to-legacy-handler.spec.ts` — the tees, the header shapes, both handler APIs and the
+  conversion between them; the wrapper's shared prototypes, exact optional callbacks and forwarded unknown methods.
+- `correlation-ids.spec.ts` — the correlation-key precedence all three paths share.
