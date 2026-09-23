@@ -6,9 +6,10 @@ import { resolve } from "node:path";
  * The README used to say what the SDK does and jump straight to License: no
  * install line, no init snippet, no env-var table, no endpoint format, no verify
  * step, no ESM/CJS note, no Node version — and, worse, it promised "the HTTP
- * calls your service makes" while global `fetch`/undici are deliberately NOT
- * captured. A developer on Node 18+ `fetch` therefore got zero rows and zero
- * warnings, with an `axios` call beside it appearing normally.
+ * calls your service makes" while global `fetch`/undici was not captured. A
+ * developer on `fetch` therefore got zero rows and zero warnings, with an
+ * `axios` call beside it appearing normally. `fetch()` is captured now; the
+ * edges it still has are just as silent, so they must be named the same way.
  *
  * These assertions are the floor: they do not police prose, only that the facts
  * a first-run developer needs are actually present.
@@ -217,26 +218,37 @@ describe("README — first-run essentials", () => {
     expect(lower).toContain("behind a reverse proxy");
   });
 
-  it("lists what is NOT captured, naming fetch, undici and node:http2", () => {
+  it("lists global fetch()/undici as captured, egress only", () => {
+    const captured = readme.slice(
+      readme.indexOf("**Captured**"),
+      readme.indexOf("**Not captured yet**"),
+    );
+    expect(captured, "no Captured paragraph").not.toBe("");
+    expect(captured).toContain("fetch()");
+    expect(captured).toContain("undici");
+    expect(captured.toLowerCase()).toContain("egress only");
+  });
+
+  it("lists what is NOT captured: fetch()'s two edges and node:http2", () => {
     const notCaptured = readme.slice(readme.indexOf("**Not captured yet**"));
     expect(notCaptured, "no Not-captured section").not.toBe(readme);
-    expect(notCaptured).toContain("fetch");
-    expect(notCaptured).toContain("undici");
+    expect(notCaptured).toContain("own `dispatcher`");
+    expect(notCaptured).toContain("globalThis.fetch");
     expect(notCaptured).toContain("node:http2");
   });
 
-  it("warns that the fetch gap is silent, not loud", () => {
+  it("warns that the remaining gaps are silent, not loud", () => {
     const notCaptured = readme.slice(readme.indexOf("**Not captured yet**"));
     expect(notCaptured.toLowerCase()).toContain("zero rows");
   });
 
   /**
    * A reader who only reads Quick start (never scrolls ~240 lines to "What is
-   * captured") can write an ESM app on global `fetch()` and capture nothing,
-   * silently. Quick start must name the gap
-   * itself, right after the run line, with a link to the full caveat.
+   * captured") must learn there that `fetch()` is captured AND which two
+   * `fetch()` shapes are not — both silent — right after the run line, with a
+   * link to the full caveat.
    */
-  it('names the fetch/undici gap in Quick start itself, not only in "What is captured"', () => {
+  it('states fetch() scope and its edges in Quick start itself, not only in "What is captured"', () => {
     const quickStart = readme.slice(
       readme.indexOf("## Quick start"),
       readme.indexOf("### On Kubernetes"),
@@ -248,10 +260,17 @@ describe("README — first-run essentials", () => {
       quickStart.toLowerCase(),
       "Quick start does not name node:http/https as captured",
     ).toContain("node:http");
+    expect(quickStart, "Quick start does not name fetch() as captured").toContain(
+      "so is global `fetch()`",
+    );
     expect(
-      quickStart.toLowerCase(),
-      "Quick start does not name fetch/undici as not-yet-captured",
-    ).toContain("fetch");
+      quickStart,
+      "Quick start does not name the own-dispatcher edge",
+    ).toContain("own `dispatcher`");
+    expect(
+      quickStart,
+      "Quick start does not name the replaced-fetch edge",
+    ).toContain("globalThis.fetch");
     expect(
       quickStart,
       "Quick start does not link to the What is captured anchor",

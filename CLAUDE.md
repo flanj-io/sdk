@@ -51,9 +51,9 @@ Redaction happens here, at the call site, **before** anything is attached or exp
 
 ```
 src/
-  index.ts                         # the distro entrypoint (start(): register both instrumentations + OTLP logs exporter)
+  index.ts                         # the distro entrypoint (start(): register the three HTTP instrumentations + OTLP logs exporter)
   register.ts                      # the `./register` zero-code entry (see package.json exports) — KEEPS the handle,
-                                   # and switches on BOTH capture paths: HTTP bodies + MCP auto-instrumentation
+                                   # and switches on BOTH capture paths: HTTP bodies (node:http + fetch) + MCP auto-instrumentation
   otlp-endpoint.ts                 # endpoint resolution: FLANJ_/OTEL_ precedence + base-URL -> /v1/logs normalization
   export-failure-warning.ts        # wraps the exporter so the FIRST export failure prints one line (no diag hijack)
   capture-warning.ts               # the FIRST failed capture prints one line (same text + env var as the Python SDK)
@@ -62,6 +62,10 @@ src/
   instrumentation/                 # the capture core — see instrumentation/CLAUDE.md
     http-body-capture.ts           # EGRESS: PassThrough-tee capture of req/resp bodies on the http/https client path
     http-server-capture.ts         # INGRESS: incoming request + response body capture (direction="server")
+    fetch-body-capture.ts          # EGRESS for global fetch(): an interceptor composed onto undici's global dispatcher
+    tee-request-body.ts, tee-dispatch-handler.ts   # the fetch tees: request body on its way out; response via
+                                   # the handler callbacks (undici 6 AND 7 handler APIs, feature-detected)
+    undici-global-dispatcher.ts, undici-headers.ts, undici-types.ts   # Node's BUNDLED undici, never a userland copy
     assemble-call.ts               # direction-agnostic redact-at-source assembler (both paths funnel through here)
     classify-host.ts               # external | internal edge heuristic (byte-identical in the collector)
     trusted-proxies.ts             # the peers whose X-Forwarded-For ingress may believe (IPs/CIDRs; default none)
@@ -99,12 +103,14 @@ test/integration/                  # real in-process http calls end-to-end (clie
                                    # otlp-endpoint 404-is-not-silent, register-flush + otel-coexistence spawning
                                    # REAL children — the latter proves OTel's http spans survive both orders)
 test/fixtures/                     # child scripts the integration specs spawn: plain-CJS (register-flush),
-                                   # esm-named-import/, otel-coexistence/ (OTel HttpInstrumentation + Flanj)
+                                   # esm-named-import/, otel-coexistence/ (OTel HttpInstrumentation or
+                                   # UndiciInstrumentation + Flanj), one-shot-fetch.js
 test/packaging.spec.ts             # asserts the REAL `yarn pack` file list (dist entries in; src/test/contracts out;
                                    # no source maps — sources are not shipped, so a map could not resolve: sdk#33)
-test/readme.spec.ts                # asserts the README's first-run floor incl. the Not-captured list (fetch/undici)
+test/readme.spec.ts                # asserts the README's first-run floor incl. fetch() scope and its two uncaptured edges
 test/verify-release.spec.ts        # every release check, seen RED on a tarball built to break exactly that one
 scripts/smoke-pack.sh              # a stranger's first run: pack -> npm install the tarball -> require ./register
+                                   # -> one node:http call AND one fetch() call, two records
 scripts/verify-release.cjs         # the pre-publish gate: tag vs both package.jsons, the rewritten floor range,
                                    # what each tarball must and must not contain — read from the TARBALL, not the tree
 contracts/                         # vendored from the canonical contract (do not hand-edit; re-vendor) — see contracts/README.md
@@ -116,17 +122,19 @@ REDACTION.md                       # the floor's design: composed validators, ow
 1. **Redact before attach/export.** Assemble the capped raw buffer, redact, keep only the redacted string,
    **drop the raw buffer**. A raw body must never be set as an attribute — not even transiently.
 2. **Capture correctly.** Use the PassThrough-tee custom instrumentation for response bodies (a passive
-   `on('data')` listener breaks apps that read the body via `for await`). v0 targets the core `http`/`https`
-   client path (egress) and server path (ingress); `fetch`/undici body capture is deferred.
+   `on('data')` listener breaks apps that read the body via `for await`). The core `http`/`https` client
+   path (egress) and server path (ingress), plus global `fetch()` (egress): an interceptor composed onto
+   undici's global dispatcher that tees the request body's async iterable and copies the response from the
+   handler callbacks — it never answers, delays or rewrites a call, and never replaces `globalThis.fetch`.
 3. **Caps & gating.** Content-type gate (JSON/text/form only); 16 KiB body cap (`body_cap_bytes`); header
    allowlist (never emit `authorization`/`cookie` raw). Bodies are stored DECODED — any `content-encoding`
    is undone before redaction, and a coding we cannot undo stores no body rather than an unscanned frame.
 4. **Emit the exact `flanj.*` convention** in `contracts/CONTRACTS.md` §2. The emitted record must match
    `contracts/golden-otlp-call.json`.
 5. **The zero-code entry covers BOTH capture paths, and says which.** `register.ts` starts HTTP body
-   capture and auto-instruments MCP; its one startup line names MCP only when a client package was
-   actually patched. The Python SDK's `import flanj.register` is the same entry minus the HTTP half, and
-   `contracts/CONTRACTS.md` §2 (*SDK parity*) records that as the ONLY intended difference between the two
+   capture and auto-instruments MCP; its one startup line names `fetch()` only when the fetch layer was
+   actually installed, and MCP only when a client package was actually patched. The Python SDK's
+   `import flanj.register` is the same entry minus the HTTP half, and `contracts/CONTRACTS.md` §2 (*SDK parity*) records that as the ONLY intended difference between the two
    SDKs. Do not let the two entries diverge again without changing that note first.
 6. **Patch an optional peer's BOTH halves, synchronously, in the preload.** Both
    `@modelcontextprotocol` packages are **dual**: `require` and `import` yield two different `Client`
@@ -144,7 +152,11 @@ REDACTION.md                       # the floor's design: composed validators, ow
    installed (`instrumentation/wrap-layer.ts`) — never `isWrapped → _unwrap → wrap`, and never construct an
    OTel `InstrumentationBase`, whose require-in-the-middle singleton caches core modules and silences
    `@opentelemetry/instrumentation-http`. Both failure modes were silent; both are locked by
-   `test/integration/otel-coexistence.spec.ts`.
+   `test/integration/otel-coexistence.spec.ts`. The `fetch()` layer follows the same rule: it COMPOSES onto
+   whatever global dispatcher is installed and, on `disable()`, removes itself only while it is still the
+   outermost layer (buried, it goes inert). `@opentelemetry/instrumentation-undici` hooks undici's
+   diagnostics channels, not the dispatcher, and `test/integration/otel-undici-coexistence.spec.ts` holds
+   both registration orders.
 
 ## Contract
 

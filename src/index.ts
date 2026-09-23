@@ -7,6 +7,7 @@ import type { Logger } from '@opentelemetry/api-logs';
 import { instrumentMcpClient, type InstrumentMcpClientOptions, type McpClientLike } from './mcp/instrument-mcp-client';
 import { HttpBodyCaptureInstrumentation } from './instrumentation/http-body-capture';
 import { HttpServerCaptureInstrumentation } from './instrumentation/http-server-capture';
+import { FetchBodyCaptureInstrumentation } from './instrumentation/fetch-body-capture';
 import { TrustedProxies } from './instrumentation/trusted-proxies';
 import { assertSupportedNodeVersion } from './instrumentation/builtin-module';
 import { DEFAULT_BODY_CAP_BYTES } from './instrumentation/config';
@@ -62,6 +63,12 @@ export interface FlanjHandle {
   instrumentation: HttpBodyCaptureInstrumentation;
   /** Ingress (server-path) body-capture instrumentation. */
   serverInstrumentation: HttpServerCaptureInstrumentation;
+  /**
+   * Egress capture for global `fetch()` (Node's bundled undici). Its
+   * `isCapturing()` is false on a runtime without fetch, and on a second
+   * `start()` while another live handle already captures fetch.
+   */
+  fetchInstrumentation: FetchBodyCaptureInstrumentation;
   /** The resolved `service.name` resource attribute (see {@link StartOptions.serviceName}). */
   serviceName: string;
   /** The resolved, normalized OTLP/HTTP logs endpoint records are exported to. */
@@ -93,8 +100,8 @@ export interface FlanjHandle {
 }
 
 /**
- * Start the Flanj SDK: register the http/https body-capture instrumentation
- * and wire each captured (already-redacted) call to a logs OTLP/HTTP exporter
+ * Start the Flanj SDK: register the http/https and global `fetch()` body-capture
+ * instrumentations and wire each captured (already-redacted) call to a logs OTLP/HTTP exporter
  * on :4318. Returns a handle for shutdown.
  */
 export function start(options: StartOptions = {}): FlanjHandle {
@@ -167,11 +174,18 @@ export function start(options: StartOptions = {}): FlanjHandle {
     trustedProxies,
     onCapture
   });
+  // Global fetch() is egress too: same config, same sink, same record shape.
+  const fetchInstrumentation = new FetchBodyCaptureInstrumentation({
+    bodyCapBytes,
+    ignoreUrls,
+    onCapture
+  });
 
   return {
     loggerProvider,
     instrumentation,
     serverInstrumentation,
+    fetchInstrumentation,
     serviceName,
     endpoint,
     logger,
@@ -187,6 +201,7 @@ export function start(options: StartOptions = {}): FlanjHandle {
     shutdown: async () => {
       instrumentation.disable();
       serverInstrumentation.disable();
+      fetchInstrumentation.disable();
       await loggerProvider.shutdown();
     }
   };
@@ -244,6 +259,7 @@ export type {
 
 export { HttpBodyCaptureInstrumentation } from './instrumentation/http-body-capture';
 export { HttpServerCaptureInstrumentation } from './instrumentation/http-server-capture';
+export { FetchBodyCaptureInstrumentation } from './instrumentation/fetch-body-capture';
 export { SUPPORTED_NODE_RANGE, assertSupportedNodeVersion } from './instrumentation/builtin-module';
 export { classifyHost } from './instrumentation/classify-host';
 export type { EdgeClass } from './instrumentation/classify-host';

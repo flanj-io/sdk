@@ -13,8 +13,9 @@
  *   require('@flanj/sdk/register'); // CJS
  *
  * It switches on BOTH capture paths this SDK has: HTTP request/response bodies on
- * `node:http`/`node:https`, and — when an MCP client package is installed — every MCP
- * client's `tools/list` and `tools/call`. The MCP half is feature-detected: with no
+ * `node:http`/`node:https` and global `fetch()` (Node's bundled undici), and — when an
+ * MCP client package is installed — every MCP client's `tools/list` and `tools/call`.
+ * The MCP half is feature-detected: with no
  * `@modelcontextprotocol` package present nothing is patched, nothing is imported and
  * nothing fails. `import flanj.register` in the Python SDK is the same entry minus the
  * HTTP half, which Python does not have.
@@ -70,8 +71,13 @@ export const mcpReady: Promise<string[]> = registerMcpAutoInstrumentation(mcpOpt
     // failure class this SDK had was silence. FLANJ_QUIET=1 turns it off.
     try {
       if (process.env.FLANJ_QUIET !== '1') {
-        const capturing =
-          patched.length > 0 ? 'capturing http/https bodies and MCP client calls' : 'capturing http/https bodies';
+        // Name fetch() only when its layer is actually installed: a runtime
+        // without global fetch, or a second SDK copy that found another live
+        // owner, does not capture it here.
+        const http = handle.fetchInstrumentation.isCapturing()
+          ? 'capturing http/https and fetch() bodies'
+          : 'capturing http/https bodies';
+        const capturing = patched.length > 0 ? `${http} and MCP client calls` : http;
         process.stderr.write(
           `[flanj] ${SDK_NAME} ${SDK_VERSION} ${capturing} -> ${handle.endpoint} ` +
             `(service.name=${handle.serviceName}). Set FLANJ_QUIET=1 to silence this line.\n`

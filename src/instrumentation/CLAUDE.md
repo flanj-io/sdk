@@ -1,6 +1,7 @@
 # CLAUDE.md — `src/instrumentation/`
 
-The capture core: turn one completed http/https **client or server** call into one fully-redacted
+The capture core: turn one completed http/https **client or server** call — or one global `fetch()` —
+into one fully-redacted
 `CapturedCall`, then into the frozen `flanj.*` OTLP log record. This is where the day-one
 non-negotiable lives — **redact at source, drop the raw buffer, never attach raw**.
 
@@ -10,6 +11,12 @@ non-negotiable lives — **redact at source, drop the raw buffer, never attach r
 |---|---|
 | `http-body-capture.ts` | `HttpBodyCaptureInstrumentation` — EGRESS: patches core `http`/`https` `request`/`get`, tees request + response bodies, redacts at source, hands a `CapturedCall` to `onCapture`. |
 | `http-server-capture.ts` | `HttpServerCaptureInstrumentation` — INGRESS: patches `Server.prototype.emit`, intercepts `'request'`, tees the incoming request body (via the IncomingMessage `push`) + the response body (via `res.write`/`end`), records `res.writeHead`'s headers, emits a `direction="server"` record. |
+| `fetch-body-capture.ts` | `FetchBodyCaptureInstrumentation` — EGRESS for global `fetch()` (Node's bundled undici): composes an interceptor onto undici's global dispatcher, tees the request body and the response, emits the same `CapturedCall` through the same assembler. See *Global `fetch()`* below. |
+| `tee-request-body.ts` | `teeRequestBody` — observe a dispatch request body into a `CappedBuffer` without consuming, delaying or altering what is sent: an async iterable (what `fetch()` always passes) becomes a lazy pass-through generator; a Node Readable gets the `push` tee; a Blob is read on the side; FormData (multipart) is left alone. |
+| `tee-dispatch-handler.ts` | `teeDispatchHandler` — a Proxy over a dispatch handler that observes the response callbacks of whichever API the handler speaks (undici 6 `onHeaders/onData/onComplete/onError`, undici 7 `onResponseStart/Data/End/Error`), forwarding every call and return value. |
+| `undici-global-dispatcher.ts` | `undiciGlobalDispatcher` — get/set undici's process-wide dispatcher through its registered `globalThis` symbols, loading Node's bundled undici first (the `Headers` lazy global); never imports a userland `undici`. |
+| `undici-headers.ts` | `normalizeUndiciHeaders` — every header shape undici takes or yields (object, flat raw array of Buffers, iterable of pairs) → one lowercase map. |
+| `undici-types.ts` | The local types for the dispatcher API slice the fetch path touches. |
 | `classify-host.ts` | `classifyHost(host)` — the cross-component edge heuristic → `external`\|`internal` (RFC1918 / loopback / link-local / ULA / `.svc.cluster.local`·`.internal`·`.local` / single-label ⇒ internal). Identical byte-for-byte in the collector. |
 | `assemble-call.ts` | `assembleCapturedCall` — the shared, direction-agnostic redact-at-source assembler. Bodies are redacted-and-kept ONLY for external edges with a captureable content-type; internal edges keep NO body. Both client and server paths funnel through here. |
 | `otlp-record.ts` | `buildLogAttributes` / `emitCall` — map a `CapturedCall` to the `flanj.*` attribute convention (CONTRACTS §2) and emit one log record. Body is empty; all data is in attributes. |
@@ -188,6 +195,41 @@ everyone who patches this way) — capture goes to zero, and `disable()` then `e
 instrumentations reinstalls it. `enable()` alone does not: the base is idempotent, so the flag must go
 down first.
 
+## Global `fetch()` (undici) — 2026-09-23
+
+undici has its own socket path, so the `node:http` patches never saw a `fetch()`: a fetch-based app got a
+healthy startup line and zero rows. `fetch-body-capture.ts` closes that, egress only (`fetch` only makes
+calls), with the same record shape and the same assembler.
+
+1. **The hook is the global dispatcher, not `globalThis.fetch`.** undici keeps it on `globalThis` under
+   `Symbol.for('undici.globalDispatcher.1')` (undici 7 also writes `.2`, and still reads `.1`); every copy
+   of undici — Node's bundled one and any userland one — agrees on it. `start()` loads Node's bundled undici
+   by touching the `Headers` lazy global (`fetch` itself is a plain wrapper that loads undici only when
+   CALLED), then installs `getGlobalDispatcher().compose(interceptor)`. Every undici Node bundles on the
+   supported range has `compose` (6.18.2 on 22.3.0, 6.19.2 on 20.16.0, 6.2x on 22/23, 7.x on 24).
+2. **Feature-detect the handler API.** undici 6 hands an interceptor the caller's handler as is (`fetch()`'s
+   own is legacy: `onHeaders/onData/onComplete/onError`). undici 7's `compose` wraps every handler into the
+   new API (`onRequestStart/onResponseStart/onResponseData/onResponseEnd/onResponseError`) before an
+   interceptor sees it. `teeDispatchHandler` checks for `onRequestStart`, as undici does, and speaks back the
+   same API — never a version string. It is a Proxy that binds forwarded methods to the ORIGINAL: undici 7's
+   `WrapHandler` keeps state in `#private` fields, which throw when called with the Proxy as `this`.
+3. **Request body: tee the iterable, lazily.** By dispatch time `fetch()` has turned every `BodyInit`
+   (string, bytes, URLSearchParams, Blob, FormData, ReadableStream) into one async generator. It is replaced
+   by a generator that yields the same chunks, in order, as undici pulls them, and forwards `return()`.
+   undici 7's handler API has no `onBodySent`, so observing the socket writes is not portable; the iterable
+   is. FormData arrives already multipart-encoded and the content-type gate drops it anyway.
+4. **Response body: the raw wire bytes, then `decodeBody`.** The handler callbacks see the bytes before
+   `fetch()` decompresses them, exactly like `IncomingMessage`, so `content-encoding` is undone the same way.
+5. **No record for a call that does not complete** — an error, an abort, an upgrade — matching the http
+   path, where a response that never `end`s emits nothing. A redirect `fetch()` follows is two dispatches,
+   so two records, one per hop on the wire.
+6. **One live layer per process** (`Symbol.for('flanj.sdk.fetch-capture.owner')`), so a preload plus a
+   `start()` from code capture each `fetch()` once. `disable()` puts the base dispatcher back only while
+   ours is still the installed one; buried under a later layer it stays, inert.
+7. **Not reachable:** a `fetch()` given `{ dispatcher }`; a global dispatcher an app installs AFTER `start()`
+   (it replaces ours); a library that swaps `globalThis.fetch` for another implementation. The README names
+   all three. `flanj.peer.addr` is omitted on this path: the dispatcher API exposes no socket address.
+
 ## Never break
 
 - **Instrumentation must not break the app.** Every patched entry point is wrapped in try/catch; a
@@ -250,3 +292,14 @@ collector §8 key); `onCapture` → the sink `start()` wires to the OTLP logger.
   the ESM preload under OTel's `hook.mjs`: OTel still records its client and server spans while Flanj still
   emits one record per call. Fails 4/7 on the pre-fix code.
 - `classify-host.spec.ts` — the external/internal edge heuristic.
+- `../../test/integration/fetch-capture.spec.ts` — global `fetch()` end-to-end on the undici Node bundles:
+  GET, POST JSON, streamed body, every `BodyInit` shape, refused and cut-off errors, a redirect, gzip/br and
+  an undecodable coding, the cap, `FLANJ_IGNORE_URLS`, the self-export ignore, an internal edge, the
+  own-dispatcher edge, and every case in `contracts/redaction-fixtures.json` through both bodies.
+- `../../test/integration/fetch-capture-lifecycle.spec.ts` — shutdown restores the dispatcher, one live
+  layer per process, take-over after shutdown, stacking under a later interceptor, a throwing sink.
+- `../../test/integration/otel-undici-coexistence.spec.ts` — REAL children with
+  `@opentelemetry/instrumentation-undici` in both orders: OTel keeps its client spans and `traceparent`,
+  Flanj keeps one record per `fetch()`.
+- `tee-request-body.spec.ts` / `tee-dispatch-handler.spec.ts` / `undici-headers.spec.ts` — the tees and the
+  header shapes, both handler APIs.

@@ -48,10 +48,12 @@ node -r @flanj/sdk/register app.js
 ```
 
 That is the whole integration; no source change. `node:http`/`node:https` — and everything built on them
-(`axios`, `got`, `node-fetch`, `superagent`) — are captured; global `fetch`/undici is not yet, silently (see
-[What is captured](#what-is-captured)). The preload starts the OTLP pipeline, flushes on exit, and
-switches on **both** capture paths: every `node:http`/`node:https` call, and — when an MCP client package is
-installed — every MCP client your app constructs. It prints one line naming the endpoint, the resolved
+(`axios`, `got`, `node-fetch`, `superagent`) — are captured, and so is global `fetch()` (Node's bundled
+undici), which the OpenAI and Anthropic SDKs, the Vercel AI SDK and the MCP HTTP transport call. Two `fetch()`
+edges stay uncaptured, silently: a call given its own `dispatcher`, and a library that swaps `globalThis.fetch`
+for another implementation (see [What is captured](#what-is-captured)). The preload starts the OTLP pipeline,
+flushes on exit, and switches on **both** capture paths: every `node:http`/`node:https` and `fetch()` call,
+and — when an MCP client package is installed — every MCP client your app constructs. It prints one line naming the endpoint, the resolved
 service name (defaulting to your app's own `package.json` name — see [Configuration](#configuration)) and
 what it is capturing (`FLANJ_QUIET=1` silences it). It is the counterpart of the Python SDK's
 `import flanj.register`.
@@ -118,6 +120,11 @@ is a call made before the SDK started, or a function copied into a local variabl
 (`const r = http.request`), which no patch can reach; hence the preload. One caveat: under an ESM
 loader hook that rewrites `node:http` (OpenTelemetry's import-in-the-middle, for instance), a named
 import binds to the hook's copy, which the re-sync cannot reach. Use the preload there, after the hook.
+
+Global `fetch()` needs none of that. The SDK composes a capture layer onto undici's global dispatcher, which
+every `fetch()` reads when it is called, so it does not matter how or when your code reached `fetch`. The
+layer stacks on a global dispatcher your app installed before the SDK started (a proxy agent, say); one
+installed after the SDK started replaces it, and those calls are not captured.
 
 Both MCP client packages ship a CommonJS build and an ESM build, which are two different `Client` classes
 at runtime. The preload patches both, so it does not matter which one your app reaches for.
@@ -239,6 +246,11 @@ node --import @opentelemetry/instrumentation/hook.mjs \
      app.mjs
 ```
 
+`@opentelemetry/instrumentation-undici`, which gives global `fetch()` its spans, reads undici's diagnostics
+channels, while Flanj composes onto undici's global dispatcher. Neither touches the other's hook, so this pair
+also works in either registration order, OTel's `traceparent` still reaches the wire, and a real-process test
+covers both orders (`test/integration/otel-undici-coexistence.spec.ts`).
+
 Known interaction: calling `disable()` on OTel's http instrumentation while Flanj is loaded removes the
 outermost wrapper, which may be Flanj's (that is `shimmer`'s behaviour, shared by every library that
 patches this way). Capture comes back with `handle.instrumentation.disable()` followed by `enable()`.
@@ -246,16 +258,23 @@ patches this way). Capture comes back with `handle.instrumentation.disable()` fo
 ## What is captured
 
 **Captured** — every `tools/call` and `tools/list` on an instrumented MCP client (the fields are listed
-under [MCP quick start](#mcp-quick-start)), and any HTTP client that goes through Node's core
-`node:http` / `node:https`, which is most of them: `axios`, `got`, `node-fetch`, `superagent`, and
-`http.request`/`https.request` used directly. Both directions: calls your service makes (egress) and calls
-it receives (ingress). Capture is a passive tee on the bytes already in flight; the call itself is untouched.
+under [MCP quick start](#mcp-quick-start)), any HTTP client that goes through Node's core
+`node:http` / `node:https` (`axios`, `got`, `node-fetch`, `superagent`, and
+`http.request`/`https.request` used directly), and global `fetch()`, which is Node's bundled `undici`
+(the OpenAI and Anthropic SDKs, the Vercel AI SDK, the MCP HTTP transport, and server code in Next.js or
+Hono that calls out with `fetch`). Both directions for `node:http`: calls your service makes (egress) and
+calls it receives (ingress). `fetch()` only makes calls, so it is egress only. Capture is a passive tee on the
+bytes already in flight; the call itself is untouched. A `fetch()` that follows a redirect records each hop it
+put on the wire.
 
-**Not captured yet** — anything that bypasses `node:http`:
+**Not captured yet** — the calls this SDK has no hook on. Each is silent: zero rows and no warning, while
+an `axios` call beside it shows up normally.
 
-- **Global `fetch()` and `undici`.** Node 18+ `fetch` is undici, which has its own socket path. This is
-  silent: you get zero rows and no warning, while an `axios` call beside it shows up normally. If your
-  service uses `fetch`, this SDK will not see those calls yet.
+- **A `fetch()` given its own `dispatcher`.** The SDK hooks undici's global dispatcher, so a call that
+  passes `{ dispatcher }`, or runs after your app installs its own global dispatcher, bypasses it. A global
+  dispatcher installed *before* the SDK starts is fine; the SDK stacks on it.
+- **A library that replaces `globalThis.fetch`** with an implementation that is not Node's (a polyfill
+  installed after the preload, for instance). Only Node's own `fetch` goes through undici's dispatcher.
 - **`node:http2`.**
 - **`tasks/get` payloads.** A Tasks handle is recorded as an envelope with no body, so nothing models the
   envelope as the tool's output shape.
@@ -334,7 +353,8 @@ are the same SDK: same defaults, same records, same entry points. A language is 
 once the whole loop runs on it end to end in our own integration harness, with that suite's assertions
 green — until then it says early, here and everywhere else.
 
-**Where this stops, said out loud.** Global `fetch`/undici is **not** captured (see *What is
+**Where this stops, said out loud.** A `fetch()` given its own dispatcher, or made by a library that
+swapped `globalThis.fetch` for its own implementation, is **not** captured (see *What is
 captured*). A REST provider needs a spec somebody published; an MCP server needs none. A call the
 collector cannot check against a contract is captured and reported as **not validated**, never as
 conforming.

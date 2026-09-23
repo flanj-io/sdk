@@ -2,10 +2,13 @@
 //
 // Parent role (no argv): stand up a fake collector and a fake provider, then
 // spawn a one-shot child under `node -r @flanj/sdk/register`. Child role
-// (`child`): make one HTTP call and return immediately — no keep-alive, so the
-// process ends inside the batch processor's 1s unref'd export window.
+// (`child`): make one `node:http` call and one global `fetch()` call, then
+// return — no keep-alive, so the process ends inside the batch processor's 1s
+// unref'd export window.
 //
-// Passing means the published tarball resolves, loads, captures and flushes.
+// Passing means the published tarball resolves, loads, captures BOTH client
+// paths (fetch() is Node's bundled undici, which never touches node:http) and
+// flushes.
 'use strict';
 const http = require('node:http');
 const { spawn } = require('node:child_process');
@@ -16,7 +19,20 @@ if (process.argv[2] === 'child') {
     { method: 'POST', headers: { 'content-type': 'application/json' } },
     (res) => {
       res.on('data', () => {});
-      res.on('end', () => process.stdout.write('called\n'));
+      res.on('end', () => {
+        process.stdout.write('called http\n');
+        fetch(process.env.TARGET_URL, {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: '{"amount":1200}'
+        })
+          .then((r) => r.text())
+          .then(() => process.stdout.write('called fetch\n'))
+          .catch((err) => {
+            process.stderr.write(`fetch failed: ${err.message}\n`);
+            process.exit(1);
+          });
+      });
     }
   );
   req.on('error', (err) => {
@@ -43,7 +59,7 @@ for (const specifier of ['@flanj/sdk', '@flanj/sdk/register']) {
 if (typeof require('@flanj/sdk').start !== 'function') fail("@flanj/sdk does not export start()");
 console.log('resolved @flanj/sdk and @flanj/sdk/register');
 
-// 2. A real one-shot run must deliver exactly one record.
+// 2. A real one-shot run must deliver exactly one record per call: node:http, then fetch().
 let received = 0;
 const collector = http.createServer((req, res) => {
   const chunks = [];
@@ -86,8 +102,8 @@ collector.listen(0, '127.0.0.1', () =>
         collector.close();
         provider.close();
         if (code !== 0) fail(`the child exited ${code}`);
-        if (received !== 1) fail(`expected exactly 1 exported record, got ${received}`);
-        console.log('SMOKE OK: one-shot child under -r @flanj/sdk/register delivered 1 record');
+        if (received !== 2) fail(`expected exactly 2 exported records (node:http + fetch), got ${received}`);
+        console.log('SMOKE OK: one-shot child under -r @flanj/sdk/register delivered 2 records (node:http + fetch)');
       }, 500);
     });
   })
