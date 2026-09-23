@@ -1,3 +1,4 @@
+import { subscribe, unsubscribe } from 'node:diagnostics_channel';
 import { context, trace, type SpanContext } from '@opentelemetry/api';
 import { SDK_NAME, SDK_VERSION } from '../version';
 import { FlanjInstrumentation } from './flanj-instrumentation';
@@ -9,8 +10,8 @@ import { DEFAULT_BODY_CAP_BYTES, HttpBodyCaptureConfig, isIgnoredUrl } from './c
 import { teeRequestBody } from './tee-request-body';
 import { teeDispatchHandler, type DispatchObserver } from './tee-dispatch-handler';
 import { normalizeUndiciHeaders } from './undici-headers';
-import { undiciGlobalDispatcher } from './undici-global-dispatcher';
-import type { DispatchFn, DispatchHandler, DispatchInterceptor, DispatchOptions, UndiciDispatcher } from './undici-types';
+import { undiciGlobalDispatcher, type InstalledDispatchers } from './undici-global-dispatcher';
+import type { DispatchFn, DispatchHandler, DispatchOptions } from './undici-types';
 
 /**
  * Which live instance owns the fetch layer, process-wide. A registered symbol
@@ -23,12 +24,37 @@ interface Owner {
   isLive(): boolean;
 }
 
+/**
+ * undici publishes every request it builds here, synchronously, from inside the
+ * dispatch that built it. Instrumentations that add headers
+ * (`@opentelemetry/instrumentation-undici`'s `traceparent`, for one) do it in a
+ * subscriber, on that internal request — after our interceptor has run.
+ */
+const REQUEST_CREATE = 'undici:request:create';
+
+/** The fields of undici's internal request object the capture reads. */
+interface UndiciRequest {
+  origin?: unknown;
+  path?: unknown;
+  method?: unknown;
+  /** Flat `[name, value, …]`, including every header a subscriber added. */
+  headers?: unknown;
+}
+
+/** One dispatch in progress, waiting for undici to build its request. */
+interface PendingDispatch {
+  host: string;
+  path: string;
+  method: string;
+  request?: UndiciRequest;
+}
+
 interface InstalledLayer {
-  /** The dispatcher we composed onto, restored on `disable()` while ours is still on top. */
-  base: UndiciDispatcher;
-  /** What we installed as the global dispatcher. */
-  composed: UndiciDispatcher;
+  dispatchers: InstalledDispatchers;
   owner: Owner;
+  /** Dispatches currently inside `dispatch()`, innermost last. */
+  inFlight: PendingDispatch[];
+  onRequestCreate: (message: unknown) => void;
 }
 
 type HeaderMap = Record<string, string | string[]>;
@@ -87,13 +113,16 @@ export class FetchBodyCaptureInstrumentation extends FlanjInstrumentation<HttpBo
     try {
       const registry = globalThis as unknown as Record<symbol, Owner | undefined>;
       if (registry[OWNER]?.isLive()) return;
-      const base = undiciGlobalDispatcher.get();
-      if (!base) return;
-      const composed = compose(base, (dispatch) => (opts, handler) => this.dispatchThrough(dispatch, opts, handler));
+      const inFlight: PendingDispatch[] = [];
+      const onRequestCreate = (message: unknown): void => claimRequest(inFlight, message);
+      const dispatchers = undiciGlobalDispatcher.install(
+        (dispatch) => (opts, handler) => this.dispatchThrough(dispatch, opts, handler, inFlight)
+      );
+      if (!dispatchers) return;
       const owner: Owner = { isLive: () => this.isEnabled() && this.layer?.owner === owner };
-      this.layer = { base, composed, owner };
-      undiciGlobalDispatcher.set(composed);
+      this.layer = { dispatchers, owner, inFlight, onRequestCreate };
       registry[OWNER] = owner;
+      subscribe(REQUEST_CREATE, onRequestCreate);
     } catch {
       // Could not install: fetch() keeps working, uncaptured. Never fail start().
       this.layer = undefined;
@@ -105,7 +134,8 @@ export class FetchBodyCaptureInstrumentation extends FlanjInstrumentation<HttpBo
     if (!layer) return;
     this.layer = undefined;
     try {
-      if (undiciGlobalDispatcher.get() === layer.composed) undiciGlobalDispatcher.set(layer.base);
+      unsubscribe(REQUEST_CREATE, layer.onRequestCreate);
+      undiciGlobalDispatcher.uninstall(layer.dispatchers);
       const registry = globalThis as unknown as Record<symbol, Owner | undefined>;
       if (registry[OWNER] === layer.owner) delete registry[OWNER];
     } catch {
@@ -113,26 +143,44 @@ export class FetchBodyCaptureInstrumentation extends FlanjInstrumentation<HttpBo
     }
   }
 
-  private dispatchThrough(dispatch: DispatchFn, opts: DispatchOptions, handler: DispatchHandler): unknown {
+  private dispatchThrough(
+    dispatch: DispatchFn,
+    opts: DispatchOptions,
+    handler: DispatchHandler,
+    inFlight: PendingDispatch[]
+  ): unknown {
     if (!this.isEnabled()) return dispatch(opts, handler);
     let sendOpts = opts;
     let sendHandler = handler;
+    let pending: PendingDispatch | undefined;
     try {
       const tap = this.begin(opts);
       if (tap) {
         sendHandler = teeDispatchHandler(handler, tap.observer);
         sendOpts = tap.opts;
+        pending = tap.pending;
       }
     } catch {
       // Any capture failure: dispatch exactly what the app asked for. The tee
       // generator (if one was built) is lazy and has pulled nothing yet.
       sendOpts = opts;
       sendHandler = handler;
+      pending = undefined;
     }
-    return dispatch(sendOpts, sendHandler);
+    if (!pending) return dispatch(sendOpts, sendHandler);
+    // While the next dispatcher runs, undici builds its request and publishes it
+    // on REQUEST_CREATE; `claimRequest` pairs it with this call.
+    inFlight.push(pending);
+    try {
+      return dispatch(sendOpts, sendHandler);
+    } finally {
+      inFlight.pop();
+    }
   }
 
-  private begin(opts: DispatchOptions): { opts: DispatchOptions; observer: DispatchObserver } | undefined {
+  private begin(
+    opts: DispatchOptions
+  ): { opts: DispatchOptions; observer: DispatchObserver; pending: PendingDispatch } | undefined {
     // A protocol upgrade (WebSocket) is not a request/response call.
     if (opts.upgrade) return undefined;
     const origin = parseOrigin(opts.origin);
@@ -152,28 +200,30 @@ export class FetchBodyCaptureInstrumentation extends FlanjInstrumentation<HttpBo
 
     const reqBuf = new CappedBuffer(cap);
     let sendOpts = opts;
-    let pending: Promise<void> | undefined;
+    let bodyRead: Promise<void> | undefined;
     if (captureBodies && opts.body !== null && opts.body !== undefined) {
       const teed = teeRequestBody(opts.body, reqBuf, cap);
       if (teed.body !== opts.body) sendOpts = { ...opts, body: teed.body };
-      pending = teed.pending;
+      bodyRead = teed.pending;
     }
 
+    const pending: PendingDispatch = { host: origin.host, path, method };
     const observer = this.observe({
       method,
       protocol: origin.protocol,
       host: origin.host,
       path,
       requestHeaders: normalizeUndiciHeaders(opts.headers),
-      reqBuf,
       pending,
+      reqBuf,
+      bodyRead,
       edgeClass,
       captureBodies,
       cap,
       startTime: Date.now(),
       spanCtx: trace.getSpanContext(context.active())
     });
-    return { opts: sendOpts, observer };
+    return { opts: sendOpts, observer, pending };
   }
 
   private observe(call: {
@@ -182,8 +232,10 @@ export class FetchBodyCaptureInstrumentation extends FlanjInstrumentation<HttpBo
     host: string;
     path: string;
     requestHeaders: HeaderMap;
+    /** Filled with undici's own request object if one was built inside our dispatch. */
+    pending: PendingDispatch;
     reqBuf: CappedBuffer;
-    pending: Promise<void> | undefined;
+    bodyRead: Promise<void> | undefined;
     edgeClass: EdgeClass;
     captureBodies: boolean;
     cap: number;
@@ -191,6 +243,7 @@ export class FetchBodyCaptureInstrumentation extends FlanjInstrumentation<HttpBo
     spanCtx: SpanContext | undefined;
   }): DispatchObserver {
     let statusCode = 0;
+    let requestHeaders = call.requestHeaders;
     let responseHeaders: HeaderMap = {};
     let resBuf = new CappedBuffer(call.cap);
     let started = false;
@@ -198,7 +251,7 @@ export class FetchBodyCaptureInstrumentation extends FlanjInstrumentation<HttpBo
 
     const emit = (): void => {
       try {
-        this.getConfig().onCapture?.(this.buildCall(call, statusCode, responseHeaders, resBuf));
+        this.getConfig().onCapture?.(this.buildCall({ ...call, requestHeaders }, statusCode, responseHeaders, resBuf));
       } catch {
         // swallow — never surface capture errors to the app
       }
@@ -211,6 +264,11 @@ export class FetchBodyCaptureInstrumentation extends FlanjInstrumentation<HttpBo
         started = true;
         statusCode = status;
         responseHeaders = headers;
+        // Request headers as they went on the wire, read NOW — like the http
+        // path's `getHeader()` at response time — so headers other
+        // instrumentations added after our interceptor ran are on the record.
+        const sent = call.pending.request?.headers;
+        if (sent !== undefined) requestHeaders = { ...call.requestHeaders, ...normalizeUndiciHeaders(sent) };
         resBuf = new CappedBuffer(call.cap);
       },
       onResponseData: (chunk) => {
@@ -219,7 +277,7 @@ export class FetchBodyCaptureInstrumentation extends FlanjInstrumentation<HttpBo
       onResponseEnd: () => {
         if (!started || settled) return;
         settled = true;
-        if (call.pending) void call.pending.then(emit, emit);
+        if (call.bodyRead) void call.bodyRead.then(emit, emit);
         else emit();
       },
       onAbandon: () => {
@@ -280,21 +338,24 @@ export class FetchBodyCaptureInstrumentation extends FlanjInstrumentation<HttpBo
 }
 
 /**
- * Compose `interceptor` onto `base`. Every undici Node bundles (6.18+) has
- * `compose`; a userland dispatcher an app installed before `start()` may be
- * older, so fall back to what undici 7's `compose` itself returns — a view of
- * the base whose `dispatch` is the intercepted one, everything else the base's.
+ * Pair undici's freshly built request with the dispatch that built it: the
+ * innermost one still inside `dispatch()`, and only if origin, path and method
+ * agree (a proxy agent building its CONNECT request does not). A dispatcher
+ * that queues the request and builds it later (a pool at its connection limit)
+ * publishes outside any dispatch; that call keeps its dispatch-time headers.
  */
-function compose(base: UndiciDispatcher, interceptor: DispatchInterceptor): UndiciDispatcher {
-  if (typeof base.compose === 'function') return base.compose(interceptor);
-  const dispatch = interceptor(base.dispatch.bind(base));
-  return new Proxy(base, {
-    get(target, key) {
-      if (key === 'dispatch') return dispatch;
-      const value = Reflect.get(target, key, target) as unknown;
-      return typeof value === 'function' ? (value as (...a: unknown[]) => unknown).bind(target) : value;
-    }
-  });
+function claimRequest(inFlight: PendingDispatch[], message: unknown): void {
+  try {
+    const current = inFlight[inFlight.length - 1];
+    const request = (message as { request?: UndiciRequest } | null)?.request;
+    if (!current || current.request || !request) return;
+    if (request.path !== current.path) return;
+    if (String(request.method).toUpperCase() !== current.method) return;
+    if (parseOrigin(request.origin as DispatchOptions['origin'])?.host !== current.host) return;
+    current.request = request;
+  } catch {
+    // A request we cannot read keeps its dispatch-time headers.
+  }
 }
 
 /** `{ protocol, host }` of a dispatch origin; `host` via WHATWG `URL.host` (the scheme's default port dropped). */

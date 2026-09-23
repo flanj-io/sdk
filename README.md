@@ -126,6 +126,11 @@ every `fetch()` reads when it is called, so it does not matter how or when your 
 layer stacks on a global dispatcher your app installed before the SDK started (a proxy agent, say); one
 installed after the SDK started replaces it, and those calls are not captured.
 
+An app that also depends on the `undici` package itself keeps both working, in either load order: Node's
+`fetch()` stays captured, and the package's own `fetch()` and `request()` calls through the global
+dispatcher are captured too. On Node 20 to 23, whose bundled undici is 6.x, an `undici` 8 loaded after the
+SDK shares Node's global dispatcher instead of creating its own, as it already does on Node 24.
+
 Both MCP client packages ship a CommonJS build and an ESM build, which are two different `Client` classes
 at runtime. The preload patches both, so it does not matter which one your app reaches for.
 

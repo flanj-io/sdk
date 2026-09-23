@@ -14,7 +14,9 @@ non-negotiable lives — **redact at source, drop the raw buffer, never attach r
 | `fetch-body-capture.ts` | `FetchBodyCaptureInstrumentation` — EGRESS for global `fetch()` (Node's bundled undici): composes an interceptor onto undici's global dispatcher, tees the request body and the response, emits the same `CapturedCall` through the same assembler. See *Global `fetch()`* below. |
 | `tee-request-body.ts` | `teeRequestBody` — observe a dispatch request body into a `CappedBuffer` without consuming, delaying or altering what is sent: an async iterable (what `fetch()` always passes) becomes a lazy pass-through generator; a Node Readable gets the `push` tee; a Blob is read on the side; FormData (multipart) is left alone. |
 | `tee-dispatch-handler.ts` | `teeDispatchHandler` — a Proxy over a dispatch handler that observes the response callbacks of whichever API the handler speaks (undici 6 `onHeaders/onData/onComplete/onError`, undici 7 `onResponseStart/Data/End/Error`), forwarding every call and return value. |
-| `undici-global-dispatcher.ts` | `undiciGlobalDispatcher` — get/set undici's process-wide dispatcher through its registered `globalThis` symbols, loading Node's bundled undici first (the `Headers` lazy global); never imports a userland `undici`. |
+| `undici-global-dispatcher.ts` | `undiciGlobalDispatcher` — `get` / `install` / `uninstall` undici's process-wide dispatcher through its registered `globalThis` slots (`.1` and `.2`, per slot — see point 1 below), loading Node's bundled undici first (the `Headers` lazy global); never imports a userland `undici`. |
+| `compose-dispatcher.ts` | `composeDispatcher` — `base.compose(interceptor)`, or for a base without `compose` the view undici 7's own `compose` returns (intercepted `dispatch`, everything else the base's, bound to it). |
+| `to-legacy-handler.ts` | `toLegacyHandler` — present a new-API handler (undici ≥ 7) to a dispatcher that only takes undici 6's legacy callbacks, through a controller that maps pause/resume/abort. Used by the `.2` bridge. |
 | `undici-headers.ts` | `normalizeUndiciHeaders` — every header shape undici takes or yields (object, flat raw array of Buffers, iterable of pairs) → one lowercase map. |
 | `undici-types.ts` | The local types for the dispatcher API slice the fetch path touches. |
 | `classify-host.ts` | `classifyHost(host)` — the cross-component edge heuristic → `external`\|`internal` (RFC1918 / loopback / link-local / ULA / `.svc.cluster.local`·`.internal`·`.local` / single-label ⇒ internal). Identical byte-for-byte in the collector. |
@@ -201,12 +203,24 @@ undici has its own socket path, so the `node:http` patches never saw a `fetch()`
 healthy startup line and zero rows. `fetch-body-capture.ts` closes that, egress only (`fetch` only makes
 calls), with the same record shape and the same assembler.
 
-1. **The hook is the global dispatcher, not `globalThis.fetch`.** undici keeps it on `globalThis` under
-   `Symbol.for('undici.globalDispatcher.1')` (undici 7 also writes `.2`, and still reads `.1`); every copy
-   of undici — Node's bundled one and any userland one — agrees on it. `start()` loads Node's bundled undici
-   by touching the `Headers` lazy global (`fetch` itself is a plain wrapper that loads undici only when
-   CALLED), then installs `getGlobalDispatcher().compose(interceptor)`. Every undici Node bundles on the
-   supported range has `compose` (6.18.2 on 22.3.0, 6.19.2 on 20.16.0, 6.2x on 22/23, 7.x on 24).
+1. **The hook is the global dispatcher, not `globalThis.fetch`.** undici keeps it on `globalThis` in two
+   registered slots, and every copy of undici in the process — Node's bundled one and any userland one —
+   agrees on them. `.1` is read by undici 6 and 7, so by Node's `fetch()` on every supported line, with
+   legacy handlers. `.2` is written by undici 7 (the same dispatcher as `.1`) and 8, and READ by undici 8
+   only, whose handlers speak only the new API; undici 8 keeps a legacy-wrapped copy in `.1`. `start()`
+   loads Node's bundled undici by touching the `Headers` lazy global (`fetch` itself is a plain wrapper
+   that loads undici only when CALLED), then installs per slot:
+   - `.2` empty (Node 20–23 bundle undici 6, which never writes it) → `.1` gets the layer and `.2` gets a
+     **bridge** that converts new-API handlers to legacy (`to-legacy-handler.ts`) and dispatches through
+     whatever `.1` holds at call time. Without it, an undici that finds its slot empty installs a fresh
+     Agent in BOTH slots, so a userland undici 8 loaded after `start()` silently overwrote the capture
+     layer in `.1` while the startup line still claimed fetch(). The bridge follows `.1`, so it stays
+     after `shutdown()`; `install` never composes onto a bridge (it would capture a call twice).
+   - `.2` holds the same dispatcher as `.1` (undici 7) → one layer in both.
+   - `.2` holds a different dispatcher (undici 8 loaded first) → a layer on each, so each family of
+     callers passes the interceptor exactly once. undici 8's `compose` does not wrap handlers; 7's does.
+   Every undici Node bundles on the supported range has `compose` (6.18.2 on 22.3.0, 6.19.2 on 20.16.0,
+   6.2x on 22/23, 7.x on 24); a base without it gets `compose-dispatcher.ts`'s view.
 2. **Feature-detect the handler API.** undici 6 hands an interceptor the caller's handler as is (`fetch()`'s
    own is legacy: `onHeaders/onData/onComplete/onError`). undici 7's `compose` wraps every handler into the
    new API (`onRequestStart/onResponseStart/onResponseData/onResponseEnd/onResponseError`) before an
@@ -220,6 +234,14 @@ calls), with the same record shape and the same assembler.
    is. FormData arrives already multipart-encoded and the content-type gate drops it anyway.
 4. **Response body: the raw wire bytes, then `decodeBody`.** The handler callbacks see the bytes before
    `fetch()` decompresses them, exactly like `IncomingMessage`, so `content-encoding` is undone the same way.
+   **Request headers are read when the response starts**, like the http path's `getHeader()`: other
+   instrumentations add theirs (`@opentelemetry/instrumentation-undici`'s `traceparent`) on undici's internal
+   request in the `undici:request:create` diagnostics channel, AFTER our interceptor ran. That channel fires
+   synchronously inside the dispatch that built the request, so a subscriber pairs it with the innermost
+   dispatch in flight (origin, path and method must agree). A pool at its connection limit builds the
+   request later, outside any dispatch; such a call keeps its dispatch-time headers.
+   **Span context** is read at dispatch, before OTel's undici span exists: the record carries the app's
+   active span, like the http path — `otel-undici-coexistence.spec.ts` pins it.
 5. **No record for a call that does not complete** — an error, an abort, an upgrade — matching the http
    path, where a response that never `end`s emits nothing. A redirect `fetch()` follows is two dispatches,
    so two records, one per hop on the wire.
@@ -297,9 +319,14 @@ collector §8 key); `onCapture` → the sink `start()` wires to the OTLP logger.
   an undecodable coding, the cap, `FLANJ_IGNORE_URLS`, the self-export ignore, an internal edge, the
   own-dispatcher edge, and every case in `contracts/redaction-fixtures.json` through both bodies.
 - `../../test/integration/fetch-capture-lifecycle.spec.ts` — shutdown restores the dispatcher, one live
-  layer per process, take-over after shutdown, stacking under a later interceptor, a throwing sink.
+  layer per process, take-over after shutdown, stacking under a later interceptor and on one the app
+  installed before `start()` (with and without `compose`), a throwing sink.
 - `../../test/integration/otel-undici-coexistence.spec.ts` — REAL children with
   `@opentelemetry/instrumentation-undici` in both orders: OTel keeps its client spans and `traceparent`,
-  Flanj keeps one record per `fetch()`.
-- `tee-request-body.spec.ts` / `tee-dispatch-handler.spec.ts` / `undici-headers.spec.ts` — the tees and the
-  header shapes, both handler APIs.
+  Flanj keeps one record per `fetch()`, the record carries the `traceparent` that went on the wire, and its
+  span context is the app's parent span, not OTel's client span.
+- `../../test/integration/userland-undici.spec.ts` — REAL children with a userland `undici` 8 loaded after
+  and before `start()`: Node's `fetch()` stays captured, the app's undici calls work, one record each.
+  Runs where undici 8 does (Node ≥ 22.19); fails without the `.2` bridge.
+- `tee-request-body.spec.ts` / `tee-dispatch-handler.spec.ts` / `undici-headers.spec.ts` /
+  `to-legacy-handler.spec.ts` — the tees, the header shapes, both handler APIs and the conversion between them.

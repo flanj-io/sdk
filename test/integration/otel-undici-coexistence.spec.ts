@@ -22,9 +22,18 @@ const tsc = resolve(repoRoot, 'node_modules/typescript/bin/tsc');
 const probe = resolve(repoRoot, 'test/fixtures/otel-coexistence/fetch-probe.cjs');
 
 interface ProbeResult {
-  spans: { name: string; kind: number; traceId: string }[];
-  flanjRecords: { direction: string; method: string; target: string; requestBody: string }[];
+  spans: { name: string; kind: number; traceId: string; spanId: string }[];
+  flanjRecords: {
+    direction: string;
+    method: string;
+    target: string;
+    requestBody: string;
+    requestHeaders: Record<string, string>;
+    traceId?: string;
+    spanId?: string;
+  }[];
   traceparents: (string | null)[];
+  parent: { traceId: string; spanId: string } | null;
 }
 
 /** OTel span kind 2 = CLIENT. */
@@ -95,5 +104,40 @@ describe('global fetch() next to @opentelemetry/instrumentation-undici', () => {
     const p = get();
     expect(p.traceparents).toHaveLength(2);
     for (const tp of p.traceparents) expect(tp).toMatch(/^00-[0-9a-f]{32}-[0-9a-f]{16}-0[01]$/);
+  });
+
+  it.each([
+    ['OTel composed first', () => otelFirst],
+    ['Flanj started first', () => flanjFirst]
+  ])('%s: the record carries the traceparent that went on the wire (read at response time)', (_label, get) => {
+    // OTel adds `traceparent` in undici's request:create channel, AFTER Flanj's
+    // interceptor has run; the http path reads outgoing headers at response
+    // time and sees it, so the fetch path must too.
+    const p = get();
+    const sent = p.flanjRecords
+      .filter((r) => r.direction === 'client')
+      .map((r) => r.requestHeaders['traceparent'])
+      .sort();
+    expect(sent).toHaveLength(2);
+    expect(sent).toEqual([...p.traceparents].sort());
+  });
+
+  it.each([
+    ['OTel composed first', () => otelFirst],
+    ['Flanj started first', () => flanjFirst]
+  ])("%s: the record carries the app's span context, not OTel's undici client span", (_label, get) => {
+    // The interceptor runs before OTel's undici span exists, so the record holds
+    // the context active at dispatch — the app's parent span — exactly as the
+    // http path does. Pinned so a reordering cannot flip it silently.
+    const p = get();
+    expect(p.parent).not.toBeNull();
+    const clientSpanIds = p.spans.filter((s) => s.kind === CLIENT_KIND).map((s) => s.spanId);
+    for (const r of p.flanjRecords.filter((x) => x.direction === 'client')) {
+      expect(r.traceId).toBe(p.parent?.traceId);
+      expect(r.spanId).toBe(p.parent?.spanId);
+      expect(clientSpanIds).not.toContain(r.spanId);
+    }
+    // ...and OTel's client spans are children in that same trace.
+    for (const s of p.spans.filter((x) => x.kind === CLIENT_KIND)) expect(s.traceId).toBe(p.parent?.traceId);
   });
 });

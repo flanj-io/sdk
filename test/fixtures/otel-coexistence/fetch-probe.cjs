@@ -34,6 +34,7 @@ if (Symbol.for('undici.globalDispatcher.2') in globalThis) globalThis[Symbol.for
 
 const flanjRecords = [];
 let spanExporter;
+let tracer;
 
 function setupOtel() {
   const { NodeTracerProvider } = require('@opentelemetry/sdk-trace-node');
@@ -44,11 +45,12 @@ function setupOtel() {
   const provider = new NodeTracerProvider({ spanProcessors: [new SimpleSpanProcessor(spanExporter)] });
   provider.register();
   registerInstrumentations({ instrumentations: [new UndiciInstrumentation()], tracerProvider: provider });
+  tracer = provider.getTracer('probe');
 }
 
 function setupFlanj() {
   const { start } = require(SDK_ENTRY);
-  return start({
+  const handle = start({
     processor: {
       onEmit(record) {
         const a = record.attributes ?? {};
@@ -57,13 +59,20 @@ function setupFlanj() {
           method: a['flanj.http.method'],
           target: a['flanj.http.target'],
           requestBody: a['flanj.http.request.body'],
-          traceId: a['flanj.corr.trace_id']
+          requestHeaders: JSON.parse(a['flanj.http.request.headers'] ?? '{}'),
+          traceId: a['flanj.corr.trace_id'],
+          spanId: a['flanj.corr.span_id']
         });
       },
       forceFlush: async () => {},
       shutdown: async () => {}
     }
   });
+  // Admit `traceparent` so the record shows whether the header OTel adds in
+  // undici's request:create channel — after Flanj's interceptor ran — is seen.
+  const fetchCapture = handle.fetchInstrumentation;
+  fetchCapture.setConfig({ ...fetchCapture.getConfig(), headerAllowlist: ['content-type', 'traceparent'] });
+  return handle;
 }
 
 if (PROBE_ORDER === 'otel-first') {
@@ -92,7 +101,7 @@ const server = http.createServer((req, res) => {
 
 server.listen(0, '127.0.0.1', async () => {
   const base = `http://api.acme.test:${server.address().port}`;
-  try {
+  const calls = async () => {
     const post = await fetch(`${base}/v1/charges`, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
@@ -101,6 +110,20 @@ server.listen(0, '127.0.0.1', async () => {
     await post.text();
     const get = await fetch(`${base}/v1/charges/ch_1Mox`);
     await get.text();
+  };
+  let parent = null;
+  try {
+    if (tracer) {
+      // Both calls inside an app span: OTel's undici spans become its children,
+      // and the Flanj record carries the context active when fetch() dispatched.
+      await tracer.startActiveSpan('parent', async (span) => {
+        parent = { traceId: span.spanContext().traceId, spanId: span.spanContext().spanId };
+        await calls();
+        span.end();
+      });
+    } else {
+      await calls();
+    }
   } catch (err) {
     process.stderr.write(`probe call failed: ${err.message}\n`);
     process.exit(1);
@@ -110,9 +133,10 @@ server.listen(0, '127.0.0.1', async () => {
     const spans = (spanExporter ? spanExporter.getFinishedSpans() : []).map((s) => ({
       name: s.name,
       kind: s.kind,
-      traceId: s.spanContext().traceId
+      traceId: s.spanContext().traceId,
+      spanId: s.spanContext().spanId
     }));
-    process.stdout.write(JSON.stringify({ order: PROBE_ORDER, spans, flanjRecords, traceparents }) + '\n');
+    process.stdout.write(JSON.stringify({ order: PROBE_ORDER, spans, flanjRecords, traceparents, parent }) + '\n');
     process.exit(0);
   }, 250);
 });

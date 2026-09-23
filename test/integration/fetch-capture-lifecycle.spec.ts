@@ -136,4 +136,60 @@ describe('fetch capture lifecycle', () => {
       instrumentation.disable();
     }
   });
+
+  it('stacks on a global dispatcher the app installed BEFORE start(), which keeps running and comes back on shutdown', async () => {
+    const loopback = currentGlobalDispatcher() as unknown as {
+      compose: (i: (d: (o: unknown, h: unknown) => unknown) => (o: unknown, h: unknown) => unknown) => never;
+    };
+    let seenByApp = 0;
+    // The app's own dispatcher: an agent with its own interceptor (a proxy or
+    // retry agent has the same shape), installed as the global before the SDK.
+    const appDispatcher = loopback.compose((dispatch) => (opts, handler) => {
+      seenByApp += 1;
+      return dispatch(opts, handler);
+    });
+    setGlobalDispatcherForTest(appDispatcher);
+    try {
+      const exporter = new InMemoryLogExporter();
+      const handle = startWith(exporter);
+      await ping();
+      expect(seenByApp).toBe(1);
+      expect(clientRows(exporter)).toBe(1);
+
+      await handle.shutdown();
+      handles.length = 0;
+      expect(currentGlobalDispatcher()).toBe(appDispatcher);
+    } finally {
+      setGlobalDispatcherForTest(loopback as never);
+    }
+  });
+
+  it('stacks on a global dispatcher that has no compose() (the fallback view), unchanged underneath', async () => {
+    const loopback = currentGlobalDispatcher() as unknown as {
+      dispatch: (o: unknown, h: unknown) => unknown;
+    };
+    let seenByPlain = 0;
+    const plain = {
+      dispatch(opts: unknown, handler: unknown): unknown {
+        seenByPlain += 1;
+        return loopback.dispatch(opts, handler);
+      }
+    };
+    setGlobalDispatcherForTest(plain);
+    try {
+      const exporter = new InMemoryLogExporter();
+      const handle = startWith(exporter);
+      expect(handle.fetchInstrumentation.isCapturing()).toBe(true);
+      expect(currentGlobalDispatcher()).not.toBe(plain);
+      await ping();
+      expect(seenByPlain).toBe(1);
+      expect(clientRows(exporter)).toBe(1);
+
+      await handle.shutdown();
+      handles.length = 0;
+      expect(currentGlobalDispatcher()).toBe(plain);
+    } finally {
+      setGlobalDispatcherForTest(loopback as never);
+    }
+  });
 });

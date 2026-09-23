@@ -65,7 +65,8 @@ src/
     fetch-body-capture.ts          # EGRESS for global fetch(): an interceptor composed onto undici's global dispatcher
     tee-request-body.ts, tee-dispatch-handler.ts   # the fetch tees: request body on its way out; response via
                                    # the handler callbacks (undici 6 AND 7 handler APIs, feature-detected)
-    undici-global-dispatcher.ts, undici-headers.ts, undici-types.ts   # Node's BUNDLED undici, never a userland copy
+    undici-global-dispatcher.ts, undici-headers.ts, undici-types.ts   # Node's BUNDLED undici, never a userland copy;
+    compose-dispatcher.ts, to-legacy-handler.ts   # the global-dispatcher slots .1/.2 and the .2 bridge (see instrumentation/CLAUDE.md)
     assemble-call.ts               # direction-agnostic redact-at-source assembler (both paths funnel through here)
     classify-host.ts               # external | internal edge heuristic (byte-identical in the collector)
     trusted-proxies.ts             # the peers whose X-Forwarded-For ingress may believe (IPs/CIDRs; default none)
