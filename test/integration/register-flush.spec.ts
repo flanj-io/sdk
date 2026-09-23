@@ -2,6 +2,7 @@ import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { execFileSync, spawn } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import { resolve } from 'node:path';
+import { pathToFileURL } from 'node:url';
 import {
   attributesOf,
   childEnv,
@@ -96,9 +97,40 @@ describe('dist/register.js — the zero-code entry delivers the last batch', () 
   });
 });
 
-function run(args: string[]): Promise<ChildResult> {
+describe('dist/register.js — global fetch() is captured by the preload', () => {
+  it.each([
+    ['-r', ['-r']],
+    ['--import', ['--import']]
+  ])('a one-shot fetch() child under %s ships exactly one call record', async (_label, flag) => {
+    const before = receiver.records.length;
+    const preload = flag[0] === '--import' ? pathToFileURL(registerEntry).href : registerEntry;
+
+    const result = await run([...flag, preload, resolve(repoRoot, 'test/fixtures/one-shot-fetch.js')]);
+
+    expect(result.stderr).toBe('');
+    expect(result.code, 'the child must exit cleanly').toBe(0);
+    expect(result.stdout.trim()).toBe('called');
+
+    await waitFor(() => receiver.records.length > before);
+    expect(receiver.records.length - before).toBe(1);
+    const attributes = attributesOf(receiver.records[receiver.records.length - 1]);
+    expect(attributes['flanj.record.type']).toBe('call');
+    expect(attributes['flanj.http.method']).toBe('POST');
+    expect(attributes['flanj.http.target']).toBe(new URL(provider.url).pathname);
+  }, 30_000);
+
+  it('the startup line says fetch() is captured', async () => {
+    const result = await run(['-r', registerEntry, resolve(repoRoot, 'test/fixtures/one-shot-fetch.js')], {
+      FLANJ_QUIET: '0'
+    });
+    expect(result.code, result.stderr).toBe(0);
+    expect(result.stderr).toContain('capturing http/https and fetch() bodies');
+  }, 30_000);
+});
+
+function run(args: string[], extraEnv: Record<string, string> = {}): Promise<ChildResult> {
   const child = spawn(process.execPath, args, {
-    env: childEnv(receiver, provider.url),
+    env: { ...childEnv(receiver, provider.url), ...extraEnv },
     stdio: ['ignore', 'pipe', 'pipe']
   });
   return onExit(child);

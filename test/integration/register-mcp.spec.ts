@@ -60,7 +60,7 @@ describe('dist/register.js — with no MCP client package installed', () => {
       const result = await run(sandbox, 'no-mcp-app.mjs');
       expect(result.code, result.stderr).toBe(0);
       expect(result.stdout.trim()).toBe('ran');
-      expect(result.stderr).toContain('capturing http/https bodies');
+      expect(result.stderr).toContain('capturing http/https and fetch() bodies');
       expect(result.stderr, 'MCP must not be claimed when no client package is installed').not.toContain('MCP');
     } finally {
       rmSync(sandbox, { recursive: true, force: true });
@@ -85,7 +85,7 @@ describe('dist/register.js — with an MCP client package installed', () => {
 
     expect(result.code, result.stderr).toBe(0);
     expect(result.stdout.trim()).toBe('called');
-    expect(result.stderr).toContain('capturing http/https bodies and MCP client calls');
+    expect(result.stderr).toContain('capturing http/https and fetch() bodies and MCP client calls');
 
     await waitFor(() => receiver.records.length - before >= 2, EXPORT_DEADLINE_MS);
     const records = receiver.records.slice(before).map(attributesOf);
