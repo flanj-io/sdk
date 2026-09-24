@@ -53,7 +53,7 @@ export function resolveMcpEdge(input: ResolveMcpEdgeInput): McpEdge {
 }
 
 /** A transport's endpoint URL when it exposes one (`url` on the streamable-HTTP transports). */
-function transportUrl(transport: unknown): string | undefined {
+export function transportUrl(transport: unknown): string | undefined {
   if (transport === null || typeof transport !== 'object') return undefined;
   const t = transport as Record<string, unknown>;
   for (const key of ['url', '_url']) {

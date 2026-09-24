@@ -11,6 +11,7 @@ import { assembleCapturedCall } from './assemble-call';
 import { decodeBody } from './decode-body';
 import { classifyHost, type EdgeClass } from './classify-host';
 import { DEFAULT_BODY_CAP_BYTES, HttpBodyCaptureConfig, isIgnoredUrl } from './config';
+import { isMcpEndpoint } from './mcp-endpoints';
 import { syncBuiltinEsmExports } from './sync-builtin-esm-exports';
 import { headerValue } from './header-value';
 import { correlationIds } from './correlation-ids';
@@ -98,7 +99,10 @@ export class HttpBodyCaptureInstrumentation extends FlanjInstrumentation<HttpBod
 
     // Never capture the SDK's own OTLP export POSTs (or other ignored destinations):
     // capturing them would feed the collector, which the SDK would re-capture, ad infinitum.
-    if (isIgnoredUrl(`${info.protocol}//${info.host}${info.path}`, cfg.ignoreUrls)) return;
+    const fullUrl = `${info.protocol}//${info.host}${info.path}`;
+    if (isIgnoredUrl(fullUrl, cfg.ignoreUrls)) return;
+    // An instrumented MCP client's own transport: already captured as MCP records.
+    if (isMcpEndpoint(fullUrl)) return;
 
     // Classify the DESTINATION. Internal edges are metadata-only: we never tee a
     // body, so no raw internal body can be captured (the redaction floor invariant).
