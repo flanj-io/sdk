@@ -7,6 +7,7 @@ import { assembleCapturedCall } from './assemble-call';
 import { decodeBody } from './decode-body';
 import { classifyHost, type EdgeClass } from './classify-host';
 import { DEFAULT_BODY_CAP_BYTES, HttpBodyCaptureConfig, isIgnoredUrl } from './config';
+import { isMcpEndpoint } from './mcp-endpoints';
 import { teeRequestBody } from './tee-request-body';
 import { teeDispatchHandler, type DispatchObserver } from './tee-dispatch-handler';
 import { normalizeUndiciHeaders } from './undici-headers';
@@ -214,7 +215,10 @@ export class FetchBodyCaptureInstrumentation extends FlanjInstrumentation<HttpBo
     const method = (typeof opts.method === 'string' ? opts.method : 'GET').toUpperCase();
 
     // Never capture the SDK's own export (or any other ignored destination).
-    if (isIgnoredUrl(`${origin.protocol}//${origin.host}${path}`, cfg.ignoreUrls)) return undefined;
+    const fullUrl = `${origin.protocol}//${origin.host}${path}`;
+    if (isIgnoredUrl(fullUrl, cfg.ignoreUrls)) return undefined;
+    // An instrumented MCP client's own transport: already captured as MCP records.
+    if (isMcpEndpoint(fullUrl)) return undefined;
 
     // Classify the DESTINATION. Internal edges are metadata-only: nothing is teed.
     const edgeClass = classifyHost(origin.host);

@@ -3,7 +3,8 @@ import { assembleContractSnapshot } from './assemble-contract-snapshot';
 import { assembleMcpCall } from './assemble-mcp-call';
 import { emitContractSnapshot, emitMcpCall } from './mcp-record';
 import { stdioLaunchCommand } from './launch-command';
-import { resolveMcpEdge } from './resolve-mcp-edge';
+import { resolveMcpEdge, transportUrl } from './resolve-mcp-edge';
+import { registerMcpEndpoint } from '../instrumentation/mcp-endpoints';
 import { catalogCacheHints, serverInfoFromMeta, type CatalogCacheHints } from './result-meta';
 import { warnCaptureFailed } from '../capture-warning';
 import type { McpCapturedCall, McpContractSnapshot, McpServerIdentity, McpServerKind } from './mcp-types';
@@ -24,6 +25,7 @@ export interface McpClientLike {
   serverInfo?: { name?: string; version?: string };
   protocolVersion?: string;
   transport?: unknown;
+  connect?(transport: unknown, ...rest: unknown[]): Promise<unknown>;
   fallbackNotificationHandler?: (notification: unknown) => Promise<void> | void;
 }
 
@@ -100,6 +102,25 @@ function deliverToSendObserver(registry: SendObserverRegistry, message: unknown)
  *
  * Returns the same client instance. Idempotent.
  */
+/**
+ * Register a streamable-HTTP client's endpoint, so the HTTP and fetch capture
+ * leave its transport's requests to the MCP records (see
+ * `instrumentation/mcp-endpoints.ts`). A stdio transport has no URL and
+ * registers nothing. Never throws.
+ */
+export function registerMcpTransportEndpoint(
+  transport: unknown,
+  options: Pick<InstrumentMcpClientOptions, 'endpoint' | 'serverKind'> = {}
+): void {
+  try {
+    if (options.serverKind === 'stdio') return;
+    registerMcpEndpoint(transportUrl(transport));
+    registerMcpEndpoint(options.endpoint);
+  } catch {
+    /* capture-side only — never disturb the app */
+  }
+}
+
 export function instrumentMcpClient<T extends McpClientLike>(client: T, options: InstrumentMcpClientOptions): T {
   const c = client as McpClientLike & Record<PropertyKey, unknown>;
   if (c[INSTRUMENTED] === true) return client;
@@ -373,6 +394,19 @@ export function instrumentMcpClient<T extends McpClientLike>(client: T, options:
     }
   };
 
+  // The transport's own requests are this client's MCP records, never HTTP
+  // calls as well. Register before connect() when the client is instrumented
+  // first, so the initialize handshake is covered too, and at every tool call
+  // for a client instrumented after it connected.
+  registerMcpTransportEndpoint(c.transport, options);
+  if (typeof c.connect === 'function') {
+    const origConnect = c.connect as (...a: unknown[]) => Promise<unknown>;
+    c.connect = function (this: unknown, ...args: unknown[]): Promise<unknown> {
+      registerMcpTransportEndpoint(args[0], options);
+      return origConnect.apply(this === c || this === undefined ? c : this, args);
+    };
+  }
+
   if (typeof c.listTools === 'function') {
     const origListTools = c.listTools as (...a: unknown[]) => Promise<unknown>;
     c.listTools = function (this: unknown, ...args: unknown[]): Promise<unknown> {
@@ -399,6 +433,7 @@ export function instrumentMcpClient<T extends McpClientLike>(client: T, options:
     const origCallTool = c.callTool as (...a: unknown[]) => Promise<unknown>;
     c.callTool = function (this: unknown, ...args: unknown[]): Promise<unknown> {
       observeTransportSend();
+      registerMcpTransportEndpoint(c.transport, options);
       const { toolName, toolArgs } = parseCallToolArgs(args);
       const startedAt = Date.now();
       const endAttribution = beginSendAttribution();

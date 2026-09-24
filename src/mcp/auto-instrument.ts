@@ -1,7 +1,12 @@
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { warnCaptureFailed } from '../capture-warning';
-import { instrumentMcpClient, type InstrumentMcpClientOptions, type McpClientLike } from './instrument-mcp-client';
+import {
+  instrumentMcpClient,
+  registerMcpTransportEndpoint,
+  type InstrumentMcpClientOptions,
+  type McpClientLike
+} from './instrument-mcp-client';
 
 const CTOR_PATCHED = Symbol.for('flanj.mcp.ctorPatched');
 
@@ -26,6 +31,16 @@ export function patchMcpClientConstructor(ctor: unknown, options: InstrumentMcpC
   proto[CTOR_PATCHED] = true;
 
   const originals = { callTool: proto.callTool, listTools: proto.listTools };
+
+  // connect() runs the initialize handshake before any tool call reaches the
+  // trampolines below, so the endpoint is registered here, on the way in.
+  const origConnect = proto.connect;
+  if (typeof origConnect === 'function') {
+    proto.connect = function (this: McpClientLike, ...args: unknown[]): Promise<unknown> {
+      registerMcpTransportEndpoint(args[0], options);
+      return origConnect.apply(this, args as [unknown, ...unknown[]]);
+    };
+  }
 
   const ensureInstrumented = (instance: McpClientLike): void => {
     // Pin the ORIGINALS as own props, then wrap them in place — so the wrapper
